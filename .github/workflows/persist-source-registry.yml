@@ -1,0 +1,69 @@
+name: Persist economic source registry
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'open_data/expanded_source_catalog.csv'
+      - 'scripts/build_source_registry.py'
+      - '.github/workflows/persist-source-registry.yml'
+  schedule:
+    - cron: '11 11 * * 1'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: persist-economic-registry-main
+  cancel-in-progress: false
+
+jobs:
+  persist:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate and validate catalog
+        run: python scripts/build_source_registry.py
+      - name: Decide whether catalog has changed
+        id: compare
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          new = json.loads(Path('research/source_registry/registry_summary.json').read_text())
+          saved = Path('data/registry/registry_summary.json')
+          old = json.loads(saved.read_text()) if saved.exists() else {}
+          changed = (new['source_catalog_sha256'] != old.get('source_catalog_sha256')
+                     or new['registry_version'] != old.get('registry_version'))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+              fh.write('changed=' + str(changed).lower() + '\n')
+          print('Registry changed:', changed)
+          PY
+      - name: Retain small, versioned registry in Git
+        if: steps.compare.outputs.changed == 'true'
+        shell: bash
+        run: |
+          mkdir -p data/registry
+          cp research/source_registry/registry.json data/registry/registry.json
+          cp research/source_registry/registry_summary.json data/registry/registry_summary.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/registry/registry.json data/registry/registry_summary.json
+          git commit -m 'Snapshot economic source registry' || exit 0
+          git push
+      - name: Upload execution report (temporary convenience only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: registry-persistence-check-${{ github.run_number }}
+          path: research/source_registry/*
+          retention-days: 90
+          if-no-files-found: warn
