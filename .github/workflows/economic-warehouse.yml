@@ -44,6 +44,10 @@ jobs:
         run: python open_data/imf_oecd.py --scope full --source both --out data/imf_oecd
       - name: Download full labor data
         run: python open_data/labor_markets.py --scope full --source all --out data/labor
+        
+      - name: Download Eurostat enterprise AI adoption
+        run: python open_data/eurostat_ai.py
+
       - name: Build validated SQLite snapshot and versioned archive
         env:
           INCLUDE_RAW: ${{ inputs.include_raw }}
