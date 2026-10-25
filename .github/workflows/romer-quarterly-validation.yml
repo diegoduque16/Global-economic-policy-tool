@@ -1,0 +1,209 @@
+name: Validate Romer quarterly tax shocks against original source
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-original-series:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out verified research code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run existing regression tests
+        run: |
+          python -m unittest discover -s tests -p 'test_romer_tax_mapping.py' -v
+          python -m unittest discover -s tests -p 'test_inspect_romer.py' -v
+      - name: Parse original quarterly values and verify dates, categories and paper statistics
+        run: |
+          python - <<'PY_IMPL'
+          """One-file workflow embedded code: fail-closed Romer-Romer numeric-source validation.
+          
+          Run in Github Actions, imports already committed, fingerprint-pinned source modules.
+          Source numeric values are processed IN MEMORY and never emitted to job output.
+          """
+          from __future__ import annotations
+          import datetime as dt
+          import hashlib
+          import io
+          import json
+          import math
+          from pathlib import Path
+          import re
+          import statistics
+          import xml.etree.ElementTree as ET
+          import zipfile
+          
+          from policy_shocks.audit_sources import retrieve
+          from policy_shocks.romer_tax_mapping import audit_original, workbook_cells, MAIN, NS, RELS, PKG
+          from policy_shocks.inspect_romer import SOURCE_SHA256, WORKBOOK_SHA256, WORKBOOK
+          
+          # Map anchored in original worksheet's ROW 12 labels, not guessed from columns.
+          BLOCKS = (
+            {"variant":"nonretroactive", "deficit":"K", "growth":"L", "exogenous":"N",
+             "headers":("DEFICNRRATIO", "LONGRNRRATIO", "EXOGENRRATIO")},
+            {"variant":"retroactive", "deficit":"Y", "growth":"Z", "exogenous":"AB",
+             "headers":("DEFICRETRORATIO", "LONGRRETRORATIO", "EXOGERETRORATIO")},
+            {"variant":"present_value", "deficit":"AM", "growth":"AN", "exogenous":"AP",
+             "headers":("DEFICPDVRATIO", "LONGRPDVRATIO", "EXOGEPDVRATIO")},
+          )
+          EXPECTED_PERIODS = [f"{y}Q{q}" for y in range(1945,2008) for q in range(1,5)]
+          ROMANS = {"I":1,"II":2,"III":3,"IV":4}
+          
+          
+          def numeric_table(workbook: bytes, allowed: set[str]) -> dict[str,float]:
+              """Parse fixed numeric worksheet cells; reject errors, formulas and non-finite values."""
+              with zipfile.ZipFile(io.BytesIO(workbook)) as archive:
+                  meta=ET.fromstring(archive.read('xl/workbook.xml'))
+                  rels=ET.fromstring(archive.read('xl/_rels/workbook.xml.rels'))
+                  ids={e.get('Id'):e.get('Target') for e in rels.findall('{%s}Relationship'%PKG)}
+                  worksheet=None
+                  for s in meta.findall('m:sheets/m:sheet',NS):
+                      if s.get('name')=='Tax Measures':
+                          rid=s.get('{%s}id'%RELS)
+                          target=ids.get(rid,'')
+                          worksheet=(target.lstrip('/') if target.startswith('/') else 'xl/'+target.lstrip('/'))
+                  if not worksheet or '..' in worksheet or worksheet not in archive.namelist():
+                      raise ValueError('Expected source worksheet not found')
+                  xml=archive.read(worksheet)
+                  if len(xml)>7_000_000:raise ValueError('Worksheet unexpectedly large')
+                  root=ET.fromstring(xml)
+                  result={}
+                  for c in root.findall('.//m:sheetData/m:row/m:c',NS):
+                      addr=c.get('r','')
+                      if addr not in allowed:continue
+                      if addr in result:raise ValueError(f'Duplicate cell {addr}')
+                      if c.find('m:f',NS) is not None:
+                          raise ValueError(f'Formula cell cannot be validated as raw source {addr}')
+                      if c.get('t','') in ('e','s','str','inlineStr','b'):
+                          raise ValueError(f'Not a source numeric cell {addr}')
+                      v=c.find('m:v',NS)
+                      if v is None or v.text is None or not v.text.strip():
+                          raise ValueError(f'Missing numeric cell {addr} (never zero-fill)')
+                      try:num=float(v.text.strip())
+                      except ValueError as exc:raise ValueError(f'Invalid number {addr}') from exc
+                      if not math.isfinite(num): raise ValueError(f'Nonfinite source cell {addr}')
+                      result[addr]=num
+                  missing=sorted(allowed-set(result))
+                  if missing:raise ValueError(f'Expected source cells missing: {missing[:6]} ({len(missing)} total)')
+                  return result
+          
+          
+          def validate_workbook(workbook: bytes, *, source_sha: str) -> dict:
+              if hashlib.sha256(workbook).hexdigest()!=WORKBOOK_SHA256:
+                  raise ValueError('Original workbook checksum changed')
+              labels,dimension=workbook_cells(workbook)
+              if dimension!='A1:AT264':raise ValueError('Unexpected workbook layout')
+              quarters=[]
+              for i in range(13,265):
+                  label=labels.get(f'A{i}',{}).get('text','')
+                  m=re.fullmatch(r'(19\d{2}|20\d{2})-(I|II|III|IV)',label)
+                  if not m:raise ValueError(f'Invalid/absent original date in A{i}: {label!r}')
+                  quarters.append(f'{m.group(1)}Q{ROMANS[m.group(2)]}')
+              if quarters!=EXPECTED_PERIODS:raise ValueError('Nonconsecutive or shifted dates')
+              wanted={f'{b[role]}{r}' for b in BLOCKS for role in ('deficit','growth','exogenous') for r in range(13,265)}
+              values=numeric_table(workbook,wanted)
+              report={}
+              for b in BLOCKS:
+                  for role,name in zip(('deficit','growth','exogenous'),b['headers']):
+                      label=labels.get(f'{b[role]}12',{}).get('text','')
+                      if label!=name:raise ValueError(f'Header mismatch {b[role]}12: {label!r}, expected {name!r}')
+                  by_role={role:[values[f'{b[role]}{r}'] for r in range(13,265)] for role in ('deficit','growth','exogenous')}
+                  residuals=[abs(v-(d+g)) for v,d,g in zip(by_role['exogenous'],by_role['deficit'],by_role['growth'])]
+                  # Source components need not sum exactly due to published rounding; flag rather than assume.
+                  max_abs=max(residuals)
+                  if max_abs > 0.001:
+                      raise ValueError(f"Source category identity not satisfied for {b['variant']}: residual={max_abs:.6g}")
+                  x=by_role['exogenous']
+                  sample=x[8:]   # 1947Q1–2007Q4, exactly as described in paper's footnote.
+                  if len(sample)!=244: raise ValueError('Unexpected 1947–2007 sample count')
+                  sample_mean=statistics.mean(sample)
+                  sample_sd=statistics.pstdev(sample)
+                  nonzero=sum(v!=0 for v in x)
+                  report[b['variant']]={
+                      'quarter_count':len(x),
+                      'first_quarter':quarters[0], 'last_quarter':quarters[-1],
+                      'column':b['exogenous'], 'source_series':b['headers'][2],
+                      'nonzero_quarters':nonzero, 'zero_quarters':len(x)-nonzero,
+                      'max_deficit_plus_growth_identity_residual_as_stored':round(max_abs,9),
+                      'original_value_unit':'as_stored_ratio_to_nominal_GDP',
+                      'descriptive_diagnostics_sample_1947_2007':{
+                         'n':244, 'mean_as_stored':round(sample_mean,9),
+                         'population_stddev_as_stored':round(sample_sd,9),
+                         'mean_if_multiply_100':round(sample_mean*100,7),
+                         'stddev_if_multiply_100':round(sample_sd*100,7)
+                      }
+                  }
+                  if b['variant']=='nonretroactive':
+                      ref=next(i for i,q in enumerate(quarters) if q=='1948Q2')
+                      report[b['variant']]['paper_reference_validation']={
+                       'historical_paper_reference':'Mean about -0.03 percent GDP; SD about 0.24 percentage points, 1947-2007; large cut in 1948Q2',
+                       'sample_mean_within_paper_rounding_if_stored_pct_points':abs(sample_mean+0.03)<0.02,
+                       'sample_std_within_rough_paper_tolerance_if_stored_pct_points':abs(sample_sd-0.24)<0.065,
+                       'sample_mean_within_paper_rounding_if_times100':abs(sample_mean*100+0.03)<0.02,
+                       'sample_std_within_rough_paper_tolerance_if_times100':abs(sample_sd*100-0.24)<0.065,
+                       'historical_1948q2_is_negative':x[ref]<0
+                      }
+              return {
+                 'status':'source_values_read_in_memory; independent_methodology_validation_still_required',
+                 'source_archive_sha256':source_sha,
+                 'source_workbook_sha256':WORKBOOK_SHA256,
+                 'source_url':'https://eml.berkeley.edu/~dromer/papers/DataSet.zip',
+                 'paper_url':'https://doi.org/10.1257/aer.100.3.763',
+                 'observations_per_variant':252,'total_numeric_exogenous_cells_verified':756,
+                 'source_quarter_range':'1945Q1-2007Q4',
+                 'variants':report,
+                 'source_numeric_values_published':False,
+                 'causal_effect_estimated':False,
+                 'country_outcomes_linked':False,
+                 'source_unit_conversion_certified':False,
+                 'policy_identification_independently_verified':False,
+                 'warnings':['Preserved all three separate versions; do not pool.',
+                             'Zeros are real workbook values; missing cells fail validation.',
+                             'Source numbers were processed only in GitHub runner memory; no numeric source series is redistributed.',
+                             'Workbook exogenous is a narrative identification classification, not automatic proof of causality.',
+                             'Paper aggregate statistics are only approximate external checks, not replication.',
+                             'Observed sample covers postwar US through 2007 only; cannot infer AI-economy effects.']
+              }
+          
+          
+          def run():
+              source=retrieve()
+              if hashlib.sha256(source).hexdigest()!=SOURCE_SHA256:
+                  raise ValueError('Author ZIP fingerprint unexpectedly changed; stop')
+              audited=audit_original(source)
+              if audited['sheet']!='Tax Measures':raise ValueError('Source schema audit mismatch')
+              with zipfile.ZipFile(io.BytesIO(source)) as archive:
+                  workbook=archive.read(WORKBOOK)
+              report=validate_workbook(workbook,source_sha=SOURCE_SHA256)
+              report['validated_at_utc']=dt.datetime.now(dt.timezone.utc).isoformat()
+              output=Path('romer_quarterly_report')
+              output.mkdir(exist_ok=True)
+              dst=output/'numeric_source_validation.json'
+              if dst.exists():raise FileExistsError('Will not overwrite report')
+              dst.write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+              print(json.dumps({
+                  'status': report['status'],
+                  'source_integrity_verified':True,
+                  'quarters_per_variant':252,
+                  'variants':list(report['variants']),
+                  'numeric_source_values_published':False,
+                  'report':str(dst)
+              },indent=2))
+          
+          if __name__=='__main__':run()
+          PY_IMPL
+      - name: Store audit report without distributing original values
+        uses: actions/upload-artifact@v4
+        with:
+          name: romer-quarterly-validation-${{ github.run_number }}
+          path: romer_quarterly_report/*.json
+          if-no-files-found: error
+          retention-days: 90
