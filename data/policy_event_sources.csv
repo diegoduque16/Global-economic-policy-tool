@@ -1,0 +1,5 @@
+event_id,country,policy_type,start_date,end_date,identification,source_url,source_title,status,shock_value,shock_unit,anticipation,notes
+US_ROMER_ROMER_2010,USA,tax,1945,,narrative_exogenous,https://doi.org/10.1257/aer.100.3.763,Romer and Romer 2010,awaiting_numeric_extraction,,,unknown,Historical source and replication available; not yet imported
+UK_CLOYNE_2013,GBR,tax,1945,2009,narrative_exogenous,https://doi.org/10.1257/aer.103.4.1507,Cloyne 2013,awaiting_numeric_extraction,,,unknown,Replication at openICPSR 112651; not yet imported
+CAN_HUSSAIN_2024,CAN,tax,1961,2014,narrative_exogenous,https://doi.org/10.1111/caje.12689,Hussain 2024,awaiting_numeric_extraction,,,unknown,Historical tax changes source; not yet imported
+UK_HURTGEN_2024,GBR,tax,2009,2020,narrative_exogenous,https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4909051,Hurtgen et al 2024,awaiting_numeric_extraction,,,unknown,Historical narrative; not yet imported

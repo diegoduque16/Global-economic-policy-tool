@@ -1,0 +1,28 @@
+provider,homepage,access,integration_status
+World Bank WDI,https://api.worldbank.org/v2/,API,implemented; unverified live
+World Bank Poverty and Inequality,https://pip.worldbank.org/,public data,catalogued
+ILOSTAT,https://ilostat.ilo.org/data/,SDMX/bulk,catalogued
+OECD Data Explorer,https://www.oecd.org/en/data/,SDMX,catalogued
+Eurostat,https://ec.europa.eu/eurostat/api/dissemination/,API,catalogued
+IMF Data,https://www.imf.org/en/Data,SDMX/download,catalogued
+BLS,https://www.bls.gov/data/,API/download,catalogued
+BEA,https://www.bea.gov/data,download/API key,catalogued
+US Census,https://www.census.gov/data.html,API,catalogued
+FRED,https://fred.stlouisfed.org/,API key,catalogued
+BIS,https://data.bis.org/,SDMX,catalogued
+Penn World Table,https://www.rug.nl/ggdc/productivity/pwt/,download,catalogued
+WID,https://wid.world/data/,download,catalogued
+WIID,https://www.wider.unu.edu/database/world-income-inequality-database-wiid,download,catalogued
+UN Comtrade,https://comtradeapi.un.org/public/v1/preview/,API,catalogued
+UN SDG,https://unstats.un.org/sdgs/dataportal,API/download,catalogued
+UNESCO UIS,https://uis.unesco.org/,download,catalogued
+WHO GHO,https://www.who.int/data/gho,API/download,catalogued
+FAOSTAT,https://www.fao.org/faostat/,download,catalogued
+Our World in Data,https://ourworldindata.org/,download,catalogued
+Stanford AI Index,https://aiindex.stanford.edu/,reports/download,catalogued
+OECD AI Policy Observatory,https://oecd.ai/,download,catalogued
+UNCTADstat,https://unctadstat.unctad.org/,download,catalogued
+ICTD Government Revenue Dataset,https://www.ictd.ac/dataset/grd/,download,catalogued
+World Bank Enterprise Surveys,https://www.enterprisesurveys.org/,download,catalogued
+Luxembourg Income Study,https://www.lisdatacenter.org/,restricted/registration,catalogued
+OpenAlex,https://docs.openalex.org/,API,catalogued

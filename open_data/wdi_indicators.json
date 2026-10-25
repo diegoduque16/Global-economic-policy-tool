@@ -1,0 +1,48 @@
+{
+  "growth": {
+    "NY.GDP.MKTP.KD.ZG": "GDP growth (annual %)",
+    "NY.GDP.PCAP.KD.ZG": "GDP per capita growth (annual %)",
+    "NY.GDP.MKTP.KD": "GDP constant 2015 USD",
+    "NE.GDI.FTOT.ZS": "Gross fixed capital formation (% GDP)",
+    "NE.CON.PRVT.ZS": "Household final consumption (% GDP)",
+    "NE.CON.GOVT.ZS": "Government final consumption (% GDP)",
+    "NY.GDP.DEFL.KD.ZG": "GDP deflator inflation"
+  },
+  "labor": {
+    "SL.UEM.TOTL.ZS": "Unemployment modeled ILO (%)",
+    "SL.EMP.TOTL.SP.ZS": "Employment population ratio 15+ (%)",
+    "SL.TLF.CACT.ZS": "Labor force participation (%)",
+    "SL.EMP.VULN.ZS": "Vulnerable employment (%)",
+    "SL.AGR.EMPL.ZS": "Agriculture employment share (%)",
+    "SL.IND.EMPL.ZS": "Industry employment share (%)",
+    "SL.SRV.EMPL.ZS": "Services employment share (%)"
+  },
+  "fiscal": {
+    "GC.TAX.TOTL.GD.ZS": "Tax revenue (% GDP)",
+    "GC.REV.XGRT.GD.ZS": "Revenue excluding grants (% GDP)",
+    "GC.XPN.TOTL.GD.ZS": "Expense (% GDP)",
+    "GC.DOD.TOTL.GD.ZS": "Central government debt (% GDP)"
+  },
+  "distribution": {
+    "SI.POV.GINI": "Gini index",
+    "SI.POV.DDAY": "Poverty headcount at $3.00 2021 PPP (%)",
+    "NY.GDP.PCAP.PP.KD": "GDP per capita PPP constant international $"
+  },
+  "demographics": {
+    "SP.POP.TOTL": "Population",
+    "SP.POP.1564.TO.ZS": "Population ages 15-64 (%)",
+    "SP.URB.TOTL.IN.ZS": "Urban population (%)",
+    "SE.TER.ENRR": "Tertiary school enrollment (%)"
+  },
+  "digital": {
+    "IT.NET.USER.ZS": "Internet users (%)",
+    "IT.NET.BBND.P2": "Fixed broadband subscriptions per 100",
+    "BX.GSR.CCIS.ZS": "ICT service exports (% service exports)"
+  },
+  "external": {
+    "NE.EXP.GNFS.ZS": "Exports goods and services (% GDP)",
+    "NE.IMP.GNFS.ZS": "Imports goods and services (% GDP)",
+    "BX.KLT.DINV.WD.GD.ZS": "FDI net inflows (% GDP)",
+    "FP.CPI.TOTL.ZG": "Consumer price inflation (%)"
+  }
+}
