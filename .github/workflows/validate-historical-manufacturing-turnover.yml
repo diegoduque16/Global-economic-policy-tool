@@ -1,0 +1,178 @@
+name: Validate historical manufacturing labor turnover 1930-1981
+'on':
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download and audit researcher-reconstructed BLS historical monthly series
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          """Data-audit pilot; does NOT modify repo or existing warehouse."""
+          import collections
+          import csv
+          import datetime as dt
+          import hashlib
+          import json
+          import math
+          from pathlib import Path
+          import re
+          import time
+          import urllib.error
+          import urllib.request
+
+          ROOT=Path('historical_manufacturing_turnover')
+          ROOT.mkdir(parents=True,exist_ok=True)
+          URL='https://www.labormarketupdate.net/items/data/historicallts.json'
+          META='https://www.labormarketupdate.net/items/metadata/historicallts.json'
+          MAX_BYTES=15_000_000
+          status={'source':'Historical Labor Turnover Survey (manufacturing), reconstructed by Bart Hobijn',
+                  'underlying_publications':'BLS Employment and Earnings 1972 and 1982, archived at FRASER',
+                  'source_url':URL,'documentation_url':'https://www.labormarketupdate.net/extra/HistoricalLTS.pdf',
+                  'requested_historical_years':[1930,1981],
+                  'integration':'NOT_IN_WAREHOUSE',
+                  'research_ready':False,
+                  'status':'NOT_VALIDATED',
+                  'limitations':[
+                    'Manufacturing only, not the whole US labor market.',
+                    'Original survey methods and coverage changed, especially before 1943.',
+                    'New-hire subseries begins in 1951; missing values must not be set to zero.',
+                    'Series from the website were seasonally adjusted by its researchers using X-13.',
+                    'The historical series is not directly comparable with JOLTS; 1982-2000 is a data gap.',
+                    'This validation run does not append data or alter an existing warehouse.',
+                    'Period/month and seasonality must be verified before quantitative research.'
+                  ]}
+          def get(url):
+              last=None
+              for attempt in range(3):
+                  try:
+                      req=urllib.request.Request(url,headers={'User-Agent':'GlobalEconomicPolicyTool/1.0 (public academic research)', 'Accept':'application/json'})
+                      with urllib.request.urlopen(req,timeout=35) as resp:
+                          data=resp.read(MAX_BYTES+1)
+                          content_type=resp.headers.get('Content-Type','')
+                      if len(data)>MAX_BYTES:raise ValueError('File over 15MB cap; refusing unbounded data')
+                      if not data or data.lstrip().startswith(b'<'):raise ValueError('Empty or HTML response, not JSON')
+                      return data,content_type
+                  except (urllib.error.HTTPError,urllib.error.URLError,TimeoutError) as e:
+                      last=e
+                      if isinstance(e,urllib.error.HTTPError) and e.code in (400,401,403,404):break
+                      time.sleep(1+attempt*2)
+              raise RuntimeError('Source endpoint inaccessible: '+str(last))
+          def describe(value,depth=0):
+              if isinstance(value,dict):
+                  return {'type':'object','length':len(value),'keys':list(value)[:35],
+                          'sample_values':{str(k):describe(value[k],depth+1) for k in list(value)[:5]} if depth<3 else None}
+              if isinstance(value,list):
+                  return {'type':'array','length':len(value),
+                          'sample':describe(value[0],depth+1) if value and depth<4 else None}
+              return {'type':type(value).__name__,'example':str(value)[:100]}
+          date_pattern=re.compile(r'^((?:19[3-7][0-9]|198[01]))[-/]?(0[1-9]|1[0-2])(?:[-/](?:0[1-9]|[12][0-9]|3[01]))?$')
+          def ym(v):
+              if not isinstance(v,(str,int,float)):return None
+              if isinstance(v,(int,float)) and v>1e10:
+                  try:v=dt.datetime.fromtimestamp(v/1000,tz=dt.timezone.utc).strftime('%Y-%m')
+                  except (ValueError,OverflowError,OSError):return None
+              v=str(v).strip()
+              match=date_pattern.fullmatch(v)
+              return f'{match[1]}-{match[2]}' if match else None
+          def val(v):
+              if v is None or isinstance(v,bool):return None
+              try:x=float(v)
+              except (ValueError,TypeError):return None
+              return x if math.isfinite(x) and 0<=x<=100 else None
+          observations=[]
+          def append(label,date,value,location,extras=None):
+              month=ym(date);number=val(value)
+              if month and number is not None:
+                  observations.append({'label':str(label),'month':month,'value':number,
+                                       'json_path':location,'extra':extras or {}})
+          def pairseq(obj,label,path):
+              for dx,dy in (('x','y'),('dates','values'),('date','value'),('time','value'),('period','values')):
+                  if isinstance(obj.get(dx),list) and isinstance(obj.get(dy),list) and len(obj[dx])==len(obj[dy]):
+                      for date,value in zip(obj[dx],obj[dy]):append(label,date,value,path)
+          def visit(obj,path='$',label=''):
+              if isinstance(obj,dict):
+                  name=str(obj.get('name') or obj.get('label') or obj.get('title') or obj.get('series') or label)
+                  pairseq(obj,name,path)
+                  # Case 1: mapping of yyyy-mm to numeric observations.
+                  if sum(ym(k) is not None for k in obj)>=6:
+                      for k,v in obj.items():append(label,k,v,path)
+                  # Case 2: record, with date and named measurements.
+                  date=next((obj[k] for k in ('date','Date','period','month','time','TIME_PERIOD','index') if k in obj and not isinstance(obj[k],(list,dict))),None)
+                  if date is not None:
+                      for k,v in obj.items():
+                          if k.lower() in ('date','period','month','time','index','year'):continue
+                          append(k,date,v,path)
+                  # Case 3: pandas orient=split structure.
+                  if all(k in obj for k in ('index','columns','data')):
+                      ix,cs,da=obj['index'],obj['columns'],obj['data']
+                      if isinstance(ix,list) and isinstance(cs,list) and isinstance(da,list) and len(ix)==len(da):
+                          for date,values in zip(ix,da):
+                              if isinstance(values,list):
+                                  for key,v in zip(cs,values):append(key,date,v,path)
+                  for k,v in obj.items():
+                      if not isinstance(v,(list,dict)):continue
+                      if k in ('x','y','dates','values','columns','index'):continue
+                      visit(v,path+'.'+str(k)[:50],str(k) if str(k) not in ('data','series','observations','records','items') else name)
+              elif isinstance(obj,list):
+                  if len(obj)>300_000:raise ValueError('Unexpected enormous series collection')
+                  for i,part in enumerate(obj):
+                      if isinstance(part,(dict,list)):visit(part,path+f'[{i}]',label)
+          try:
+              raw,mime=get(URL)
+              (ROOT/'historicallts_source.json').write_bytes(raw)
+              status.update({'source_bytes':len(raw),'source_sha256':hashlib.sha256(raw).hexdigest(),'mime_type':mime})
+              blob=json.loads(raw)
+              status['schema_profile']=describe(blob)
+              try:
+                  meta,_=get(META)
+                  (ROOT/'historicallts_metadata.json').write_bytes(meta)
+                  status['metadata_sha256']=hashlib.sha256(meta).hexdigest()
+                  status['metadata_profile']=describe(json.loads(meta))
+              except Exception as ex:status['metadata_warning']=str(ex)[:260]
+              visit(blob)
+              # Deduplicate exact repeated instances within the nested source object.
+              dedup={(o['label'],o['month'],o['value']):o for o in observations}
+              candidates=list(dedup.values())
+              status['candidate_points']=len(candidates)
+              groups=collections.defaultdict(list)
+              for row in candidates:groups[row['label']].append(row)
+              status['candidate_series_summary']=[{'label':name[:110],
+                    'count':len(group),'first':min(r['month'] for r in group),
+                    'last':max(r['month'] for r in group),'path':group[0]['json_path'][:140],
+                    'first_value':group[0]['value']}
+                    for name,group in sorted(groups.items(),key=lambda it:-len(it[1]))[:30]]
+              status['source_preview']=json.dumps(blob,ensure_ascii=False)[:1500]
+              if candidates:
+                  with (ROOT/'candidate_points.csv').open('w',encoding='utf-8',newline='') as f:
+                      w=csv.DictWriter(f,fieldnames=('label','month','value','json_path'))
+                      w.writeheader()
+                      for o in sorted(candidates,key=lambda r:(r['label'],r['month'],r['value'])):
+                          w.writerow({k:o[k] for k in ('label','month','value','json_path')})
+              # Audit pass is only retrieval. No schema-based statistical validation yet.
+              status['status']='RAW_SOURCE_RETRIEVED_REQUIRES_SERIES_MAPPING'
+              status['next_gate']='Map actual JSON series labels and provenance; validate definitions and coverage; then create warehouse adapter.'
+          except Exception as error:
+              status['status']='SOURCE_RETRIEVAL_FAILED'
+              status['error']=f'{type(error).__name__}: {str(error)[:350]}'
+          (ROOT/'report.json').write_text(json.dumps(status,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+          print(json.dumps({k:v for k,v in status.items() if k not in ('source_preview','schema_profile','metadata_profile')},indent=2))
+          if status['status']=='SOURCE_RETRIEVAL_FAILED':raise SystemExit('Historical LTS download failed; see artifact report')
+          PY
+      - name: Upload historical data and diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: historical-manufacturing-turnover-${{ github.run_number }}
+          path: historical_manufacturing_turnover/*
+          if-no-files-found: warn
+          retention-days: 90
