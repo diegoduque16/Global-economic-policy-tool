@@ -79,7 +79,12 @@ def parse_bls(raw, *, allowed, start, end, url, stamp):
             year=int(point.get('year','0'));month=point.get('period','')
             # Skip annual averages (M13) and other non-monthly periods.
             if not start<=year<=end or not (len(month)==3 and month[0]=='M' and month[1:].isdigit() and 1<=int(month[1:])<=12):continue
-            value=float(str(point.get('value','')).replace(',',''))
+            # The BLS API may return '-' or another missing-value marker.
+            # Omit missing observations; never treat them as zero.
+            try:
+                value=float(str(point.get('value','')).strip().replace(',',''))
+            except (ValueError, TypeError):
+                continue
             if not math.isfinite(value):continue
             result.append({'provider':'US BLS public API v1','country_iso3':'USA','period':f'{year}-{int(month[1:]):02d}',
                 'year':year,'series':sid,'value':value,'unit':BLS_SERIES[sid][1],
