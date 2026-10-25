@@ -213,5 +213,10 @@ def main():
               ('IMF DataMapper','OECD Global Revenue Statistics'))
     if any(x not in report['coverage'] for x in expected):
         raise SystemExit('Missing required provider; see run_report.json')
+    if args.scope == 'full' and args.source == 'both':
+        import subprocess, sys
+        subprocess.run([sys.executable, str(Path(__file__).with_name('imf_gfs.py')),
+                        '--out', str(Path(args.out).parent/'imf_gfs'),
+                        '--start', '1970', '--end', '2025'], check=True)
 
 if __name__=='__main__':main()
