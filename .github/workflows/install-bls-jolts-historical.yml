@@ -1,0 +1,256 @@
+name: Install historical BLS JOLTS job openings and turnover
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: install-bls-jolts
+  cancel-in-progress: false
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install JOLTS source collector
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -e open_data/bls_jolts.py; then echo 'Collector exists; refusing to overwrite.' >&2; exit 1; fi
+          cat > open_data/bls_jolts.py <<'PYCODE'
+          """Download source-coded US BLS JOLTS monthly series for fiscal/AI labor research.
+
+          Source: https://download.bls.gov/pub/time.series/JT/ . National industries and
+          state/region total-nonfarm series; seasonally adjusted levels/rates retained
+          separately. All quantities are survey estimates, not policy-shock instruments.
+          """
+          from __future__ import annotations
+          import csv
+          import datetime as dt
+          import hashlib
+          import io
+          import json
+          import math
+          from pathlib import Path
+          import re
+          import time
+          import urllib.error
+          import urllib.request
+
+          BASE='https://download.bls.gov/pub/time.series/JT/'
+          TARGET={'JO':'job_openings', 'HI':'hires', 'TS':'total_separations',
+                  'QU':'quits', 'LD':'layoffs_and_discharges'}
+          COLUMNS=('provider','country_iso3','year','period','series','value','unit',
+                   'frequency','disaggregation','status_flag','source_url','retrieved_utc')
+          SERIES_REGEX=re.compile(r'^JT[SU][A-Z0-9]{6}[A-Z0-9]{2}[A-Z0-9]{5}[A-Z0-9]{2}(JO|HI|TS|QU|LD)[LR]$')
+
+
+          def retrieve(filename,*, max_size, retries=3):
+              url=BASE+filename
+              req=urllib.request.Request(url,headers={
+                  'User-Agent':'GlobalEconomicPolicyResearch/1.0 (public academic research)',
+                  'Accept':'text/plain,application/octet-stream,*/*',
+                  'Accept-Encoding':'identity'})
+              for attempt in range(retries):
+                  try:
+                      with urllib.request.urlopen(req, timeout=130) as response:
+                          payload=response.read(max_size+1)
+                      if len(payload)>max_size:raise ValueError(f'{filename} exceeded size cap')
+                      if len(payload)<200 or payload.lstrip().lower().startswith((b'<html',b'<!doctype')):
+                          raise ValueError(f'{filename}: invalid/empty BLS response')
+                      return payload
+                  except (TimeoutError,urllib.error.HTTPError,urllib.error.URLError) as exc:
+                      if attempt+1==retries or isinstance(exc,urllib.error.HTTPError) and exc.code in (400,401,403,404):raise
+                      time.sleep(2+2*attempt)
+
+
+          def read_bls_rows(payload):
+              raw=io.StringIO(payload.decode('utf-8-sig'))
+              reader=csv.DictReader(raw,delimiter='\t')
+              if not reader.fieldnames:raise ValueError('No BLS header')
+              reader.fieldnames=[field.strip() for field in reader.fieldnames]
+              return reader
+
+
+          def build(*,out='data/bls_jolts',start=2000,end=2026, fetch=retrieve):
+              if not (2000<=start<=end<=2100):raise ValueError('Invalid year bounds')
+              output=Path(out);(output/'processed').mkdir(parents=True,exist_ok=True)
+              timestamp=dt.datetime.now(dt.timezone.utc).isoformat()
+              manifest=[]
+              def get(filename,cap):
+                  b=fetch(filename,max_size=cap)
+                  manifest.append({'name':filename,'source_url':BASE+filename,
+                                   'sha256':hashlib.sha256(b).hexdigest(),'bytes':len(b)})
+                  return b
+
+              meta_payload=get('jt.series',1_500_000)
+              meta={}; rejected={}
+              for record in read_bls_rows(meta_payload):
+                  sid=(record.get('series_id') or '').strip()
+                  if not SERIES_REGEX.fullmatch(sid):continue
+                  if not all(k in record for k in ('seasonal','industry_code','state_code','area_code',
+                         'sizeclass_code','dataelement_code','ratelevel_code')):
+                      raise ValueError('BLS metadata missing required dimension column')
+                  dims={k:(record.get(k) or '').strip() for k in (
+                      'seasonal','industry_code','state_code','area_code','sizeclass_code',
+                      'dataelement_code','ratelevel_code')}
+                  if dims['seasonal'] not in ('S','U') or dims['ratelevel_code'] not in ('L','R'):
+                      continue
+                  if dims['dataelement_code'] not in TARGET:continue
+                  if dims['area_code']!='00000' or dims['sizeclass_code']!='00':continue
+                  # National industry rows; state/regional estimates only for total nonfarm.
+                  if dims['state_code']!='00' and dims['industry_code']!='000000':continue
+                  # Keep only seasonally adjusted for the first JOLTS connector; never mix SA and NSA.
+                  if dims['seasonal']!='S':continue
+                  if sid in meta:raise ValueError('Duplicate series in JOLTS metadata')
+                  meta[sid]=dims
+
+              if len(meta)<40 or not any(d['state_code']=='00' and d['industry_code']=='000000' for d in meta.values()):
+                  raise ValueError(f'Unexpectedly few series selected: {len(meta)}')
+              # BLS files contain M13 annual averages. Those are excluded from this monthly panel.
+              data_payload=get('jt.data.1.AllItems',45_000_000)
+              rows=[]; keys=set(); skipped_missing=0; invalid=0; year_limits={}
+              for r in read_bls_rows(data_payload):
+                  sid=(r.get('series_id') or '').strip()
+                  dims=meta.get(sid)
+                  if not dims:continue
+                  year_text=(r.get('year') or '').strip()
+                  period=(r.get('period') or '').strip()
+                  if not(year_text.isdecimal() and re.fullmatch(r'M(0[1-9]|1[0-2])',period)):
+                      continue
+                  year=int(year_text)
+                  if year<start or year>end:continue
+                  val_text=(r.get('value') or '').strip().replace(',','')
+                  if not val_text or val_text in ('-','NA','N/A'):
+                      skipped_missing+=1
+                      continue
+                  try:value=float(val_text)
+                  except ValueError:
+                      invalid+=1
+                      continue
+                  if not math.isfinite(value) or value<0:raise ValueError(f'Bad value {sid} {year} {period}')
+                  key=(sid,year,period)
+                  if key in keys:raise ValueError(f'Duplicate JOLTS monthly observation: {key}')
+                  keys.add(key)
+                  month=int(period[1:])
+                  geography='national_industry' if dims['state_code']=='00' else (
+                      'census_region' if dims['state_code'] in ('NE','MW','SO','WE') else 'state')
+                  measure=TARGET[dims['dataelement_code']]
+                  unit='percent' if dims['ratelevel_code']=='R' else (
+                      'thousands_of_vacancies' if dims['dataelement_code']=='JO' else 'thousands_of_workers')
+                  extra=dict(dims,series_id=sid,geography_level=geography,
+                             annual_average_excluded=True,reference_month=period)
+                  rows.append(dict(provider='US Bureau of Labor Statistics JOLTS',country_iso3='USA',
+                      year=year,period=f'{year:04d}-{month:02d}',
+                      series=f'JOLTS.{measure}.{dims["ratelevel_code"]}.SA',
+                      value=value,unit=unit,frequency='monthly',
+                      disaggregation=json.dumps(extra,sort_keys=True),
+                      status_flag=(r.get('footnote_codes') or '').strip(),
+                      source_url=BASE+'jt.data.1.AllItems',retrieved_utc=timestamp))
+                  year_limits[sid]=(min(year,year_limits.get(sid,(year,year))[0]),
+                                    max(year,year_limits.get(sid,(year,year))[1]))
+
+              rows.sort(key=lambda x:(json.loads(x['disaggregation'])['series_id'],x['period']))
+              national={json.loads(x['disaggregation'])['dataelement_code'] for x in rows
+                        if json.loads(x['disaggregation'])['state_code']=='00'
+                        and json.loads(x['disaggregation'])['industry_code']=='000000'
+                        and json.loads(x['disaggregation'])['ratelevel_code']=='L'}
+              years={int(r['year']) for r in rows}
+              if len(rows)<5000 or len(years)<15 or set(TARGET)-national:
+                  raise ValueError(f'Insufficient JOLTS coverage: rows={len(rows)}, years={len(years)}, missing={set(TARGET)-national}')
+              panel=output/'processed'/'bls_jolts_panel.csv'
+              with panel.open('w',newline='',encoding='utf-8') as stream:
+                  writer=csv.DictWriter(stream,fieldnames=COLUMNS);writer.writeheader();writer.writerows(rows)
+              report={
+                  'dataset':'BLS Job Openings and Labor Turnover Survey','source':'jt.data.1.AllItems',
+                  'retrieved_utc':timestamp,'requested_years':[start,end],
+                  'observations':len(rows),'first_year':min(years),'last_year':max(years),
+                  'series_ids':len(year_limits),'geographic_codes':sorted({json.loads(r['disaggregation'])['state_code'] for r in rows}),
+                  'industry_codes':sorted({json.loads(r['disaggregation'])['industry_code'] for r in rows}),
+                  'measures':sorted({x['series'] for x in rows}),
+                  'omitted_non_numeric':skipped_missing,'omitted_invalid_numeric':invalid,
+                  'manifest':manifest,'panel_sha256':hashlib.sha256(panel.read_bytes()).hexdigest(),
+                  'errors':[],'conflicts':[],'research_ready':False,
+                  'limitations':['JOLTS estimates have sampling error and undergo revisions.',
+                    'Rates and levels are different units and cannot be pooled or added.',
+                    'Regional, state, and national/industry cells overlap: do not sum across geographic levels.',
+                    'Job openings are vacancies measured at month-end; hires/separations are monthly flows.',
+                    'Seasonally adjusted only; latest release is subject to revision.',
+                    'Not a causal estimate of the effects of AI, taxes or any policy.']}
+              (output/'run_report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+              return report
+
+
+          if __name__=='__main__':
+              x=build()
+              print(json.dumps({'status':'VALIDATED_EXTRACT','observations':x['observations'],
+                   'first_year':x['first_year'],'last_year':x['last_year'],
+                   'geographies':len(x['geographic_codes']),'industries':len(x['industry_codes']),
+                   'series_ids':x['series_ids'],'errors':x['errors']},indent=2))
+          PYCODE
+          python -m py_compile open_data/bls_jolts.py
+      - name: Collect historical job openings, hires, quits and layoffs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python open_data/bls_jolts.py
+      - name: Connect new family to existing warehouse and verify tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYCODE'
+          from pathlib import Path
+          snap=Path('warehouse/snapshot.py')
+          s=snap.read_text(encoding='utf-8')
+          marker="    'oecd_cit': ('oecd_cit', 'oecd_cit_panel.csv', 100),"
+          assert s.count(marker)==1, 'Warehouse source registry changed, no edits made'
+          snap.write_text(s.replace(marker,marker+"\n    'bls_jolts': ('bls_jolts', 'bls_jolts_panel.csv', 5000),",1),encoding='utf-8')
+
+          script=Path('open_data/imf_oecd.py')
+          t=script.read_text(encoding='utf-8')
+          marker="        subprocess.run([sys.executable, str(Path(__file__).with_name('oecd_cit.py'))], check=True)"
+          assert t.count(marker)==1, 'Existing full-import hook changed, no edits made'
+          t=t.replace(marker,marker+"\n        subprocess.run([sys.executable, str(Path(__file__).with_name('bls_jolts.py'))], check=True)",1)
+          script.write_text(t,encoding='utf-8')
+          PYCODE
+          python -m py_compile open_data/imf_oecd.py warehouse/snapshot.py
+          python -m unittest discover -s tests -p 'test_snapshot.py' -v
+          python - <<'PYCODE'
+          import csv,hashlib,json
+          from pathlib import Path
+          root=Path('data/bls_jolts');report=json.loads((root/'run_report.json').read_text())
+          panel=root/'processed/bls_jolts_panel.csv'
+          with panel.open(newline='',encoding='utf-8') as stream:
+              r=csv.DictReader(stream)
+              rows=sum(1 for _ in r)
+          assert rows==report['observations'] and rows>=5000
+          assert hashlib.sha256(panel.read_bytes()).hexdigest()==report['panel_sha256']
+          assert not report['errors'] and not report['conflicts']
+          print('Warehouse JOLTS validated rows:',rows)
+          PYCODE
+          git diff --check
+      - name: Save dataset audit and validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bls-jolts-import-audit-${{ github.run_number }}
+          path: |
+            data/bls_jolts/run_report.json
+          retention-days: 90
+          if-no-files-found: warn
+      - name: Commit collector and warehouse integration (code only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add open_data/bls_jolts.py open_data/imf_oecd.py warehouse/snapshot.py
+          git commit -m 'Add validated BLS JOLTS monthly labor turnover data collector'
+          git push origin HEAD:main
