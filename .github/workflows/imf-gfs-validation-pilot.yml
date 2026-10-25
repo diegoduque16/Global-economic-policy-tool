@@ -1,0 +1,127 @@
+name: Validate IMF Government Finance Statistics connection
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Discover official IMF GFS data and validate a bounded sample
+        id: sample
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv, datetime as dt, hashlib, io, json, pathlib, re, urllib.error, urllib.parse, urllib.request
+
+          out=pathlib.Path('research/imf_gfs_pilot')
+          out.mkdir(parents=True,exist_ok=True)
+          base='https://api.imf.org/external/sdmx/3.0'
+          dataset='IMF.STA:GFS_SOO'
+          landing='https://data.imf.org/en/datasets/IMF.STA%3AGFS_SOO'
+          report={'dataset':dataset,'source_landing':landing,
+                  'retrieved_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
+                  'status':'NOT_YET_VALIDATED','research_ready':False,
+                  'not_integrated_into_main_warehouse':True,
+                  'cautions':['Government level and accounting basis must not be silently mixed.',
+                             'Currency and unit scale must be identified before comparative analysis.',
+                             'GFS observations are not exogenous fiscal-policy shocks.',
+                             'Preserve source attribution and review applicable IMF data-use terms.'],
+                  'attempts':[]}
+
+          def request(url,accept,limit=20_000_000):
+              req=urllib.request.Request(url,headers={
+                  'Accept':accept,'User-Agent':'GlobalEconomicPolicyResearch/1.0 (source validation)',
+                  'Accept-Encoding':'identity'})
+              with urllib.request.urlopen(req,timeout=65) as r:
+                  data=r.read(limit+1)
+                  if len(data)>limit:raise ValueError(f'Response larger than {limit} bytes; refusing unbounded download')
+                  return data,r.headers.get('Content-Type','')
+
+          # Confirm the GFS dataflow is published; preserve evidence even if the server
+          # changes format. This is a *discovery* run, not a claim of coverage.
+          metadata_url=base+'/structure/dataflow/IMF.STA/GFS_SOO/+?references=none'
+          try:
+              b,mime=request(metadata_url,'application/vnd.sdmx.structure+xml;version=2.1',limit=8_000_000)
+              assert len(b)>100 and (b'GFS_SOO' in b or b'GFS' in b)
+              report['dataflow_metadata']={'url':metadata_url,'mime':mime,'bytes':len(b),
+                                           'sha256':hashlib.sha256(b).hexdigest()}
+              (out/'dataflow_metadata.xml').write_bytes(b)
+          except Exception as exc:
+              report['dataflow_metadata_error']=str(exc)[:300]
+
+          # SDMX 3.0 component names can vary by dataflow. Try a bounded sample,
+          # never an all-country unrestricted bulk download.
+          query_root=base+'/data/dataflow/IMF.STA/GFS_SOO/~/*'
+          attempts=[{'c[COUNTRY]':'USA','c[TIME_PERIOD]':'ge:2023'},
+                    {'c[REF_AREA]':'USA','c[TIME_PERIOD]':'ge:2023'},
+                    {'c[COUNTRY]':'CAN','c[TIME_PERIOD]':'ge:2023'},
+                    {'c[REF_AREA]':'CAN','c[TIME_PERIOD]':'ge:2023'}]
+          good=None
+          for params in attempts:
+              url=query_root+'?'+urllib.parse.urlencode(params)
+              entry={'url':url,'filter':params}
+              try:
+                  data,mime=request(url,'text/csv',limit=20_000_000)
+                  # Reject server HTML error pages and unstructured responses.
+                  decoded=data.decode('utf-8-sig')
+                  if decoded.lstrip().startswith(('<html','<!DOCTYPE','<?xml')):
+                      raise ValueError('Expected SDMX CSV, got markup')
+                  table=csv.DictReader(io.StringIO(decoded))
+                  cols=table.fieldnames or []
+                  if not {'TIME_PERIOD','OBS_VALUE'}.issubset(cols):
+                      raise ValueError('Missing mandatory SDMX columns; returned '+','.join(cols[:20]))
+                  rows=list(table)
+                  numeric=[]
+                  for row in rows:
+                      value=(row.get('OBS_VALUE') or '').strip()
+                      if not value:continue
+                      try:val=float(value)
+                      except ValueError:continue
+                      if not (val==val and abs(val)<float('inf')):continue
+                      if not re.match(r'^\d{4}(?:$|[-QMS])', (row.get('TIME_PERIOD') or '')):continue
+                      numeric.append(row)
+                  if not numeric:raise ValueError('CSV returned no numeric, dated observations')
+                  entry.update({'result':'VALID_SAMPLE','rows':len(rows),'numeric_rows':len(numeric),
+                                'columns':cols,'bytes':len(data),'mime':mime})
+                  good={'data':data,'rows':numeric,'entry':entry}
+                  report['attempts'].append(entry)
+                  break
+              except (urllib.error.HTTPError,urllib.error.URLError,TimeoutError,ValueError,UnicodeError,csv.Error) as exc:
+                  entry.update({'result':'UNSUCCESSFUL','reason':str(exc)[:350]})
+                  report['attempts'].append(entry)
+
+          if good:
+              archive=out/'official_sample.csv'
+              archive.write_bytes(good['data'])
+              # A numeric sample is *not* analytically ready: all codes remain raw.
+              report.update({'status':'VALID_SAMPLE_RETRIEVED',
+                'sample_rows':len(good['rows']),
+                'sample_columns':good['entry']['columns'],
+                'sample_url':good['entry']['url'],
+                'sample_sha256':hashlib.sha256(good['data']).hexdigest(),
+                'value_interpretation':'Raw IMF source values; units, government level and accounting basis unresolved'})
+              print('VALIDATED bounded IMF GFS sample:',len(good['rows']),'numeric observations')
+          else:
+              report['status']='NOT_YET_VALIDATED'
+              print('No usable sample; see diagnostics artifact. No GFS data added to warehouse.')
+
+          (out/'report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+          print(json.dumps({k:report.get(k) for k in ('dataset','status','sample_rows','sample_columns','dataflow_metadata_error')},indent=2))
+          PY
+      - name: Save metadata, diagnostic report, and sample if validated
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: imf-gfs-validation-${{ github.run_number }}
+          path: research/imf_gfs_pilot/*
+          if-no-files-found: warn
+          retention-days: 90
