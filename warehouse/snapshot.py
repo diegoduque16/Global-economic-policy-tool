@@ -25,6 +25,8 @@ FAMILIES = {
     'labor': ('labor', 'labor_panel.csv', 10_000),
 }
 
+OPTIONAL_FAMILIES = {'eurostat_ai': ('eurostat_ai', 'eurostat_ai_panel.csv', 50)}
+
 SCHEMA = '''
 CREATE TABLE snapshots (
     snapshot_id TEXT PRIMARY KEY, created_utc TEXT NOT NULL,
@@ -106,7 +108,8 @@ def build_snapshot(data_dir, output_dir, *, snapshot_id, git_sha='', include_raw
         timestamp=dt.datetime.now(dt.timezone.utc).isoformat()
         conn.execute('INSERT INTO snapshots VALUES (?,?,?,0)',(snapshot_id,timestamp,git_sha))
         report_by_family={}; inventories=[]; grand_total=0
-        for family, (subfolder, filename, minimum) in FAMILIES.items():
+        enabled_families={**FAMILIES,**{k:v for k,v in OPTIONAL_FAMILIES.items() if (data_dir/v[0]/'run_report.json').is_file()}}
+        for family, (subfolder, filename, minimum) in enabled_families.items():
             root=data_dir/subfolder
             csvfile=root/'processed'/filename
             reportfile=root/'run_report.json'
