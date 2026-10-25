@@ -1,0 +1,79 @@
+name: Install Eurostat AI warehouse integration
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: install-eurostat-ai
+  cancel-in-progress: false
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare Eurostat collector and warehouse wiring
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+          original=Path('.github/workflows/eurostat-ai-adoption.yml').read_text()
+          start=original.index("          python - <<'PY'\n")+len("          python - <<'PY'\n")
+          end=original.index("\n          PY",start)
+          collector=textwrap.dedent(original[start:end])+"\n"
+          adapter='''
+          # Preserve the source extract in the standard economic warehouse layout.
+          import pathlib, csv, json
+          rawdir=pathlib.Path('research/eurostat_ai_adoption')
+          root=pathlib.Path('data/eurostat_ai');(root/'processed').mkdir(parents=True,exist_ok=True)
+          with (rawdir/'ai_adoption_panel.csv').open(newline='',encoding='utf-8') as f:
+              rows=list(csv.DictReader(f))
+          assert len(rows)>=50
+          output=[]
+          for x in rows:
+              output.append({'country_iso3':x['geo'],'year':x['year'],'period':x['year'],
+                'series':'isoc_eb_ai.E_AI_TANY.C10-S951_X_K.GE10',
+                'value':x['value_percent'],'unit':'percent_of_enterprises_10plus',
+                'frequency':'annual','provider':'Eurostat enterprise AI survey',
+                'status_flag':x['status_flag'],'source_url':x['source_url'],
+                'observation_kind':'survey_estimate'})
+          panel=root/'processed'/'eurostat_ai_panel.csv'
+          with panel.open('w',newline='',encoding='utf-8') as f:
+              writer=csv.DictWriter(f,fieldnames=list(output[0]));writer.writeheader();writer.writerows(output)
+          manifest=json.loads((rawdir/'manifest.json').read_text())
+          manifest.update({'observations':len(output),'errors':[],'conflicts':[]})
+          (root/'run_report.json').write_text(json.dumps(manifest,indent=2)+'\\n')
+          '''
+          target=Path('open_data/eurostat_ai.py')
+          if target.exists():raise SystemExit('Collector already exists: refusing to overwrite')
+          target.write_text(collector+textwrap.dedent(adapter),encoding='utf-8')
+          snap=Path('warehouse/snapshot.py');s=snap.read_text()
+          mark="SCHEMA = '''"
+          assert s.count(mark)==1
+          s=s.replace(mark,"OPTIONAL_FAMILIES = {'eurostat_ai': ('eurostat_ai', 'eurostat_ai_panel.csv', 50)}\n\n"+mark,1)
+          old='        for family, (subfolder, filename, minimum) in FAMILIES.items():'
+          assert s.count(old)==1
+          replacement="        enabled_families={**FAMILIES,**{k:v for k,v in OPTIONAL_FAMILIES.items() if (data_dir/v[0]/'run_report.json').is_file()}}\n"+old.replace('FAMILIES.items()','enabled_families.items()')
+          s=s.replace(old,replacement,1);snap.write_text(s)
+          wf=Path('.github/workflows/economic-warehouse.yml');w=wf.read_text()
+          old='      - name: Build validated SQLite snapshot and versioned archive'
+          assert w.count(old)==1
+          w=w.replace(old,'      - name: Download Eurostat enterprise AI adoption\n        run: python open_data/eurostat_ai.py\n'+old,1)
+          wf.write_text(w)
+          PY
+          python -m py_compile open_data/eurostat_ai.py warehouse/snapshot.py
+          python -m unittest discover -s tests -p 'test_snapshot.py' -v
+          git diff --check
+      - name: Commit integration
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add open_data/eurostat_ai.py warehouse/snapshot.py .github/workflows/economic-warehouse.yml
+          git commit -m 'Integrate Eurostat AI survey into economic warehouse'
+          git push origin HEAD:main
