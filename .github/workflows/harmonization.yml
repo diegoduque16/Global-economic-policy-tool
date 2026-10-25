@@ -1,0 +1,61 @@
+name: Build conservative harmonized research layer
+
+on:
+  workflow_dispatch:
+    inputs:
+      warehouse_run_id:
+        description: 'Successful warehouse workflow run ID holding verified snapshot'
+        type: string
+        required: true
+        default: '40211667703'
+      warehouse_artifact:
+        description: 'GitHub Actions artifact from that run'
+        type: string
+        required: true
+        default: 'economic-warehouse-1'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  descriptive-layer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run offline guards and regression tests
+        run: python -m unittest discover -s tests -p 'test_harmonize.py' -v
+      - name: Download verified warehouse snapshot from previous successful run
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.warehouse_artifact }}
+          run-id: ${{ inputs.warehouse_run_id }}
+          github-token: ${{ github.token }}
+          path: incoming
+      - name: Validate and build research layer without modifying source data
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+          archives=list(Path('incoming').rglob('economic-*.tar.gz'))
+          if len(archives)!=1:
+              raise SystemExit(f'Expected one economic snapshot .tar.gz, found {len(archives)}')
+          subprocess.run([sys.executable,'research/harmonize.py','--archive',str(archives[0]),
+                          '--iso-codes','research/iso3_country_codes.csv',
+                          '--policy-sources','data/policy_event_sources.csv',
+                          '--out','research_output'],check=True)
+          PY
+      - name: Save provenance-preserving descriptive layer and audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: descriptive-research-layer-${{ github.run_number }}
+          path: research_output/
+          if-no-files-found: error
+          retention-days: 90
