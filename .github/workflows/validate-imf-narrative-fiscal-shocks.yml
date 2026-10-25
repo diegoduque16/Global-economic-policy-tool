@@ -1,0 +1,200 @@
+name: Validate IMF narrative fiscal shocks (2024)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch and inspect official IMF fiscal policy shock supplement
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/audit_imf_fiscal_shocks.py <<'PYCODE'
+          """Audit the official IMF 2024 narrative fiscal-consolidation supplement.
+          
+          No statistical claims or source-to-warehouse mapping until the actual workbook
+          schema and license have been inspected. Standard library only.
+          """
+          import datetime
+          import hashlib
+          import html
+          from html.parser import HTMLParser
+          import io
+          import json
+          from pathlib import Path
+          import re
+          import sys
+          from urllib.parse import urljoin, urlparse, unquote
+          from urllib.request import Request, urlopen
+          import zipfile
+          import xml.etree.ElementTree as ET
+          
+          ROOT = Path('fiscal_shock_2024_audit')
+          ROOT.mkdir(exist_ok=True)
+          PUBLICATION = 'https://www.imf.org/en/publications/wp/issues/2024/09/27/an-updated-action-based-dataset-of-fiscal-consolidation-554986'
+          MIRROR = 'https://www.elibrary.imf.org/abstract/journals/001/2024/210/article-A001-en.xml'
+          MAX_HTML = 4_000_000
+          MAX_ZIP = 100_000_000
+          HEADERS = {'User-Agent': 'GlobalEconomicPolicyTool/1.0 research provenance audit', 'Accept': 'text/html,application/zip,*/*'}
+          REPORT = {
+              'dataset': 'Adler, Allen, Ganelli and Leigh (2024) IMF WP/24/210',
+              'publication_url': PUBLICATION,
+              'doi': '10.5089/9798400289811.001',
+              'paper_scope': '17 OECD economies 1978-2020; 14 LAC economies 1989-2020',
+              'status': 'NOT_VALIDATED',
+              'research_ready': False,
+              'warehouse_integrated': False,
+              'audit_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'notes': [
+                  'Fiscal consolidations are narrative-coded policy actions, not all budget adjustments.',
+                  'Tax and expenditure measures must not be treated as a generic policy shock.',
+                  'Episode-year and country coverage depend on the published coding, not an assumed balanced panel.',
+                  'Negative entries may record expiration of temporary measures; zero vs missing requires codebook validation.',
+                  'No automatic public redistribution of the source ZIP; review license and attribution.',
+                  'No causal identification or harmonization is performed by this workflow.',
+              ],
+              'errors': [],
+          }
+          
+          class LinkParser(HTMLParser):
+              def __init__(self):
+                  super().__init__(); self.links=[]; self.current=None
+              def handle_starttag(self, tag, attrs):
+                  if tag.lower()=='a':
+                      d=dict(attrs);self.current={'href': d.get('href',''), 'title':d.get('title',''), 'text':''}
+              def handle_data(self, data):
+                  if self.current is not None: self.current['text']+=data
+              def handle_endtag(self, tag):
+                  if tag.lower()=='a' and self.current is not None:
+                      self.links.append(self.current);self.current=None
+          
+          def allowed_url(url):
+              p=urlparse(url)
+              return p.scheme=='https' and (p.hostname=='imf.org' or (p.hostname or '').endswith('.imf.org'))
+          
+          def download(url, size):
+              if not allowed_url(url):raise ValueError('Blocked non-IMF source URL: '+url[:200])
+              req=Request(url,headers=HEADERS)
+              with urlopen(req,timeout=50) as response:
+                  final=response.geturl()
+                  if not allowed_url(final):raise ValueError('Blocked non-IMF redirect: '+final)
+                  contents=response.read(size+1)
+                  if len(contents)>size:raise ValueError('Source size exceeds audit limit')
+                  return contents, final, response.headers.get('Content-Type','')
+          
+          def candidate_urls(page, content):
+              p=LinkParser();p.feed(content)
+              urls=[];notes=[]
+              for a in p.links:
+                  href=html.unescape(a['href']).replace('\\/','/')
+                  u=urljoin(page,href)
+                  label=(a['text']+' '+a['title']).strip()
+                  if ('zip' in href.lower() or (re.search(r'\b(data|supplement|download)\b',label,re.I) and
+                       ('2024' in href or '554986' in href or 'dataset' in href.lower()))):
+                      notes.append({'label':label[:120], 'href':u[:500]})
+                      if allowed_url(u) and ('.zip' in u.lower() or 'download' in u.lower()):urls.append(u)
+              # Some IMF pages hold links in JSON scripts instead of plain anchors.
+              for expression in (r'https?:\\?/\\?/[^\s"\'<>]{4,400}?\.zip(?:\?[^\s"\'<>]{0,100})?',
+                                 r'["\']([^"\']{4,400}\.zip(?:\?[^"\']{0,100})?)["\']'):
+                  for match in re.findall(expression,content,flags=re.I):
+                      raw=(match if isinstance(match,str) else match[0]).replace('\\/','/')
+                      u=urljoin(page,html.unescape(raw))
+                      if allowed_url(u):urls.append(u)
+              return list(dict.fromkeys(urls))[:15],notes[:40]
+          
+          def inspect_excel_metadata(data):
+              # Inspect OOXML structure without loading or evaluating any workbook macros or formulas.
+              with zipfile.ZipFile(io.BytesIO(data)) as book:
+                  names=set(book.namelist())
+                  out={'file_type':'xlsx','sheets':[]}
+                  if 'xl/workbook.xml' not in names:return out
+                  ns={'x':'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+                  root=ET.fromstring(book.read('xl/workbook.xml'))
+                  for sheet in root.findall('.//x:sheets/x:sheet',ns):
+                      out['sheets'].append(sheet.attrib.get('name','')[:100])
+                  return out
+          
+          def describe(name, parent):
+              d={'path':name[:250],'uncompressed_bytes':parent.getinfo(name).file_size}
+              l=name.lower()
+              if name.endswith('/'):d['kind']='directory';return d
+              if l.endswith(('.xlsx','.xlsm')):
+                  d.update(inspect_excel_metadata(parent.read(name)))
+              elif l.endswith(('.csv','.tsv','.txt','.do','.r','.md','.py','.stata','.dat')):
+                  with parent.open(name) as fd:sample=fd.read(2200)
+                  d.update({'file_type':l.rsplit('.',1)[-1], 'first_lines':sample.decode('utf-8-sig','replace').splitlines()[:5]})
+              else:d['file_type']=l.rsplit('.',1)[-1]
+              return d
+          
+          def main():
+              candidates=[]
+              for page in (PUBLICATION,MIRROR):
+                  try:
+                      raw,actual,mime=download(page,MAX_HTML)
+                      text=raw.decode('utf-8','replace')
+                      urls,labels=candidate_urls(actual,text)
+                      REPORT.setdefault('landing_pages',[]).append({'url':actual,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest(),'candidate_urls':urls,'suspected_link_labels':labels[:20]})
+                      candidates.extend(urls)
+                  except Exception as e:
+                      REPORT['errors'].append({'page':page,'error':f'{type(e).__name__}: {str(e)[:250]}'})
+              candidates=list(dict.fromkeys(candidates))[:12]
+              REPORT['candidate_source_urls']=candidates
+              if not candidates:
+                  REPORT['status']='ZIP_LINK_NOT_DISCOVERED'
+                  return
+              errors=[]
+              for candidate in candidates:
+                  try:
+                      raw,final,mime=download(candidate,MAX_ZIP)
+                      if not zipfile.is_zipfile(io.BytesIO(raw)):
+                          errors.append({'url':candidate,'reason':'Not a valid ZIP','mime':mime,'bytes':len(raw)})
+                          continue
+                      with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                          members=z.infolist()
+                          if len(members)>250:raise ValueError('Unexpectedly large archive member count')
+                          if sum(m.file_size for m in members)>600_000_000:raise ValueError('Expanded archive size exceeds safety limit')
+                          entries=[]
+                          for m in members:
+                              if m.file_size>25_000_000:
+                                  entries.append({'path':m.filename[:200],'uncompressed_bytes':m.file_size,'note':'Preview skipped: over 25 MB'})
+                              else:entries.append(describe(m.filename,z))
+                      REPORT.update({'status':'ZIP_SOURCE_RETRIEVED_SCHEMA_REVIEW_PENDING',
+                                     'zip_url':final,'zip_sha256':hashlib.sha256(raw).hexdigest(),
+                                     'zip_bytes':len(raw),'zip_members':entries,
+                                     'zip_total_members':len(entries)})
+                      return
+                  except Exception as e:
+                      errors.append({'url':candidate,'reason':f'{type(e).__name__}: {str(e)[:250]}'})
+              REPORT['source_candidate_errors']=errors
+              REPORT['status']='ZIP_CANDIDATES_UNREADABLE'
+          
+          if __name__=='__main__':
+              try:main()
+              except Exception as e:
+                  REPORT['status']='AUDIT_ERROR'
+                  REPORT['errors'].append({'error':f'{type(e).__name__}: {str(e)[:350]}'})
+              (ROOT/'report.json').write_text(json.dumps(REPORT,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+              print(json.dumps({'status':REPORT['status'],'candidates':len(REPORT.get('candidate_source_urls',[])),
+                                'zip_url':REPORT.get('zip_url'),'zip_members':REPORT.get('zip_members',[]),
+                                'errors':REPORT['errors'],'source_candidate_errors':REPORT.get('source_candidate_errors',[])},indent=2))
+              if REPORT['status']!='ZIP_SOURCE_RETRIEVED_SCHEMA_REVIEW_PENDING':sys.exit('IMF fiscal narrative ZIP audit did not validate a source; see artifact')
+          PYCODE
+          python /tmp/audit_imf_fiscal_shocks.py
+      - name: Preserve provenance and audit diagnostics (not raw proprietary files)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: imf-fiscal-shock-2024-audit-${{ github.run_number }}
+          path: fiscal_shock_2024_audit/report.json
+          retention-days: 90
+          if-no-files-found: error
