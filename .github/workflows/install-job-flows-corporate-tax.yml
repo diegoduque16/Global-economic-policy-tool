@@ -1,0 +1,156 @@
+name: Install BLS job flows and OECD corporate tax data
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: install-bls-bed-oecd-cit
+  cancel-in-progress: false
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install collectors from tested validation workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json, csv, textwrap
+
+          workflow = Path('.github/workflows/validate-job-flows-and-tax-rates.yml').read_text(encoding='utf-8')
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY"
+          scripts = []
+          pos = 0
+          for name in ('bls_bed', 'oecd_cit'):
+              start = workflow.find(start_marker, pos)
+              assert start != -1, f'Missing existing validated source script: {name}'
+              start += len(start_marker)
+              end = workflow.find(end_marker, start)
+              assert end != -1, 'Missing source script terminator'
+              collector = textwrap.dedent(workflow[start:end]) + '\n'
+              assert "VALIDATED_EXTRACT" in collector, f'{name} source validator missing'
+              scripts.append(collector)
+              pos = end + len(end_marker)
+
+          bls_adapter = r'''
+          # Adapt validated BED rows into the versioned warehouse's native observation schema.
+          import csv, json, pathlib
+          source_root = pathlib.Path('research/bls_bed')
+          report = json.loads((source_root/'report.json').read_text(encoding='utf-8'))
+          assert report['status'] == 'VALIDATED_EXTRACT'
+          with (source_root/'job_flows.csv').open(newline='',encoding='utf-8') as f:
+              records = list(csv.DictReader(f))
+          assert len(records) == report['observations'] >= 200
+          root = pathlib.Path('data/bls_bed'); (root/'processed').mkdir(parents=True,exist_ok=True)
+          out = []
+          for r in records:
+              extra = {k:r[k] for k in ('state_fips','geography_level','reference_quarter','series_id')}
+              out.append(dict(country_iso3='USA',year=r['year'],period=r['year'],
+                 series='BLS_BED.'+r['series']+'.annual_march_to_march',value=r['value'],
+                 unit='thousands_of_jobs',frequency='annual',provider='US Bureau of Labor Statistics BED',
+                 disaggregation=json.dumps(extra,sort_keys=True),
+                 obs_status='source_reported',source_url=r['source_url']))
+          path = root/'processed'/'bls_bed_panel.csv'
+          with path.open('w',newline='',encoding='utf-8') as f:
+              w=csv.DictWriter(f,fieldnames=list(out[0]));w.writeheader();w.writerows(out)
+          report.update({'errors':[],'conflicts':[],'observations':len(out),
+              'warehouse_adapter':'bls_bed','research_ready':False})
+          (root/'run_report.json').write_text(json.dumps(report,indent=2)+'\\n',encoding='utf-8')
+          print('BLS BED warehouse rows:',len(out))
+          '''
+
+          oecd_adapter = r'''
+          # Preserve every original OECD SDMX code without inferring legal/causal effects.
+          import csv, json, pathlib
+          source_root = pathlib.Path('research/oecd_cit')
+          report = json.loads((source_root/'report.json').read_text(encoding='utf-8'))
+          assert report['status'] == 'VALIDATED_EXTRACT'
+          with (source_root/'corporate_tax_rates.csv').open(newline='',encoding='utf-8') as f:
+              records = list(csv.DictReader(f))
+          assert len(records)==report['observations'] >= 100
+          root=pathlib.Path('data/oecd_cit');(root/'processed').mkdir(parents=True,exist_ok=True)
+          out=[]
+          for r in records:
+              out.append(dict(country_iso3=r['geo'],year=r['year'],period=r['year'],
+                 series=r['series'],value=r['value'],unit=r['source_unit'],frequency='annual',
+                 provider='OECD Corporate Tax Statistics',disaggregation=r['dimensions_json'],
+                 obs_status=r['obs_status'],source_url=r['source_url']))
+          path=root/'processed'/'oecd_cit_panel.csv'
+          with path.open('w',newline='',encoding='utf-8') as f:
+              w=csv.DictWriter(f,fieldnames=list(out[0]));w.writeheader();w.writerows(out)
+          report.update({'errors':[],'conflicts':[],'observations':len(out),
+              'warehouse_adapter':'oecd_cit','research_ready':False})
+          (root/'run_report.json').write_text(json.dumps(report,indent=2)+'\\n',encoding='utf-8')
+          print('OECD CIT warehouse rows:',len(out))
+          '''
+
+          for name, original, adapter in zip(('bls_bed','oecd_cit'),scripts,(bls_adapter,oecd_adapter)):
+              target=Path('open_data')/(name+'.py')
+              if target.exists():raise SystemExit(f'{target} already exists; refusing overwrite')
+              # Raw Python adapter contains escaped newline for report JSON, converted below.
+              target.write_text(original+textwrap.dedent(adapter).replace("+'\\\\n'", "+'\\n'")+'\n',encoding='utf-8')
+
+          snapshot = Path('warehouse/snapshot.py')
+          s=snapshot.read_text(encoding='utf-8')
+          old="OPTIONAL_FAMILIES = {'eurostat_ai': ('eurostat_ai', 'eurostat_ai_panel.csv', 50), 'imf_gfs': ('imf_gfs', 'imf_gfs_panel.csv', 100)}"
+          new="OPTIONAL_FAMILIES = {\n    'eurostat_ai': ('eurostat_ai', 'eurostat_ai_panel.csv', 50),\n    'imf_gfs': ('imf_gfs', 'imf_gfs_panel.csv', 100),\n    'bls_bed': ('bls_bed', 'bls_bed_panel.csv', 200),\n    'oecd_cit': ('oecd_cit', 'oecd_cit_panel.csv', 100),\n}"
+          assert s.count(old)==1, 'Existing warehouse family declaration changed; do not overwrite'
+          snapshot.write_text(s.replace(old,new,1),encoding='utf-8')
+
+          imf=Path('open_data/imf_oecd.py')
+          s=imf.read_text(encoding='utf-8')
+          marker="                        '--start', '1970', '--end', '2025'], check=True)"
+          assert s.count(marker)==1, 'Existing IMF/OECD full-collector hook changed; inspect manually'
+          injection="\n        # Run validated US job-flow and OECD corporate tax collectors during full builds.\n        subprocess.run([sys.executable, str(Path(__file__).with_name('bls_bed.py'))], check=True)\n        subprocess.run([sys.executable, str(Path(__file__).with_name('oecd_cit.py'))], check=True)"
+          imf.write_text(s.replace(marker,marker+injection,1),encoding='utf-8')
+          PY
+          python -m py_compile open_data/bls_bed.py open_data/oecd_cit.py warehouse/snapshot.py open_data/imf_oecd.py
+      - name: Collect both sources and run warehouse regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python open_data/bls_bed.py
+          python open_data/oecd_cit.py
+          python -m unittest discover -s tests -p 'test_snapshot.py' -v
+          python - <<'PY'
+          from pathlib import Path
+          import json,csv
+          for name,min_size in (('bls_bed',200),('oecd_cit',100)):
+              folder=Path('data')/name
+              report=json.loads((folder/'run_report.json').read_text())
+              panel=next((folder/'processed').glob('*_panel.csv'))
+              with panel.open(newline='') as f:
+                  rows=list(csv.DictReader(f))
+              assert len(rows)==report['observations'] and len(rows)>=min_size
+              assert all(r['country_iso3'] and r['year'] and r['series'] and r['unit'] for r in rows)
+              print(name, len(rows), 'validated observations ready for warehouse')
+          PY
+          git diff --check
+      - name: Save collector diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installed-job-flow-tax-diagnostics-${{ github.run_number }}
+          path: |
+            data/bls_bed/run_report.json
+            data/oecd_cit/run_report.json
+          retention-days: 90
+          if-no-files-found: warn
+      - name: Commit code-only integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add open_data/bls_bed.py open_data/oecd_cit.py warehouse/snapshot.py open_data/imf_oecd.py
+          git commit -m 'Integrate BLS job flows and OECD corporate tax rates into warehouse'
+          git push origin HEAD:main
