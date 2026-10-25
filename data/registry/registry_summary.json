@@ -1,0 +1,38 @@
+{
+  "registry_version": "0.1.0",
+  "source_catalog_sha256": "aa3a09e692f0f78f7641491a531f2b30c9381d55fe2a58ac64122ceaed02fdf4",
+  "generated_utc": "2026-10-25T20:13:16.718989+00:00",
+  "source_count": 124,
+  "by_status": {
+    "reported_live_unverified": 4,
+    "not_ingested": 102,
+    "catalogued_only": 17,
+    "importer_only": 1
+  },
+  "by_priority": {
+    "P0": 69,
+    "P1": 46,
+    "P2": 9
+  },
+  "by_domain": {
+    "Macro & fiscal": 16,
+    "Labor, jobs & firms": 24,
+    "Tax & expenditure policy": 13,
+    "Causal policy events": 14,
+    "Politics & institutions": 7,
+    "Inequality, wellbeing & mobility": 7,
+    "AI, productivity & innovation": 16,
+    "Trade & global shocks": 11,
+    "Demographics, health & human capital": 7,
+    "Historical series": 5,
+    "Data engineering": 4
+  },
+  "verified_research_ready_count": 0,
+  "interpretation": "Catalog status only; labels LIVE are not independently validated by this build",
+  "next_actions": [
+    "Independently audit live workflows and artifacts",
+    "Resolve license conditions before redistribution",
+    "Persist validated raw/processed snapshots beyond GitHub artifact retention",
+    "Implement connector-by-connector validation gates"
+  ]
+}
