@@ -1,0 +1,305 @@
+name: Audit IMF fiscal consolidation source and repair historical US investment
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '21 10 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: imf-fiscal-source-investment
+  cancel-in-progress: false
+
+jobs:
+  source-audit-and-investment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out research repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Create source-gated audit program
+        run: |
+          cat > /tmp/imf_investment_audit.py <<'PY_AUDIT'
+          """Source-gated IMF 2024 fiscal source discovery and US investment-history repair.
+
+          One standalone GitHub Action; research source bytes are not redistributed.
+          Only source-defined nominal US investment and derived GDP share are exported.
+          No causal estimations, fake IMF annual events, or deflator splicing.
+          """
+          import argparse
+          import csv
+          from datetime import date, datetime, timezone
+          import hashlib
+          from html.parser import HTMLParser
+          import io
+          import json
+          import math
+          from pathlib import Path
+          from urllib.parse import urlencode, urljoin, urlsplit
+          from urllib.request import Request, urlopen
+          import re
+          import stat
+          import zipfile
+
+          FRED='https://fred.stlouisfed.org/graph/fredgraph.csv'
+          PAPER='https://www.imf.org/en/publications/wp/issues/2024/09/27/an-updated-action-based-dataset-of-fiscal-consolidation-554986'
+          OUTPUT=Path('fiscal_international_readiness')
+          HISTORICAL=[f'{y}Q{q}' for y in range(1947,2008) for q in range(1,5)]
+          USER_AGENT='GlobalEconomicPolicyTool/1.3 (open-public-economic-research)'
+
+
+          def download(url, max_bytes=4_000_000):
+              request=Request(url, headers={'User-Agent':USER_AGENT,'Accept':'text/html,text/csv,application/zip,application/octet-stream,*/*'})
+              with urlopen(request,timeout=55) as response:
+                  final=response.geturl()
+                  blob=response.read(max_bytes+1)
+              if not blob or len(blob)>max_bytes:
+                  raise ValueError('Empty or oversized response')
+              return final,blob
+
+
+          def parse_fred_csv(body, code):
+              reader=csv.DictReader(io.StringIO(body.decode('utf-8-sig')))
+              if set(reader.fieldnames or []) not in ({'observation_date',code},{'DATE',code}):
+                  raise ValueError(f'Unexpected FRED schema for {code}: {reader.fieldnames!r}')
+              date_field='observation_date' if 'observation_date' in reader.fieldnames else 'DATE'
+              records={}; gaps=[]
+              for row in reader:
+                  day=date.fromisoformat(row[date_field])
+                  if day.day != 1 or day.month not in (1,4,7,10):
+                      raise ValueError('Series has invalid quarterly dates')
+                  quarter=f'{day.year}Q{(day.month-1)//3+1}'
+                  if quarter in records: raise ValueError('Duplicate FRED quarter')
+                  v=(row[code] or '').strip()
+                  if v in ('','.'): gaps.append(quarter); continue
+                  n=float(v)
+                  if not math.isfinite(n) or n<=0:
+                      raise ValueError('Nonpositive or nonfinite nominal quantity')
+                  records[quarter]=n
+              return records,gaps
+
+
+          def fetch_fred(code):
+              url=FRED+'?'+urlencode({'id':code})
+              final,raw=download(url,max_bytes=1_000_000)
+              if final.split('?')[0]!=FRED:
+                  raise ValueError(f'Unexpected final FRED URL for {code}: {final[:150]}')
+              data,gaps=parse_fred_csv(raw,code)
+              return data,{'series':code,'url':url,'sha256':hashlib.sha256(raw).hexdigest(),
+                           'first_observation':min(data),'last_observation':max(data),
+                           'observations':len(data),'missing_observations':gaps,
+                           'source':'BEA via FRED','nominal':True,
+                           'frequency':'quarterly','native_unit':'billions of current US dollars, seasonally adjusted annual rate'}
+
+
+          def repair_investment():
+              pnfi,pmeta=fetch_fred('PNFI')
+              gdp,gmeta=fetch_fred('GDP')
+              missing=[q for q in HISTORICAL if q not in pnfi or q not in gdp]
+              if missing:raise ValueError(f'Historical 1947-2007 coverage gap: {missing[:10]} ({len(missing)})')
+              rows=[]
+              for q in sorted(pnfi, key=lambda s:(int(s[:4]),int(s[-1]))):
+                  if q not in gdp:continue
+                  ratio=100*pnfi[q]/gdp[q]
+                  if not 0<ratio<100:raise ValueError(f'Implausible investment share {q}')
+                  rows.append({'country_iso3':'USA','quarter':q,'nominal_nonresidential_investment_billions_USD_SAAR':f'{pnfi[q]:.9g}',
+                               'nominal_GDP_billions_USD_SAAR':f'{gdp[q]:.9g}',
+                               'nominal_investment_share_of_nominal_GDP_percent':f'{ratio:.9g}',
+                               'investment_source_series':'PNFI','denominator_source_series':'GDP',
+                               'comparability_status':'nominal_same_release_family_not_real_growth'})
+              file=OUTPUT/'us_quarterly_nominal_investment_1947_onward.csv'
+              with file.open('w',newline='',encoding='utf-8') as dst:
+                  writer=csv.DictWriter(dst,fieldnames=rows[0]);writer.writeheader();writer.writerows(rows)
+              return {'status':'historical_nominal_investment_1947_2007_complete',
+                      'historical_quarters_verified':len(HISTORICAL),'total_overlapping_quarters':len(rows),
+                      'historical_1947Q1':rows[0],
+                      'source_manifest':[pmeta,gmeta],
+                      'output':file.name,
+                      'warnings':['PNFI is NOMINAL, not a substitute for real PNFIC1 investment growth.',
+                                  'Investment/GDP ratio uses original quarterly seasonally-adjusted annual rates for both series.',
+                                  'Series reflects current provider vintage, not historical real-time data.',
+                                  'No real deflator invented; no series spliced.']}
+
+
+          class Anchors(HTMLParser):
+              def __init__(self):
+                  super().__init__();self.links=[];self.href=None;self.text=[]
+              def handle_starttag(self,tag,attrs):
+                  if tag=='a':
+                      self.href=dict(attrs).get('href','');self.text=[]
+              def handle_data(self,data):
+                  if self.href is not None:self.text.append(data)
+              def handle_endtag(self,tag):
+                  if tag=='a' and self.href is not None:
+                      self.links.append((self.href,' '.join(self.text).strip()))
+                      self.href=None;self.text=[]
+
+
+          def official_imf_url(url):
+              p=urlsplit(url)
+              return (p.scheme=='https' and p.hostname is not None and
+                      (p.hostname=='imf.org' or p.hostname.endswith('.imf.org')) and
+                      p.username is None and p.password is None)
+
+
+          def find_supplements(html,base):
+              parser=Anchors();parser.feed(html)
+              discovered=[];seen=set()
+              for href,label in parser.links:
+                  full=urljoin(base,href)
+                  if not official_imf_url(full):continue
+                  p=urlsplit(full)
+                  signal=('.zip' in p.path.lower() or 'data for this title' in label.lower() or
+                          ('supplement' in label.lower() and 'data' in label.lower()))
+                  if signal and full not in seen:
+                      seen.add(full);discovered.append({'url':full,'anchor_text':label[:200],
+                         'is_zip_url':p.path.lower().endswith('.zip')})
+              # Never guess a ZIP URL merely because the page says "Supplemental Resources".
+              return discovered[:25]
+
+
+          def audit_zip(blob):
+              output=[];seen=set();total=0
+              with zipfile.ZipFile(io.BytesIO(blob)) as z:
+                  infos=z.infolist()
+                  if len(infos)>100:raise ValueError('Too many IMF supplement members')
+                  for f in infos:
+                      name=f.filename
+                      if (name.startswith('/') or '\\' in name or ':' in name or '\x00' in name or
+                          any(s in ('','.','..') for s in name.rstrip('/').split('/'))):
+                          raise ValueError('Unsafe ZIP path')
+                      mode=f.external_attr>>16
+                      if stat.S_ISLNK(mode) or f.flag_bits&1:raise ValueError('Unsafe ZIP member')
+                      key=name.casefold()
+                      if key in seen:raise ValueError('Duplicate archive member')
+                      seen.add(key)
+                      if f.is_dir():continue
+                      total+=f.file_size
+                      if total>80_000_000 or f.file_size>30_000_000:
+                          raise ValueError('Uncompressed supplement exceeds audit cap')
+                      if f.compress_size==0 or f.file_size/f.compress_size>1000:
+                          raise ValueError('Unexpected ZIP compression ratio')
+                      raw=z.read(f)
+                      output.append({'member':name,'size_bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest(),
+                                     'format':Path(name).suffix.lower() or 'none'})
+              if not output:raise ValueError('Empty IMF source archive')
+              return output
+
+
+          def audit_imf():
+              report={'paper':PAPER,'doi':'https://doi.org/10.5089/9798400289811.001',
+                      'country_count_from_paper':31,'oecd_countries':17,'lac_countries':14,
+                      'paper_oecd_coverage':'1978-2020','paper_lac_coverage':'1989-2020',
+                      'policy_type':'narratively identified deficit-reduction fiscal consolidations; not expansions',
+                      'annual_tax_shocks_imported':0,'annual_spending_shocks_imported':0,
+                      'status':'not_attempted','candidate_links':[],
+                      'method_note':'A fiscal consolidation is not a symmetric tax-cut or government-stimulus shock.'}
+              try:
+                  final,html=download(PAPER)
+                  if not official_imf_url(final):raise ValueError('IMF publication redirected off allowed domain')
+                  report['landing_html_sha256']=hashlib.sha256(html).hexdigest()
+                  links=find_supplements(html.decode('utf-8','replace'),final)
+                  report['candidate_links']=links
+                  if not links:
+                      report['status']='supplement_link_not_verified; no source data imported'
+                  else:
+                      archive_link=next((link for link in links if link['is_zip_url']),None)
+                      if archive_link is None:
+                          report['status']='supplement_page_link_found_but_zip_not_verified'
+                      else:
+                          zip_url=archive_link['url']
+                          try:
+                              archive_final,blob=download(zip_url,max_bytes=20_000_000)
+                              if not official_imf_url(archive_final):raise ValueError('ZIP redirects outside IMF host allowlist')
+                              if not zipfile.is_zipfile(io.BytesIO(blob)):raise ValueError('Not a ZIP file')
+                              report['archive_url']=archive_final
+                              report['archive_sha256']=hashlib.sha256(blob).hexdigest()
+                              report['archive_members']=audit_zip(blob)
+                              report['status']='official_supplement_integrity_audited; numeric_semantics_not_yet_reviewed'
+                          except Exception as ex:
+                              report['status']='supplement_link_found_but_archive_not_verified'
+                              report['archive_error']=f'{type(ex).__name__}: {ex}'[:300]
+              except Exception as ex:
+                  report['status']='official_imf_landing_download_unavailable'
+                  report['landing_error']=f'{type(ex).__name__}: {ex}'[:300]
+              return report
+
+
+          def selftest():
+              import unittest
+              class Checks(unittest.TestCase):
+                  def test_date_and_values(self):
+                      b=b'observation_date,PNFI\n1947-01-01,24.818\n1947-04-01,25.171\n'
+                      data,gaps=parse_fred_csv(b,'PNFI')
+                      self.assertEqual(data['1947Q1'],24.818);self.assertEqual(len(data),2);self.assertFalse(gaps)
+                  def test_missing_not_zero(self):
+                      b=b'DATE,PNFI\n1947-01-01,.\n1947-04-01,1\n'
+                      data,gaps=parse_fred_csv(b,'PNFI')
+                      self.assertEqual(gaps,['1947Q1']);self.assertNotIn('1947Q1',data)
+                  def test_reject_malformed_quarter(self):
+                      with self.assertRaises(ValueError):parse_fred_csv(b'DATE,PNFI\n1947-02-01,3\n','PNFI')
+                  def test_imf_anchor_rules(self):
+                      html='<a href="/wp/data.zip">Link to data for this title</a><a href="https://attacker.org/evil.zip">ZIP</a>'
+                      got=find_supplements(html,PAPER)
+                      self.assertEqual(len(got),1);self.assertEqual(got[0]['url'],'https://www.imf.org/wp/data.zip')
+                  def test_imf_evil_domain(self):
+                      self.assertFalse(official_imf_url('https://imf.org.evil.test/x.zip'))
+                      self.assertFalse(official_imf_url('http://www.imf.org/file.zip'))
+                  def test_zip_path_traversal(self):
+                      b=io.BytesIO()
+                      with zipfile.ZipFile(b,'w') as z:z.writestr('../oops.csv','no')
+                      with self.assertRaises(ValueError):audit_zip(b.getvalue())
+                  def test_zip_members_no_values(self):
+                      b=io.BytesIO()
+                      with zipfile.ZipFile(b,'w',zipfile.ZIP_DEFLATED) as z:z.writestr('dataset.csv','year,value\n2020,1\n')
+                      info=audit_zip(b.getvalue())
+                      self.assertEqual(info[0]['member'],'dataset.csv')
+                      self.assertNotIn('year,value',json.dumps(info))
+              suite=unittest.defaultTestLoader.loadTestsFromTestCase(Checks)
+              return unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful()
+
+
+          def main():
+              ap=argparse.ArgumentParser();ap.add_argument('--self-test',action='store_true');args=ap.parse_args()
+              if args.self_test:
+                  if not selftest():raise SystemExit(1)
+                  return
+              OUTPUT.mkdir(exist_ok=False)
+              inv=repair_investment()
+              imf=audit_imf()
+              report={'status':'investment_validated_IMF_source_discovery_recorded',
+                      'time_utc':datetime.now(timezone.utc).isoformat(),
+                      'investment':inv,'imf_fiscal_consolidation':imf,
+                      'joint_econometric_panel_ready':False,'causal_estimation_performed':False,
+                      'warnings':['IMF fiscal consolidation series are NOT automatically ingested.',
+                                  'Annual consolidations must not be interpolated to quarterly observations.',
+                                  'Event-level tax versus spending breakdown and source units await codebook review.',
+                                  'The HTML link audit does not certify downloadable licensing or causal identification.']}
+              (OUTPUT/'research_readiness_report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+              print(json.dumps({'status':report['status'],
+                 'investment_1947_2007_quarters':inv['historical_quarters_verified'],
+                 'investment_overlap_quarters':inv['total_overlapping_quarters'],
+                 'imf_status':imf['status'],
+                 'imf_archive_members_found':len(imf.get('archive_members',[])),
+                 'causal_estimation_performed':False},indent=2))
+
+          if __name__=='__main__':main()
+          PY_AUDIT
+      - name: Run offline source integrity and data QA tests
+        run: python /tmp/imf_investment_audit.py --self-test
+      - name: Download long-run investment and inspect official IMF research supplement
+        run: python /tmp/imf_investment_audit.py
+      - name: Store audited investment panel and IMF metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: imf-investment-readiness-${{ github.run_number }}
+          path: fiscal_international_readiness/*
+          if-no-files-found: warn
+          retention-days: 90
