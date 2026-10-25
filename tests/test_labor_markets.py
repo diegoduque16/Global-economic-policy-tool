@@ -16,6 +16,24 @@ class LaborTest(unittest.TestCase):
         self.assertEqual(rows[0]['period'],'2025-01')
         self.assertEqual(rows[0]['value'],158000.)
 
+    def test_bls_missing_values_are_skipped_not_zero(self):
+        obj = {'status': 'REQUEST_SUCCEEDED', 'Results': {'series': [
+            {'seriesID': 'CES0000000001', 'data': [
+                {'year': '2025', 'period': 'M01', 'value': '-'},
+                {'year': '2025', 'period': 'M02', 'value': ''},
+                {'year': '2025', 'period': 'M03', 'value': 'N/A'},
+                {'year': '2025', 'period': 'M04', 'value': None},
+                {'year': '2025', 'period': 'M05', 'value': '158,100'},
+                {'year': '2025', 'period': 'M06', 'value': '0'},
+                {'year': '2025', 'period': 'M07', 'value': 'nan'},
+            ]},
+        ]}}
+        rows = m.parse_bls(json.dumps(obj).encode(),
+                           allowed={'CES0000000001'}, start=2024, end=2026,
+                           url='mock', stamp='now')
+        self.assertEqual([r['period'] for r in rows], ['2025-05', '2025-06'])
+        self.assertEqual([r['value'] for r in rows], [158100., 0.])
+
     def test_bls_rejected(self):
         with self.assertRaises(ValueError):
             m.parse_bls(b'{"status":"REQUEST_FAILED","message":["rate limit"]}',allowed=set(m.BLS_SERIES),start=2024,end=2026,url='mock',stamp='now')
