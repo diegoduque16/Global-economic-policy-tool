@@ -1,0 +1,47 @@
+name: Refresh BLS ILOSTAT and Eurostat labor data
+'on':
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Test a small sample or fetch all configured data
+        type: choice
+        required: true
+        default: smoke
+        options:
+          - smoke
+          - full
+      source:
+        description: Which public source to download
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - bls
+          - ilostat
+          - eurostat
+permissions:
+  contents: read
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test data parsing and normalization
+        run: python -m unittest discover -s tests -p 'test_labor_markets.py' -v
+      - name: Fetch selected labor series
+        run: python open_data/labor_markets.py --scope '${{ inputs.scope }}' --source '${{ inputs.source }}' --out data/labor
+      - name: Archive source payloads and error reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: labor-markets-${{ github.run_number }}
+          path: data/labor/
+          if-no-files-found: warn
+          retention-days: 90
