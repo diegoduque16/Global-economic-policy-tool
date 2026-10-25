@@ -1,0 +1,32 @@
+name: Inspect Romer Romer source workbook and codebook
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  schema-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PDF reader for short codebook clues
+        run: python -m pip install 'pypdf>=5,<7'
+      - name: Run source schema inspection tests
+        run: python -m unittest discover -s tests -p 'test_inspect_romer.py' -v
+      - name: Fetch fingerprinted author archive and inspect workbook + README
+        run: python -m policy_shocks.inspect_romer --out romer_schema_output
+      - name: Save metadata only, not original author data
+        uses: actions/upload-artifact@v4
+        with:
+          name: romer-source-schema-${{ github.run_number }}
+          path: romer_schema_output/*.json
+          retention-days: 90
+          if-no-files-found: error
