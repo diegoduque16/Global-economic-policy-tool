@@ -1,0 +1,102 @@
+name: Audit historical US investment coverage
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '31 10 * * 1'
+permissions:
+  contents: read
+jobs:
+  investment-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify quarterly coverage and incompatible definitions
+        run: |
+          python - <<'PY'
+          import csv, hashlib, io, json, math, time
+          from datetime import date, datetime, timezone
+          from pathlib import Path
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          # Never splice nominal, real, nonresidential or broad investment concepts.
+          series = {
+              'PNFIC1':'real_private_nonresidential_fixed_investment',
+              'PNFI':'nominal_private_nonresidential_fixed_investment',
+              'GPDIC1':'real_gross_private_domestic_investment_broader_scope',
+              'GPDI':'nominal_gross_private_domestic_investment_broader_scope',
+              'GDPC1':'real_gdp_reference',
+          }
+          base = 'https://fred.stlouisfed.org/graph/fredgraph.csv'
+          out = Path('us_investment_coverage_output'); out.mkdir(exist_ok=False)
+          window = [f'{year}Q{q}' for year in range(1947,2008) for q in range(1,5)]
+          report = {'retrieved_utc':datetime.now(timezone.utc).isoformat(),
+                    'historical_window':'1947Q1-2007Q4', 'series':[], 'errors':[],
+                    'causal_estimates_produced':False, 'shocks_joined':False,
+                    'source_definition_review_required':True,
+                    'method_notes':[
+                        'Missing quarters remain missing: no zeros or interpolation.',
+                        'Gross investment is not a substitute for nonresidential fixed investment.',
+                        'Nominal and chained-dollar series are not interchangeable.',
+                        'Vintage data were not recovered; current FRED values can be revised.',
+                        'Coverage audit alone cannot establish causation.' ]}
+          for code,definition in series.items():
+              try:
+                  url = base+'?'+urlencode({'id':code})
+                  blob = None
+                  for attempt in range(3):
+                      try:
+                          with urlopen(Request(url,headers={'User-Agent':'GlobalEconomicPolicyTool/1.3', 'Accept':'text/csv'}),timeout=60) as resp:
+                              if resp.geturl().split('?')[0] != base: raise ValueError('Unexpected redirect')
+                              blob=resp.read(3_000_001)
+                          if not blob or len(blob)>3_000_000: raise ValueError('Invalid CSV size')
+                          break
+                      except Exception:
+                          if attempt==2: raise
+                          time.sleep(2**attempt)
+                  table=csv.DictReader(io.StringIO(blob.decode('utf-8-sig')))
+                  headers=table.fieldnames or []
+                  datecol='observation_date' if 'observation_date' in headers else 'DATE'
+                  if sorted(headers)!=sorted([datecol,code]): raise ValueError('Unexpected CSV schema')
+                  observed=set(); source_missing=0
+                  for row in table:
+                      if None in row or any(v is None for v in row.values()): raise ValueError('Malformed CSV row')
+                      d=date.fromisoformat(row[datecol].strip())
+                      if d.day!=1 or d.month not in (1,4,7,10): raise ValueError('Not a quarterly date')
+                      q=f'{d.year}Q{(d.month-1)//3+1}'
+                      raw=row[code].strip()
+                      if raw in ('','.'): source_missing+=1; continue
+                      if not math.isfinite(float(raw)): raise ValueError('Nonfinite value')
+                      if q in observed: raise ValueError('Duplicate quarter')
+                      observed.add(q)
+                  if not observed: raise ValueError('No valid observations')
+                  historical=[q for q in window if q in observed]
+                  report['series'].append({'code':code,'definition':definition,
+                      'provider':'BEA series via FRED','source_url':url,
+                      'metadata_url':f'https://fred.stlouisfed.org/series/{code}',
+                      'source_csv_sha256':hashlib.sha256(blob).hexdigest(),
+                      'quarters_available':len(historical),'quarters_expected':len(window),
+                      'missing_quarters':[q for q in window if q not in observed],
+                      'source_missing_cells':source_missing})
+              except Exception as exc:
+                  report['errors'].append({'series':code,'type':type(exc).__name__,
+                                           'detail':str(exc)[:250]})
+          report['status']='coverage_audit_complete' if not report['errors'] and len(report['series'])==len(series) else 'audit_incomplete'
+          (out/'investment_coverage_report.json').write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps({'status':report['status'],
+                            'coverage':{r['code']:r['quarters_available'] for r in report['series']},
+                            'errors':report['errors']},indent=2))
+          if report['status']!='coverage_audit_complete': raise SystemExit('Fail closed on missing series')
+          PY
+      - name: Preserve coverage and diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: us-investment-coverage-${{ github.run_number }}
+          path: us_investment_coverage_output/investment_coverage_report.json
+          if-no-files-found: warn
+          retention-days: 90
