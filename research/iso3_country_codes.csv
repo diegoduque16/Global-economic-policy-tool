@@ -1,0 +1,250 @@
+iso3,iso2,name,classification
+ABW,AW,Aruba,ISO_3166_1_country_or_territory
+AFG,AF,Afghanistan,ISO_3166_1_country_or_territory
+AGO,AO,Angola,ISO_3166_1_country_or_territory
+AIA,AI,Anguilla,ISO_3166_1_country_or_territory
+ALA,AX,Åland Islands,ISO_3166_1_country_or_territory
+ALB,AL,Albania,ISO_3166_1_country_or_territory
+AND,AD,Andorra,ISO_3166_1_country_or_territory
+ARE,AE,United Arab Emirates,ISO_3166_1_country_or_territory
+ARG,AR,Argentina,ISO_3166_1_country_or_territory
+ARM,AM,Armenia,ISO_3166_1_country_or_territory
+ASM,AS,American Samoa,ISO_3166_1_country_or_territory
+ATA,AQ,Antarctica,ISO_3166_1_country_or_territory
+ATF,TF,French Southern Territories,ISO_3166_1_country_or_territory
+ATG,AG,Antigua and Barbuda,ISO_3166_1_country_or_territory
+AUS,AU,Australia,ISO_3166_1_country_or_territory
+AUT,AT,Austria,ISO_3166_1_country_or_territory
+AZE,AZ,Azerbaijan,ISO_3166_1_country_or_territory
+BDI,BI,Burundi,ISO_3166_1_country_or_territory
+BEL,BE,Belgium,ISO_3166_1_country_or_territory
+BEN,BJ,Benin,ISO_3166_1_country_or_territory
+BES,BQ,"Bonaire, Sint Eustatius and Saba",ISO_3166_1_country_or_territory
+BFA,BF,Burkina Faso,ISO_3166_1_country_or_territory
+BGD,BD,Bangladesh,ISO_3166_1_country_or_territory
+BGR,BG,Bulgaria,ISO_3166_1_country_or_territory
+BHR,BH,Bahrain,ISO_3166_1_country_or_territory
+BHS,BS,Bahamas,ISO_3166_1_country_or_territory
+BIH,BA,Bosnia and Herzegovina,ISO_3166_1_country_or_territory
+BLM,BL,Saint Barthélemy,ISO_3166_1_country_or_territory
+BLR,BY,Belarus,ISO_3166_1_country_or_territory
+BLZ,BZ,Belize,ISO_3166_1_country_or_territory
+BMU,BM,Bermuda,ISO_3166_1_country_or_territory
+BOL,BO,"Bolivia, Plurinational State of",ISO_3166_1_country_or_territory
+BRA,BR,Brazil,ISO_3166_1_country_or_territory
+BRB,BB,Barbados,ISO_3166_1_country_or_territory
+BRN,BN,Brunei Darussalam,ISO_3166_1_country_or_territory
+BTN,BT,Bhutan,ISO_3166_1_country_or_territory
+BVT,BV,Bouvet Island,ISO_3166_1_country_or_territory
+BWA,BW,Botswana,ISO_3166_1_country_or_territory
+CAF,CF,Central African Republic,ISO_3166_1_country_or_territory
+CAN,CA,Canada,ISO_3166_1_country_or_territory
+CCK,CC,Cocos (Keeling) Islands,ISO_3166_1_country_or_territory
+CHE,CH,Switzerland,ISO_3166_1_country_or_territory
+CHL,CL,Chile,ISO_3166_1_country_or_territory
+CHN,CN,China,ISO_3166_1_country_or_territory
+CIV,CI,Côte d'Ivoire,ISO_3166_1_country_or_territory
+CMR,CM,Cameroon,ISO_3166_1_country_or_territory
+COD,CD,"Congo, The Democratic Republic of the",ISO_3166_1_country_or_territory
+COG,CG,Congo,ISO_3166_1_country_or_territory
+COK,CK,Cook Islands,ISO_3166_1_country_or_territory
+COL,CO,Colombia,ISO_3166_1_country_or_territory
+COM,KM,Comoros,ISO_3166_1_country_or_territory
+CPV,CV,Cabo Verde,ISO_3166_1_country_or_territory
+CRI,CR,Costa Rica,ISO_3166_1_country_or_territory
+CUB,CU,Cuba,ISO_3166_1_country_or_territory
+CUW,CW,Curaçao,ISO_3166_1_country_or_territory
+CXR,CX,Christmas Island,ISO_3166_1_country_or_territory
+CYM,KY,Cayman Islands,ISO_3166_1_country_or_territory
+CYP,CY,Cyprus,ISO_3166_1_country_or_territory
+CZE,CZ,Czechia,ISO_3166_1_country_or_territory
+DEU,DE,Germany,ISO_3166_1_country_or_territory
+DJI,DJ,Djibouti,ISO_3166_1_country_or_territory
+DMA,DM,Dominica,ISO_3166_1_country_or_territory
+DNK,DK,Denmark,ISO_3166_1_country_or_territory
+DOM,DO,Dominican Republic,ISO_3166_1_country_or_territory
+DZA,DZ,Algeria,ISO_3166_1_country_or_territory
+ECU,EC,Ecuador,ISO_3166_1_country_or_territory
+EGY,EG,Egypt,ISO_3166_1_country_or_territory
+ERI,ER,Eritrea,ISO_3166_1_country_or_territory
+ESH,EH,Western Sahara,ISO_3166_1_country_or_territory
+ESP,ES,Spain,ISO_3166_1_country_or_territory
+EST,EE,Estonia,ISO_3166_1_country_or_territory
+ETH,ET,Ethiopia,ISO_3166_1_country_or_territory
+FIN,FI,Finland,ISO_3166_1_country_or_territory
+FJI,FJ,Fiji,ISO_3166_1_country_or_territory
+FLK,FK,Falkland Islands (Malvinas),ISO_3166_1_country_or_territory
+FRA,FR,France,ISO_3166_1_country_or_territory
+FRO,FO,Faroe Islands,ISO_3166_1_country_or_territory
+FSM,FM,"Micronesia, Federated States of",ISO_3166_1_country_or_territory
+GAB,GA,Gabon,ISO_3166_1_country_or_territory
+GBR,GB,United Kingdom,ISO_3166_1_country_or_territory
+GEO,GE,Georgia,ISO_3166_1_country_or_territory
+GGY,GG,Guernsey,ISO_3166_1_country_or_territory
+GHA,GH,Ghana,ISO_3166_1_country_or_territory
+GIB,GI,Gibraltar,ISO_3166_1_country_or_territory
+GIN,GN,Guinea,ISO_3166_1_country_or_territory
+GLP,GP,Guadeloupe,ISO_3166_1_country_or_territory
+GMB,GM,Gambia,ISO_3166_1_country_or_territory
+GNB,GW,Guinea-Bissau,ISO_3166_1_country_or_territory
+GNQ,GQ,Equatorial Guinea,ISO_3166_1_country_or_territory
+GRC,GR,Greece,ISO_3166_1_country_or_territory
+GRD,GD,Grenada,ISO_3166_1_country_or_territory
+GRL,GL,Greenland,ISO_3166_1_country_or_territory
+GTM,GT,Guatemala,ISO_3166_1_country_or_territory
+GUF,GF,French Guiana,ISO_3166_1_country_or_territory
+GUM,GU,Guam,ISO_3166_1_country_or_territory
+GUY,GY,Guyana,ISO_3166_1_country_or_territory
+HKG,HK,Hong Kong,ISO_3166_1_country_or_territory
+HMD,HM,Heard Island and McDonald Islands,ISO_3166_1_country_or_territory
+HND,HN,Honduras,ISO_3166_1_country_or_territory
+HRV,HR,Croatia,ISO_3166_1_country_or_territory
+HTI,HT,Haiti,ISO_3166_1_country_or_territory
+HUN,HU,Hungary,ISO_3166_1_country_or_territory
+IDN,ID,Indonesia,ISO_3166_1_country_or_territory
+IMN,IM,Isle of Man,ISO_3166_1_country_or_territory
+IND,IN,India,ISO_3166_1_country_or_territory
+IOT,IO,British Indian Ocean Territory,ISO_3166_1_country_or_territory
+IRL,IE,Ireland,ISO_3166_1_country_or_territory
+IRN,IR,"Iran, Islamic Republic of",ISO_3166_1_country_or_territory
+IRQ,IQ,Iraq,ISO_3166_1_country_or_territory
+ISL,IS,Iceland,ISO_3166_1_country_or_territory
+ISR,IL,Israel,ISO_3166_1_country_or_territory
+ITA,IT,Italy,ISO_3166_1_country_or_territory
+JAM,JM,Jamaica,ISO_3166_1_country_or_territory
+JEY,JE,Jersey,ISO_3166_1_country_or_territory
+JOR,JO,Jordan,ISO_3166_1_country_or_territory
+JPN,JP,Japan,ISO_3166_1_country_or_territory
+KAZ,KZ,Kazakhstan,ISO_3166_1_country_or_territory
+KEN,KE,Kenya,ISO_3166_1_country_or_territory
+KGZ,KG,Kyrgyzstan,ISO_3166_1_country_or_territory
+KHM,KH,Cambodia,ISO_3166_1_country_or_territory
+KIR,KI,Kiribati,ISO_3166_1_country_or_territory
+KNA,KN,Saint Kitts and Nevis,ISO_3166_1_country_or_territory
+KOR,KR,"Korea, Republic of",ISO_3166_1_country_or_territory
+KWT,KW,Kuwait,ISO_3166_1_country_or_territory
+LAO,LA,Lao People's Democratic Republic,ISO_3166_1_country_or_territory
+LBN,LB,Lebanon,ISO_3166_1_country_or_territory
+LBR,LR,Liberia,ISO_3166_1_country_or_territory
+LBY,LY,Libya,ISO_3166_1_country_or_territory
+LCA,LC,Saint Lucia,ISO_3166_1_country_or_territory
+LIE,LI,Liechtenstein,ISO_3166_1_country_or_territory
+LKA,LK,Sri Lanka,ISO_3166_1_country_or_territory
+LSO,LS,Lesotho,ISO_3166_1_country_or_territory
+LTU,LT,Lithuania,ISO_3166_1_country_or_territory
+LUX,LU,Luxembourg,ISO_3166_1_country_or_territory
+LVA,LV,Latvia,ISO_3166_1_country_or_territory
+MAC,MO,Macao,ISO_3166_1_country_or_territory
+MAF,MF,Saint Martin (French part),ISO_3166_1_country_or_territory
+MAR,MA,Morocco,ISO_3166_1_country_or_territory
+MCO,MC,Monaco,ISO_3166_1_country_or_territory
+MDA,MD,"Moldova, Republic of",ISO_3166_1_country_or_territory
+MDG,MG,Madagascar,ISO_3166_1_country_or_territory
+MDV,MV,Maldives,ISO_3166_1_country_or_territory
+MEX,MX,Mexico,ISO_3166_1_country_or_territory
+MHL,MH,Marshall Islands,ISO_3166_1_country_or_territory
+MKD,MK,North Macedonia,ISO_3166_1_country_or_territory
+MLI,ML,Mali,ISO_3166_1_country_or_territory
+MLT,MT,Malta,ISO_3166_1_country_or_territory
+MMR,MM,Myanmar,ISO_3166_1_country_or_territory
+MNE,ME,Montenegro,ISO_3166_1_country_or_territory
+MNG,MN,Mongolia,ISO_3166_1_country_or_territory
+MNP,MP,Northern Mariana Islands,ISO_3166_1_country_or_territory
+MOZ,MZ,Mozambique,ISO_3166_1_country_or_territory
+MRT,MR,Mauritania,ISO_3166_1_country_or_territory
+MSR,MS,Montserrat,ISO_3166_1_country_or_territory
+MTQ,MQ,Martinique,ISO_3166_1_country_or_territory
+MUS,MU,Mauritius,ISO_3166_1_country_or_territory
+MWI,MW,Malawi,ISO_3166_1_country_or_territory
+MYS,MY,Malaysia,ISO_3166_1_country_or_territory
+MYT,YT,Mayotte,ISO_3166_1_country_or_territory
+NAM,NA,Namibia,ISO_3166_1_country_or_territory
+NCL,NC,New Caledonia,ISO_3166_1_country_or_territory
+NER,NE,Niger,ISO_3166_1_country_or_territory
+NFK,NF,Norfolk Island,ISO_3166_1_country_or_territory
+NGA,NG,Nigeria,ISO_3166_1_country_or_territory
+NIC,NI,Nicaragua,ISO_3166_1_country_or_territory
+NIU,NU,Niue,ISO_3166_1_country_or_territory
+NLD,NL,Netherlands,ISO_3166_1_country_or_territory
+NOR,NO,Norway,ISO_3166_1_country_or_territory
+NPL,NP,Nepal,ISO_3166_1_country_or_territory
+NRU,NR,Nauru,ISO_3166_1_country_or_territory
+NZL,NZ,New Zealand,ISO_3166_1_country_or_territory
+OMN,OM,Oman,ISO_3166_1_country_or_territory
+PAK,PK,Pakistan,ISO_3166_1_country_or_territory
+PAN,PA,Panama,ISO_3166_1_country_or_territory
+PCN,PN,Pitcairn,ISO_3166_1_country_or_territory
+PER,PE,Peru,ISO_3166_1_country_or_territory
+PHL,PH,Philippines,ISO_3166_1_country_or_territory
+PLW,PW,Palau,ISO_3166_1_country_or_territory
+PNG,PG,Papua New Guinea,ISO_3166_1_country_or_territory
+POL,PL,Poland,ISO_3166_1_country_or_territory
+PRI,PR,Puerto Rico,ISO_3166_1_country_or_territory
+PRK,KP,"Korea, Democratic People's Republic of",ISO_3166_1_country_or_territory
+PRT,PT,Portugal,ISO_3166_1_country_or_territory
+PRY,PY,Paraguay,ISO_3166_1_country_or_territory
+PSE,PS,"Palestine, State of",ISO_3166_1_country_or_territory
+PYF,PF,French Polynesia,ISO_3166_1_country_or_territory
+QAT,QA,Qatar,ISO_3166_1_country_or_territory
+REU,RE,Réunion,ISO_3166_1_country_or_territory
+ROU,RO,Romania,ISO_3166_1_country_or_territory
+RUS,RU,Russian Federation,ISO_3166_1_country_or_territory
+RWA,RW,Rwanda,ISO_3166_1_country_or_territory
+SAU,SA,Saudi Arabia,ISO_3166_1_country_or_territory
+SDN,SD,Sudan,ISO_3166_1_country_or_territory
+SEN,SN,Senegal,ISO_3166_1_country_or_territory
+SGP,SG,Singapore,ISO_3166_1_country_or_territory
+SGS,GS,South Georgia and the South Sandwich Islands,ISO_3166_1_country_or_territory
+SHN,SH,"Saint Helena, Ascension and Tristan da Cunha",ISO_3166_1_country_or_territory
+SJM,SJ,Svalbard and Jan Mayen,ISO_3166_1_country_or_territory
+SLB,SB,Solomon Islands,ISO_3166_1_country_or_territory
+SLE,SL,Sierra Leone,ISO_3166_1_country_or_territory
+SLV,SV,El Salvador,ISO_3166_1_country_or_territory
+SMR,SM,San Marino,ISO_3166_1_country_or_territory
+SOM,SO,Somalia,ISO_3166_1_country_or_territory
+SPM,PM,Saint Pierre and Miquelon,ISO_3166_1_country_or_territory
+SRB,RS,Serbia,ISO_3166_1_country_or_territory
+SSD,SS,South Sudan,ISO_3166_1_country_or_territory
+STP,ST,Sao Tome and Principe,ISO_3166_1_country_or_territory
+SUR,SR,Suriname,ISO_3166_1_country_or_territory
+SVK,SK,Slovakia,ISO_3166_1_country_or_territory
+SVN,SI,Slovenia,ISO_3166_1_country_or_territory
+SWE,SE,Sweden,ISO_3166_1_country_or_territory
+SWZ,SZ,Eswatini,ISO_3166_1_country_or_territory
+SXM,SX,Sint Maarten (Dutch part),ISO_3166_1_country_or_territory
+SYC,SC,Seychelles,ISO_3166_1_country_or_territory
+SYR,SY,Syrian Arab Republic,ISO_3166_1_country_or_territory
+TCA,TC,Turks and Caicos Islands,ISO_3166_1_country_or_territory
+TCD,TD,Chad,ISO_3166_1_country_or_territory
+TGO,TG,Togo,ISO_3166_1_country_or_territory
+THA,TH,Thailand,ISO_3166_1_country_or_territory
+TJK,TJ,Tajikistan,ISO_3166_1_country_or_territory
+TKL,TK,Tokelau,ISO_3166_1_country_or_territory
+TKM,TM,Turkmenistan,ISO_3166_1_country_or_territory
+TLS,TL,Timor-Leste,ISO_3166_1_country_or_territory
+TON,TO,Tonga,ISO_3166_1_country_or_territory
+TTO,TT,Trinidad and Tobago,ISO_3166_1_country_or_territory
+TUN,TN,Tunisia,ISO_3166_1_country_or_territory
+TUR,TR,Türkiye,ISO_3166_1_country_or_territory
+TUV,TV,Tuvalu,ISO_3166_1_country_or_territory
+TWN,TW,"Taiwan, Province of China",ISO_3166_1_country_or_territory
+TZA,TZ,"Tanzania, United Republic of",ISO_3166_1_country_or_territory
+UGA,UG,Uganda,ISO_3166_1_country_or_territory
+UKR,UA,Ukraine,ISO_3166_1_country_or_territory
+UMI,UM,United States Minor Outlying Islands,ISO_3166_1_country_or_territory
+URY,UY,Uruguay,ISO_3166_1_country_or_territory
+USA,US,United States,ISO_3166_1_country_or_territory
+UZB,UZ,Uzbekistan,ISO_3166_1_country_or_territory
+VAT,VA,Holy See (Vatican City State),ISO_3166_1_country_or_territory
+VCT,VC,Saint Vincent and the Grenadines,ISO_3166_1_country_or_territory
+VEN,VE,"Venezuela, Bolivarian Republic of",ISO_3166_1_country_or_territory
+VGB,VG,"Virgin Islands, British",ISO_3166_1_country_or_territory
+VIR,VI,"Virgin Islands, U.S.",ISO_3166_1_country_or_territory
+VNM,VN,Viet Nam,ISO_3166_1_country_or_territory
+VUT,VU,Vanuatu,ISO_3166_1_country_or_territory
+WLF,WF,Wallis and Futuna,ISO_3166_1_country_or_territory
+WSM,WS,Samoa,ISO_3166_1_country_or_territory
+YEM,YE,Yemen,ISO_3166_1_country_or_territory
+ZAF,ZA,South Africa,ISO_3166_1_country_or_territory
+ZMB,ZM,Zambia,ISO_3166_1_country_or_territory
+ZWE,ZW,Zimbabwe,ISO_3166_1_country_or_territory
