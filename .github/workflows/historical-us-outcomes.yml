@@ -1,0 +1,248 @@
+name: Refresh US historical employment and demand outcomes
+
+# Data expansion only: source-aligned BLS and BEA statistics, no tax-shock regressions.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 9 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: historical-us-outcomes
+  cancel-in-progress: false
+
+jobs:
+  source-aligned-panel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository for independent provenance
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download and validate original US outcomes without causal modeling
+        run: |
+          python - <<'PY_IMPLEMENT'
+          """US public macro and labor outcomes: source-faithful quarterly panel, not causal estimates.
+          
+          This script is embedded inside one GitHub Actions workflow. It checks and stores
+          source FRED CSV hashes and official provider series documentation pointers.
+          """
+          from __future__ import annotations
+          import csv
+          from datetime import date, datetime, timezone
+          import hashlib
+          import io
+          import json
+          import math
+          from pathlib import Path
+          import statistics
+          import sys
+          import time
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+          
+          OUT = Path('us_outcomes_output')
+          START = 1945
+          END = datetime.now(timezone.utc).year
+          HIST_END = 2007
+          SERIES = {
+              'PAYEMS': ('monthly', 'thousands of nonfarm payroll jobs', 'BLS / CES', 'mean_of_3_monthly_levels'),
+              'USPRIV': ('monthly', 'thousands of private nonfarm payroll jobs', 'BLS / CES', 'mean_of_3_monthly_levels'),
+              'UNRATE': ('monthly', 'percent of civilian labor force', 'BLS / CPS', 'mean_of_3_monthly_rates'),
+              'EMRATIO': ('monthly', 'percent of civilian noninstitutional population', 'BLS / CPS', 'mean_of_3_monthly_rates'),
+              'GDPC1': ('quarterly', 'billions of chained 2017 dollars, SAAR', 'BEA / NIPA', 'original_quarterly_level'),
+              'GDP': ('quarterly', 'billions of current dollars, SAAR', 'BEA / NIPA', 'original_quarterly_level'),
+              'PCECC96': ('quarterly', 'billions of chained 2017 dollars, SAAR', 'BEA / NIPA', 'original_quarterly_level'),
+              'PNFIC1': ('quarterly', 'billions of chained 2017 dollars, SAAR', 'BEA / NIPA', 'original_quarterly_level'),
+              'GCEC1': ('quarterly', 'billions of chained 2017 dollars, SAAR', 'BEA / NIPA', 'original_quarterly_level'),
+              'COE': ('quarterly', 'billions of current dollars, SAAR', 'BEA / NIPA', 'original_quarterly_level'),
+          }
+          # The source providers, SA status, base years and unit metadata are pinned here
+          # and also included in the manifest for manual source-definition review.
+          FRED_BASE = 'https://fred.stlouisfed.org/graph/fredgraph.csv'
+          HEADERS = {'User-Agent': 'GlobalEconomicPolicyTool/1.2 (public research; source-attributed)', 'Accept': 'text/csv'}
+          COLUMNS = ['country_iso3', 'quarter', 'series', 'value', 'unit', 'frequency_original',
+                     'aggregation', 'source_provider', 'source_date_first', 'source_date_last',
+                     'observed_months', 'source_url', 'retrieved_utc', 'source_sha256']
+          
+          
+          def fetch(url, attempts=3):
+              last = None
+              for i in range(attempts):
+                  try:
+                      with urlopen(Request(url, headers=HEADERS), timeout=60) as response:
+                          if response.geturl().split('?')[0] != FRED_BASE:
+                              raise ValueError('Unexpected FRED source URL redirect')
+                          blob = response.read(3_000_001)
+                          if not blob or len(blob) > 3_000_000:
+                              raise ValueError('Empty or oversized provider CSV')
+                          return blob
+                  except Exception as exc:
+                      last = exc
+                      if i + 1 < attempts:
+                          time.sleep(2 ** i)
+              raise RuntimeError(f'Provider fetch failed: {type(last).__name__}: {last}')
+          
+          
+          def parse(blob, code):
+              # No source-defined '.' or blank cell is ever coerced to zero.
+              if code not in SERIES:
+                  raise ValueError('Unexpected source series')
+              freq, _, _, _ = SERIES[code]
+              try:
+                  reader = csv.DictReader(io.StringIO(blob.decode('utf-8-sig')))
+              except UnicodeError as exc:
+                  raise ValueError('Not UTF-8 CSV') from exc
+              headers = reader.fieldnames or []
+              dtcol = 'observation_date' if 'observation_date' in headers else 'DATE'
+              if dtcol not in headers or code not in headers or len(headers) != 2:
+                  raise ValueError(f'Unexpected FRED column schema for {code}: {headers!r}')
+              result = {}
+              skipped_missing = 0
+              for row in reader:
+                  if None in row or any(v is None for v in row.values()):
+                      raise ValueError('Malformed CSV row')
+                  d = date.fromisoformat((row[dtcol] or '').strip())
+                  if d.day != 1 or (freq == 'quarterly' and d.month not in (1, 4, 7, 10)):
+                      raise ValueError(f'Unrecognized frequency/date for {code}: {d}')
+                  if not START <= d.year <= END:
+                      continue
+                  raw = (row[code] or '').strip()
+                  if raw in ('', '.'):
+                      skipped_missing += 1
+                      continue
+                  num = float(raw)
+                  if not math.isfinite(num):
+                      raise ValueError(f'Nonfinite source value for {code}')
+                  if d in result:
+                      raise ValueError(f'Duplicate source date for {code}: {d}')
+                  result[d] = num
+              if not result:
+                  raise ValueError(f'No real observations for {code}')
+              return result, skipped_missing
+          
+          
+          def quarterly(data, code, url, sha, stamp):
+              freq, unit, provider, method = SERIES[code]
+              groups = {}
+              for d, v in data.items():
+                  q = (d.month - 1) // 3 + 1
+                  if freq == 'quarterly' and d.month != 3 * q - 2:
+                      raise ValueError('Source quarter start inconsistent')
+                  groups.setdefault((d.year, q), []).append((d, v))
+              accepted, partial = [], []
+              for (year, q), obs in sorted(groups.items()):
+                  if freq == 'monthly':
+                      months = sorted(d.month for d, v in obs)
+                      expected = [3 * q - 2, 3 * q - 1, 3 * q]
+                      if months != expected:
+                          partial.append(f'{year}Q{q}')
+                          continue
+                      value = statistics.mean(v for d, v in obs)
+                      observed = 3
+                  else:
+                      if len(obs) != 1:
+                          raise ValueError('Multiple quarterly values')
+                      value = obs[0][1]
+                      observed = 0
+                  accepted.append({'country_iso3': 'USA', 'quarter': f'{year}Q{q}', 'series': code,
+                    'value': format(value, '.12g'), 'unit': unit,
+                    'frequency_original': freq, 'aggregation': method,
+                    'source_provider': provider, 'source_date_first': str(min(d for d, _ in obs)),
+                    'source_date_last': str(max(d for d, _ in obs)),
+                    'observed_months': observed, 'source_url': url,
+                    'retrieved_utc': stamp, 'source_sha256': sha})
+              return accepted, partial
+          
+          
+          def run(get=fetch, dest=OUT):
+              dest = Path(dest)
+              if dest.exists() and any(dest.iterdir()):
+                  raise FileExistsError('Refusing to overwrite an existing output directory')
+              dest.mkdir(parents=True, exist_ok=True)
+              stamp = datetime.now(timezone.utc).isoformat()
+              rows, manifest, errors = [], [], []
+              for code, (frequency, unit, provider, transform) in SERIES.items():
+                  url = FRED_BASE + '?' + urlencode({'id': code})
+                  try:
+                      blob = get(url)
+                      digest = hashlib.sha256(blob).hexdigest()
+                      observed, missing = parse(blob, code)
+                      complete, partial = quarterly(observed, code, url, digest, stamp)
+                      if not complete:
+                          raise ValueError('No complete quarters')
+                      rows.extend(complete)
+                      manifest.append({'id': code, 'provider': provider, 'frequency': frequency,
+                         'unit': unit, 'quarterly_method': transform,
+                         'url': url, 'source_reference': f'https://fred.stlouisfed.org/series/{code}',
+                         'sha256_of_retrieved_csv': digest, 'retrieved_utc': stamp,
+                         'native_observations': len(observed), 'complete_quarters': len(complete),
+                         'first_quarter': complete[0]['quarter'], 'last_quarter': complete[-1]['quarter'],
+                         'missing_source_values': missing, 'excluded_partial_quarters': partial})
+                  except Exception as exc:
+                      errors.append({'id': code, 'type': type(exc).__name__, 'detail': str(exc)[:250]})
+              rows.sort(key=lambda x: (x['quarter'], x['series']))
+              if not errors:
+                  if len(manifest) != len(SERIES):
+                      raise ValueError('Series silently omitted')
+                  obs = {(r['quarter'], r['series']) for r in rows}
+                  if len(obs) != len(rows):
+                      raise ValueError('Conflicting duplicates')
+                  required = [('1947Q1', 'GDPC1'), ('1950Q1', 'PAYEMS'),
+                              ('1950Q1', 'UNRATE'), ('1950Q1', 'EMRATIO'),
+                              ('2007Q4', 'GDPC1'), ('2007Q4', 'PAYEMS')]
+                  missing_required = [f'{q}:{s}' for q, s in required if (q, s) not in obs]
+                  if missing_required:
+                      errors.append({'id': 'historical_sample_gate', 'type': 'MissingHistoricalOverlap',
+                                     'detail': ', '.join(missing_required)})
+              report = {'status': 'source_aligned_outcomes_only_not_causal',
+                 'source_series_count': len(manifest), 'expected_series_count': len(SERIES),
+                 'quarterly_observations': len(rows),
+                 'historical_tax_shock_reference_window': '1947Q1-2007Q4',
+                 'series_with_both_1950Q1_and_2007Q4': [m['id'] for m in manifest
+                   if (('1950Q1', m['id']) in {(r['quarter'], r['series']) for r in rows}) and
+                       (('2007Q4', m['id']) in {(r['quarter'], r['series']) for r in rows})],
+                 'source_metadata_reconciliation_required': True,
+                 'original_sources': 'BLS and BEA datasets accessed through FRED CSV',
+                 'release_vintage': 'current_FRED_observations_as_of_retrieval; historical_real_time_vintages_not_preserved',
+                 'outcomes_not_policy_shocks': True, 'causal_estimates_produced': False,
+                 'series': manifest, 'errors': errors,
+                 'method_notes': [
+                   'Monthly observations are arithmetic means of exactly three months; incomplete quarters excluded.',
+                   'Quarterly BEA flow series remain seasonally adjusted annual rates; no reannualization or artificial summation.',
+                   'Chained-dollar components must not be added as if additive; ratios and multipliers require explicit calculation design.',
+                   'Payroll employment is jobs rather than people; CPS unemployment and employment/population are survey rates.',
+                   'Units come from manually reviewed provider metadata; source pages and dates should be rechecked after revisions.',
+                   'The 1945Q1-2007Q4 original tax source is not yet a validated linked econometric dataset.',
+                   'No synthetic interpolation, zero filling, presidential employment attribution, or AI causality claimed.'
+                 ]}
+              (dest / 'series_readiness_report.json').write_text(json.dumps(report, indent=2)+'\n', encoding='utf-8')
+              (dest / 'source_manifest.json').write_text(json.dumps(manifest, indent=2)+'\n', encoding='utf-8')
+              if not errors:
+                  with (dest / 'quarterly_us_outcomes.csv').open('w', newline='', encoding='utf-8') as file:
+                      writer = csv.DictWriter(file, fieldnames=COLUMNS)
+                      writer.writeheader()
+                      writer.writerows(rows)
+              print(json.dumps({'status': report['status'], 'series_validated': len(manifest),
+                   'outcome_rows': len(rows), 'errors': errors,
+                   'observations_public_artifact': not bool(errors)}, indent=2))
+              if errors:
+                  raise RuntimeError('Source readiness validation failed; artifact includes diagnostic metadata only')
+              return report
+          
+          if __name__ == '__main__':
+              run()
+          PY_IMPLEMENT
+      - name: Preserve research-panel and validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: historical-us-outcomes-${{ github.run_number }}
+          path: us_outcomes_output/*
+          if-no-files-found: warn
+          retention-days: 90
