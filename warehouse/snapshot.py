@@ -31,6 +31,7 @@ OPTIONAL_FAMILIES = {
     'bls_bed': ('bls_bed', 'bls_bed_panel.csv', 200),
     'oecd_cit': ('oecd_cit', 'oecd_cit_panel.csv', 100),
     'bls_jolts': ('bls_jolts', 'bls_jolts_panel.csv', 5000),
+    'historical_turnover': ('historical_turnover', 'historical_turnover_panel.csv', 2800),
 }
 
 SCHEMA = '''

@@ -1,0 +1,145 @@
+"""Historical U.S. manufacturing turnover rates, 1930–1981.
+
+Researcher-reconstructed, X-13 seasonally adjusted series by Bart Hobijn,
+from historical BLS publications; not comparable directly with JOLTS.
+The raw JSON is timestamp-keyed: each month maps to five distinct rates.
+No gap-filling, joining, imputation, or causal attribution.
+"""
+from __future__ import annotations
+
+import csv
+import datetime as dt
+import hashlib
+import json
+import math
+from pathlib import Path
+import time
+import urllib.error
+import urllib.request
+
+SOURCE_URL = 'https://www.labormarketupdate.net/items/data/historicallts.json'
+META_URL = 'https://www.labormarketupdate.net/items/metadata/historicallts.json'
+DOC_URL = 'https://www.labormarketupdate.net/extra/HistoricalLTS.pdf'
+SERIES = {
+    'Accessions': 'accessions_rate',
+    'New Hires': 'new_hires_rate',
+    'Separations': 'separations_rate',
+    'Quits': 'quits_rate',
+    'Layoffs': 'layoffs_rate',
+}
+COLUMNS = ('provider','country_iso3','year','period','series','value','unit',
+           'frequency','disaggregation','obs_status','source_url','retrieved_utc')
+
+
+def bounded_get(url: str, max_bytes=5_000_000) -> bytes:
+    req = urllib.request.Request(url, headers={
+        'User-Agent':'GlobalEconomicPolicyResearch/1.0 (public economic research)',
+        'Accept':'application/json','Accept-Encoding':'identity'})
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req,timeout=60) as resp:
+                raw=resp.read(max_bytes+1)
+                if len(raw)>max_bytes: raise ValueError('Source exceeds bounded maximum size')
+                if not raw: raise ValueError('Empty historical turnover response')
+                return raw
+        except (urllib.error.URLError, TimeoutError) as exc:
+            if attempt==2 or (isinstance(exc,urllib.error.HTTPError) and exc.code in (400,401,403,404)):
+                raise
+            time.sleep(attempt+1)
+    raise RuntimeError('Download retries exhausted')
+
+
+def collect(out='data/historical_turnover', get_bytes=bounded_get):
+    out=Path(out); (out/'processed').mkdir(parents=True,exist_ok=True)
+    (out/'raw').mkdir(parents=True,exist_ok=True)
+    when=dt.datetime.now(dt.timezone.utc).isoformat()
+    source_raw=get_bytes(SOURCE_URL)
+    metadata_raw=get_bytes(META_URL)
+    # Keep original source and metadata separately for reproducibility, in the
+    # local workflow output. Raw files are not committed or publicly released.
+    (out/'raw'/'historicallts.json').write_bytes(source_raw)
+    (out/'raw'/'historicallts_metadata.json').write_bytes(metadata_raw)
+    raw=json.loads(source_raw)
+    metadata=json.loads(metadata_raw)
+    if not isinstance(raw,dict) or not isinstance(metadata,dict):
+        raise ValueError('Expected timestamp-keyed object and metadata object')
+    if not metadata.get('Author') or 'Bureau of Labor Statistics' not in str(metadata.get('Source','')):
+        raise ValueError('Original attribution metadata missing or changed')
+    months={f'{yr:04d}-{mo:02d}' for yr in range(1930,1982) for mo in range(1,13)}
+    observed_months=set()
+    counts={key:0 for key in SERIES}
+    rows=[];keys=set();null_hires=0
+    for stamp,measures in raw.items():
+        try: parsed=dt.datetime.fromisoformat(stamp.replace('Z','+00:00'))
+        except ValueError as exc:raise ValueError('Invalid source month: '+repr(stamp)) from exc
+        if parsed.day != 1 or any((parsed.hour,parsed.minute,parsed.second,parsed.microsecond)):
+            raise ValueError('Timestamp not first day of month: '+stamp)
+        month=parsed.strftime('%Y-%m')
+        if month not in months or month in observed_months:
+            raise ValueError('Unexpected or duplicate source month: '+month)
+        observed_months.add(month)
+        if not isinstance(measures,dict) or set(measures)!=set(SERIES):
+            raise ValueError('Unexpected turnover measure fields for '+month)
+        for display, code in SERIES.items():
+            val=measures[display]
+            if val is None:
+                if display=='New Hires' and parsed.year<1951:
+                    null_hires+=1
+                    continue
+                raise ValueError('Unexpected missing value for '+month+' '+display)
+            if not isinstance(val,(int,float)) or isinstance(val,bool) or not math.isfinite(val):
+                raise ValueError('Non-numeric/invalid '+month+' '+display)
+            if not 0<=float(val)<100:
+                raise ValueError('Implausible turnover rate '+month+' '+display)
+            unique=(month,code)
+            if unique in keys:raise ValueError('Duplicate observation '+str(unique))
+            keys.add(unique);counts[display]+=1
+            disagg={'sector':'manufacturing','country':'USA','value_type':'turnover_rate',
+                'original_measure':display,'survey':'historical_labor_turnover_survey',
+                'reconstruction_author':'Bart Hobijn',
+                'seasonal_adjustment':'researcher_adjusted_X13',
+                'level':'US_manufacturing_only','source_documentation':DOC_URL}
+            rows.append({'provider':'BLS historical LTS reconstructed by Bart Hobijn',
+               'country_iso3':'USA','year':parsed.year,'period':month,
+               'series':'BLS_HISTORICAL_MFG_LTS.'+code,'value':val,
+               'unit':'percent_of_manufacturing_payroll_employment',
+               'frequency':'monthly','disaggregation':json.dumps(disagg,sort_keys=True),
+               'obs_status':'researcher_reconstructed_seasonally_adjusted',
+               'source_url':SOURCE_URL,'retrieved_utc':when})
+    if observed_months!=months:raise ValueError('Month gaps: '+repr(sorted(months-observed_months)[:15]))
+    if null_hires!=252:raise ValueError('1951 start date for new hires not preserved')
+    if counts != {'Accessions':624,'New Hires':372,'Separations':624,'Quits':624,'Layoffs':624}:
+        raise ValueError('Unexpected per-series coverage: '+repr(counts))
+    rows.sort(key=lambda x:(x['period'],x['series']))
+    if len(rows)!=2868:raise ValueError('Unexpected number of source observations')
+    panel=out/'processed'/'historical_turnover_panel.csv'
+    with panel.open('w',newline='',encoding='utf-8') as handle:
+        writer=csv.DictWriter(handle,fieldnames=COLUMNS)
+        writer.writeheader();writer.writerows(rows)
+    report={'status':'VALIDATED_EXTRACT','dataset':'Historical US manufacturing labor turnover',
+       'family':'historical_turnover','source_url':SOURCE_URL,'source_metadata_url':META_URL,
+       'documentation_url':DOC_URL,'retrieved_utc':when,'observations':len(rows),
+       'source_months':len(observed_months),'start':'1930-01','end':'1981-12',
+       'years':[1930,1981],'series_counts':counts,'missing_new_hires_pre1951':null_hires,
+       'source_sha256':hashlib.sha256(source_raw).hexdigest(),
+       'metadata_sha256':hashlib.sha256(metadata_raw).hexdigest(),
+       'panel_sha256':hashlib.sha256(panel.read_bytes()).hexdigest(),
+       'errors':[],'conflicts':[],'research_ready':False,
+       'source_attribution':metadata.get('Author','Bart Hobijn'),
+       'limitations':['USA manufacturing only; not a complete labor market measure.',
+          'Pre-1943 measurement and industry/survey coverage changes require review.',
+          '1930-1981 only. New hires start in 1951; 1930-1950 are missing, not zero.',
+          'All source series were seasonally adjusted by researcher using X-13.',
+          'Rates are not counts of jobs; do not aggregate rates by summation.',
+          'No splice or harmonization with JOLTS (2000 onward).',
+          'Survey definitions/reconstruction and licensing require review before public redistribution.',
+          'Historical turnover rates do not identify causal effects of any policy or technology.']}
+    (out/'run_report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+    return report
+
+
+if __name__=='__main__':
+    r=collect()
+    print(json.dumps({'status':r['status'],'observations':r['observations'],
+          'months':r['source_months'],'series_counts':r['series_counts'],
+          'missing_new_hires_pre1951':r['missing_new_hires_pre1951']},indent=2))
