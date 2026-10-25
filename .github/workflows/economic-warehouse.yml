@@ -1,0 +1,73 @@
+name: Build versioned economic research warehouse
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish a PUBLIC GitHub Release? Review dataset redistribution terms first.'
+        type: boolean
+        required: true
+        default: false
+      include_raw:
+        description: 'Include raw API payloads in PUBLIC release? Only after redistribution rights review.'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: write  # Required only if publish_release is true.
+
+concurrency:
+  group: warehouse-snapshot
+  cancel-in-progress: false
+
+jobs:
+  warehouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Get repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test warehouse builder
+        run: python -m unittest discover -s tests -p 'test_snapshot.py' -v
+      - name: Download full World Bank data
+        run: python open_data/ingest.py --countries all --start 1960 --end 2026 --group all --out data/wdi
+      - name: Download full US and Europe data
+        run: python open_data/us_europe.py --scope full --sources all --out data/us_europe
+      - name: Download historical Maddison estimates
+        run: python open_data/historical_maddison.py --start 1 --end 1959 --out data/historical
+      - name: Download full IMF and OECD data
+        run: python open_data/imf_oecd.py --scope full --source both --out data/imf_oecd
+      - name: Download full labor data
+        run: python open_data/labor_markets.py --scope full --source all --out data/labor
+      - name: Build validated SQLite snapshot and versioned archive
+        env:
+          INCLUDE_RAW: ${{ inputs.include_raw }}
+        run: |
+          ID="economic-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+          echo "SNAPSHOT_ID=$ID" >> "$GITHUB_ENV"
+          EXTRA=''
+          if [ "$INCLUDE_RAW" = 'true' ]; then EXTRA='--include-raw'; fi
+          python warehouse/snapshot.py --data data --out warehouse_output --snapshot-id "$ID" $EXTRA
+      - name: Retain versioned snapshot as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-warehouse-${{ github.run_number }}
+          path: |
+            warehouse_output/*.tar.gz
+            warehouse_output/*/manifest.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Publish permanent PUBLIC GitHub Release only if explicitly requested
+        if: inputs.publish_release == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$SNAPSHOT_ID" "warehouse_output/$SNAPSHOT_ID.tar.gz" "warehouse_output/$SNAPSHOT_ID/manifest.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Economic research snapshot $SNAPSHOT_ID" \
+            --notes "Source-separated, validated public economic research data. The SQLite database is not statistically harmonized and does not support causal claims. Source providers may impose redistribution requirements. Release asset is PUBLIC."
