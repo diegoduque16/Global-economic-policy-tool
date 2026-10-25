@@ -1,0 +1,32 @@
+name: Audit Romer tax shock variable mapping
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-mapping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out research code
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate definition mapping and source safety
+        run: |
+          python -m unittest discover -s tests -p 'test_inspect_romer.py' -v
+          python -m unittest discover -s tests -p 'test_romer_tax_mapping.py' -v
+      - name: Fetch pinned source and map variable metadata
+        run: python -m policy_shocks.romer_tax_mapping --out romer_mapping_output
+      - name: Save metadata only, never numeric source values
+        uses: actions/upload-artifact@v4
+        with:
+          name: romer-tax-mapping-${{ github.run_number }}
+          path: romer_mapping_output/*.json
+          if-no-files-found: error
+          retention-days: 90
