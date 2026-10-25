@@ -1,0 +1,29 @@
+name: Build economic source registry
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'open_data/expanded_source_catalog.csv'
+      - 'scripts/build_source_registry.py'
+      - '.github/workflows/source-registry.yml'
+  schedule:
+    - cron: '43 10 * * 1'
+permissions:
+  contents: read
+jobs:
+  build-registry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and normalize catalog
+        run: python scripts/build_source_registry.py
+      - name: Upload structured registry
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-source-registry-${{ github.run_number }}
+          path: research/source_registry/*
+          if-no-files-found: error
+          retention-days: 90
