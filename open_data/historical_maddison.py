@@ -59,7 +59,7 @@ def parse_series(raw: bytes, indicator: str, *, start: int, end: int):
     required = {"Entity", "Code", "Year"}
     if not required.issubset(headers):
         raise ValueError(f"Unexpected OWID CSV headers: {headers!r}")
-    value_fields = [x for x in headers if x not in required]
+    value_fields = [x for x in headers if x not in required and not x.strip().endswith("(Annotations)")]]
     if len(value_fields) != 1:
         raise ValueError(f"Expected one numeric value column, got {value_fields!r}")
     value_field = value_fields[0]
