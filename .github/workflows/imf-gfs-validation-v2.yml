@@ -1,0 +1,96 @@
+name: Validate bounded IMF GFS series (v2)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Query explicit IMF GFS country-series keys and validate observations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv, datetime as dt, hashlib, io, json, math, pathlib, urllib.error, urllib.request
+          out=pathlib.Path('research/imf_gfs_v2');out.mkdir(parents=True,exist_ok=True)
+          root='https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/GFS_SOO'
+          # Dimensions: COUNTRY.SECTOR.GFS_GRP.INDICATOR.TYPE_OF_TRANSFORMATION.FREQUENCY
+          # S1311 = central government; G2M is a GFS expenditure category.
+          # Exact series key avoids broad requests, ignored country filters, or huge transfers.
+          queries=[
+            ('USA','USA.S1311.G2M.G2_T.POGDP_PT.A'),
+            ('CAN','CAN.S1311.G2M.G2_T.POGDP_PT.A'),
+            ('GBR','GBR.S1311.G2M.G2_T.POGDP_PT.A'),
+            ('USA','USA.S1311.G2M.*.POGDP_PT.A'),
+            ('CAN','CAN.S1311.G2M.*.POGDP_PT.A'),
+          ]
+          attempts=[];samples=[];data_obtained=False
+          for country,key in queries:
+            # Dataset version currently documented as 12.0.0; also test latest alias.
+            for version in ('12.0.0','+'):
+              url=f'{root}/{version}/{key}?startPeriod=2020&endPeriod=2025'
+              note={'key':key,'country':country,'version':version,'url':url}
+              try:
+                req=urllib.request.Request(url,headers={
+                  'Accept':'text/csv','User-Agent':'EconomicPolicyResearch/1.0',
+                  'Accept-Encoding':'identity'})
+                with urllib.request.urlopen(req,timeout=50) as response:
+                  payload=response.read(3_000_001)
+                  note['mime']=response.headers.get('Content-Type','')
+                if len(payload)>3_000_000: raise ValueError('Exceeded 3 MB bounded response; refusing bulk download')
+                decoded=payload.decode('utf-8-sig')
+                if decoded.lstrip().startswith(('<','{')):raise ValueError('Expected CSV, got markup or JSON')
+                parsed=csv.DictReader(io.StringIO(decoded));fields=parsed.fieldnames or []
+                if not {'COUNTRY','TIME_PERIOD','OBS_VALUE'}.issubset(fields):
+                  raise ValueError('Missing mandatory CSV columns: '+','.join(fields[:15]))
+                matched=[]
+                for r in parsed:
+                  year=str(r.get('TIME_PERIOD',''))
+                  if r.get('COUNTRY')!=country or not(year.isdigit() and 2020<=int(year)<=2025):continue
+                  try:v=float(r.get('OBS_VALUE',''))
+                  except (TypeError,ValueError):continue
+                  if not math.isfinite(v):continue
+                  if r.get('FREQUENCY') not in ('A',None,''):continue
+                  # Never infer source units from a value; preserve source codes.
+                  matched.append(r)
+                if not matched:raise ValueError('No numeric annual observations matching country and year window')
+                note.update({'status':'VALIDATED_SAMPLE','observations':len(matched),'bytes':len(payload),'columns':fields})
+                filename=f'{country}_{version.replace("+","latest")}.csv'
+                (out/filename).write_bytes(payload)
+                samples.append({'country':country,'key':key,'url':url,
+                  'file':filename,'sha256':hashlib.sha256(payload).hexdigest(),
+                  'observations':len(matched),'years':sorted({r['TIME_PERIOD'] for r in matched}),
+                  'columns':fields})
+                data_obtained=True
+                attempts.append(note)
+                break
+              except (urllib.error.HTTPError,urllib.error.URLError,TimeoutError,UnicodeError,ValueError,csv.Error) as e:
+                note.update({'status':'FAILED','error':str(e)[:250]});attempts.append(note)
+            if data_obtained:break
+          result={
+            'status':'VALIDATED_SAMPLE_RETRIEVED' if data_obtained else 'NOT_YET_VALIDATED',
+            'retrieved_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
+            'source':'IMF.STA:GFS_SOO','source_landing':'https://data.imf.org/en/datasets/IMF.STA%3AGFS_SOO',
+            'attempts':attempts,'samples':samples,'research_ready':False,
+            'integrated_in_main_warehouse':False,
+            'cautions':['Central (S1311) and general (S13) government are distinct.',
+              'Fiscal categories/units must be validated against the IMF codebooks.',
+              'Fiscal expenditure is not an exogenous policy shock.',
+              'IMF data redistribution terms must be reviewed before publication.']}
+          (out/'report.json').write_text(json.dumps(result,indent=2)+'\n')
+          print(json.dumps(result,indent=2))
+          if not data_obtained:raise SystemExit('No validated sample: see diagnostic artifact')
+          PY
+      - name: Save diagnostics and samples even if collection fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: imf-gfs-v2-${{ github.run_number }}
+          path: research/imf_gfs_v2/*
+          if-no-files-found: warn
+          retention-days: 90
