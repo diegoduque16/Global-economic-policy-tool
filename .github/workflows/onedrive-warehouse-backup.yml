@@ -1,0 +1,98 @@
+name: Back up economic warehouse to OneDrive
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Successful Build versioned economic research warehouse run ID'
+        required: true
+        type: string
+  workflow_run:
+    workflows: ['Build versioned economic research warehouse']
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: onedrive-warehouse-backup-${{ github.event.workflow_run.id || inputs.source_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TARGET: 'onedrive:Diego/economic research database'
+      RUN_ID: ${{ github.event.workflow_run.id || inputs.source_run_id }}
+    steps:
+      - name: Check credentials and target run ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64 repository secret' >&2; exit 1; }
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Invalid run ID' >&2; exit 1; }
+      - name: Install rclone
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+      - name: Load private OneDrive credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Validate source run succeeded
+        shell: bash
+        run: |
+          set -euo pipefail
+          conclusion=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID" --jq '.conclusion')
+          name=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID" --jq '.name')
+          test "$conclusion" = success || { echo "Source run conclusion: $conclusion" >&2; exit 1; }
+          test "$name" = 'Build versioned economic research warehouse' || { echo "Unexpected workflow: $name" >&2; exit 1; }
+      - name: Download warehouse artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/warehouse"
+          gh run download "$RUN_ID" --repo "$GH_REPO" --dir "$RUNNER_TEMP/warehouse"
+          find "$RUNNER_TEMP/warehouse" -maxdepth 4 -type f -name 'economic-*.tar.gz' -print
+          count=$(find "$RUNNER_TEMP/warehouse" -type f -name 'economic-*.tar.gz' | wc -l)
+          test "$count" -eq 1 || { echo "Expected exactly one snapshot archive; found $count" >&2; exit 1; }
+      - name: Upload snapshot and verify checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=$(find "$RUNNER_TEMP/warehouse" -type f -name 'economic-*.tar.gz' -print -quit)
+          file=$(basename "$archive")
+          echo "Uploading $file to $TARGET/snapshots/"
+          rclone copyto "$archive" "$TARGET/snapshots/$file" --retries 3 --low-level-retries 10
+          local_hash=$(sha256sum "$archive" | awk '{print $1}')
+          remote_hash=$(rclone hashsum SHA-256 "$TARGET/snapshots/$file" 2>/dev/null | awk 'NR==1 {print $1}' || true)
+          if [[ "$remote_hash" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            test "${local_hash,,}" = "${remote_hash,,}" || { echo 'SHA-256 mismatch' >&2; exit 1; }
+            echo 'Remote SHA-256 matches local archive.'
+          else
+            echo 'OneDrive SHA-256 unavailable; downloading remote copy to verify byte-for-byte.'
+            mkdir -p "$RUNNER_TEMP/verify-local" "$RUNNER_TEMP/verify-remote"
+            cp "$archive" "$RUNNER_TEMP/verify-local/$file"
+            rclone copyto "$TARGET/snapshots/$file" "$RUNNER_TEMP/verify-remote/$file"
+            cmp "$RUNNER_TEMP/verify-local/$file" "$RUNNER_TEMP/verify-remote/$file"
+          fi
+          printf '%s  %s\n' "$local_hash" "$file" > "$RUNNER_TEMP/warehouse/$file.sha256"
+          rclone copyto "$RUNNER_TEMP/warehouse/$file.sha256" "$TARGET/snapshots/$file.sha256"
+          echo "Backup verified: $file ($local_hash)"
+      - name: Remove temporary OAuth credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
