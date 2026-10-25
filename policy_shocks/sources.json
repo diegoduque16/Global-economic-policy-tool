@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "id": "romer_romer_2010",
+      "title": "The Macroeconomic Effects of Tax Changes: Estimates Based on a New Measure of Fiscal Shocks",
+      "authors": "Christina D. Romer and David H. Romer",
+      "year": 2010,
+      "country": "USA",
+      "design": "narrative_exogenous_tax",
+      "replication_url": "https://eml.berkeley.edu/~dromer/papers/DataSet.zip",
+      "study_url": "https://doi.org/10.1257/aer.100.3.763",
+      "retrieval_mode": "automatic_archive_audit",
+      "note": "Original author-hosted ZIP. Variable definitions and the exogenous series must be verified against the codebook before numeric import."
+    },
+    {
+      "id": "cloyne_2013",
+      "title": "Discretionary Tax Changes and the Macroeconomy: New Narrative Evidence from the United Kingdom",
+      "authors": "James Cloyne",
+      "year": 2013,
+      "country": "GBR",
+      "design": "narrative_exogenous_tax",
+      "replication_url": "https://www.openicpsr.org/openicpsr/project/112651/version/V1/view",
+      "study_url": "https://doi.org/10.1257/aer.103.4.1507",
+      "retrieval_mode": "manual_metadata_and_license_review",
+      "note": "Version V1 replication includes data.xlsx; its causal shock column and source reuse conditions require verification."
+    },
+    {
+      "id": "adler_allen_ganelli_leigh_2024",
+      "title": "An Updated Action-based Dataset of Fiscal Consolidation",
+      "authors": "Gustavo Adler, Cian Allen, Giovanni Ganelli, Daniel Leigh",
+      "year": 2024,
+      "country": "multiple",
+      "design": "narrative_deficit_consolidation",
+      "replication_url": "https://www.imf.org/en/publications/wp/issues/2024/09/27/an-updated-action-based-dataset-of-fiscal-consolidation-554986",
+      "study_url": "https://doi.org/10.5089/9798400289811.001",
+      "retrieval_mode": "manual_supplement_download_and_schema_review",
+      "note": "Study covers 17 OECD economies 1978â€“2020 and 14 Latin America/Caribbean economies 1989â€“2020. These are deficit-driven consolidation measures, not exchangeable with exogenous tax cuts."
+    }
+  ]
+}
