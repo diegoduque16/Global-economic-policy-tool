@@ -1,0 +1,103 @@
+name: Audit economic source coverage
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful economic warehouse run ID
+        required: true
+        default: '40229847289'
+        type: string
+permissions:
+  actions: read
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download validated warehouse snapshot
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq .conclusion)" = success
+          mkdir -p /tmp/source-warehouse
+          gh run download "$SOURCE_RUN_ID" -R "$GITHUB_REPOSITORY" -D /tmp/source-warehouse
+          find /tmp/source-warehouse -name 'economic-*.tar.gz' -type f -print
+          test "$(find /tmp/source-warehouse -name 'economic-*.tar.gz' -type f | wc -l)" -eq 1
+      - name: Reconcile actual collector providers with catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv,json,sqlite3,tarfile,pathlib,os,collections
+          archive=next(pathlib.Path('/tmp/source-warehouse').rglob('economic-*.tar.gz'))
+          out=pathlib.Path('research/coverage_audit');out.mkdir(parents=True,exist_ok=True)
+          with tarfile.open(archive,'r:gz') as tar:
+              paths=[m for m in tar.getmembers() if m.name.endswith('/warehouse.sqlite') and m.isfile()]
+              assert len(paths)==1, 'Expected exactly one warehouse.sqlite'
+              f=tar.extractfile(paths[0]);db=pathlib.Path('/tmp/warehouse-audit.sqlite');db.write_bytes(f.read())
+          conn=sqlite3.connect(db)
+          rows=conn.execute('select family,provider,series,count(*) from observations group by family,provider,series').fetchall()
+          assert rows,'Empty warehouse'
+          provider_totals=collections.Counter()
+          for family,provider,series,count in rows:provider_totals[(family,provider)]+=count
+          expected={
+            'wdi':'World Bank World Development Indicators (32 selected)',
+            'historical':'Maddison Project via Our World in Data',
+          }
+          with open('open_data/expanded_source_catalog.csv',encoding='utf-8-sig',newline='') as f:catalog=list(csv.DictReader(f))
+          assert len(catalog)==124, f'Catalog unexpected size {len(catalog)}'
+          observed_families={r[0] for r in rows}
+          assert observed_families=={'wdi','us_europe','historical','imf_oecd','labor'},observed_families
+          # Broad labels: evidence of source usage, not full coverage, licensing or validity.
+          audit_map={
+            'World Bank World Development Indicators (32 selected)':('wdi',None),
+            'FRED 13 selected U.S. series':('us_europe','FRED'),
+            'Eurostat selected annual GDP and unemployment':('us_europe','Eurostat'),
+            'Maddison Project via Our World in Data':('historical',None),
+            'IMF World Economic Outlook (WEO)':('imf_oecd','IMF'),
+            'OECD Revenue Statistics':('imf_oecd','OECD'),
+            'ILOSTAT employment/working time/earnings':('labor','ILOSTAT'),
+            'BLS Current Employment Statistics (CES)':('labor','BLS'),
+            'BLS Current Population Survey (CPS)':('labor','BLS'),
+            'Eurostat EU Labour Force Survey aggregates':('labor','Eurostat'),
+          }
+          # Importing portions of a provider does not imply full dataset coverage.
+          records=[];matched=[]
+          for r in catalog:
+              name=r['dataset'];target=audit_map.get(name)
+              total=0;detail='No named collector evidence mapped; not proof source is absent elsewhere'
+              if target:
+                  fam,marker=target
+                  total=sum(n for f,p,s,n in rows if f==fam and (marker is None or marker.lower() in p.lower()))
+                  if total:detail='Partial provider/family overlap; exact catalog scope NOT independently validated'
+                  if name=='OECD Revenue Statistics':detail='OECD Global Revenue Statistics overlap; not equivalent to full OECD Revenue Statistics'
+                  if name=='BLS Current Population Survey (CPS)':detail='BLS unemployment series overlaps CPS; not CPS microdata or full demographic series'
+                  if name=='BLS Current Employment Statistics (CES)':detail='BLS sampled CES payroll series; not full industry/state coverage'
+                  if name=='Eurostat EU Labour Force Survey aggregates':detail='Only selected annual EU LFS employment rates, not full LFS'
+              status='PARTIAL_OVERLAP_OBSERVED' if total else 'NOT_EVIDENCED_BY_THIS_RUN'
+              if total:matched.append(name)
+              records.append({'dataset':name,'priority':r['priority'],'catalog_status_original':r['current_status'],
+                'warehouse_observations_in_overlapping_provider_family':total,'audit_status':status,'audit_note':detail})
+          with (out/'source_coverage.csv').open('w',newline='',encoding='utf-8') as f:
+              writer=csv.DictWriter(f,fieldnames=records[0].keys());writer.writeheader();writer.writerows(records)
+          report={'source_run_id':os.environ['SOURCE_RUN_ID'],'catalog_entries':len(records),
+            'entries_with_partial_overlap':len(matched),'entries_without_mapped_evidence':len(records)-len(matched),
+            'mapped_entries':matched,
+            'warehouse_observations':sum(n for _,_,_,n in rows),
+            'observations_by_family_provider':[{'family':f,'provider':p,'observations':n} for (f,p),n in sorted(provider_totals.items())],
+            'limitation':'One provider may match multiple catalog entries. Overlap is NOT a claim of complete dataset ingestion, legal reuse, or research-ready validation. Provider totals must not be summed across mapped entries.'}
+          (out/'summary.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(report,indent=2))
+          PY
+      - name: Save auditable source coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-source-coverage-${{ github.run_number }}
+          path: research/coverage_audit/*
+          if-no-files-found: error
+          retention-days: 90
