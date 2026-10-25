@@ -218,5 +218,8 @@ def main():
         subprocess.run([sys.executable, str(Path(__file__).with_name('imf_gfs.py')),
                         '--out', str(Path(args.out).parent/'imf_gfs'),
                         '--start', '1970', '--end', '2025'], check=True)
+        # Run validated US job-flow and OECD corporate tax collectors during full builds.
+        subprocess.run([sys.executable, str(Path(__file__).with_name('bls_bed.py'))], check=True)
+        subprocess.run([sys.executable, str(Path(__file__).with_name('oecd_cit.py'))], check=True)
 
 if __name__=='__main__':main()

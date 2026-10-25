@@ -25,7 +25,12 @@ FAMILIES = {
     'labor': ('labor', 'labor_panel.csv', 10_000),
 }
 
-OPTIONAL_FAMILIES = {'eurostat_ai': ('eurostat_ai', 'eurostat_ai_panel.csv', 50), 'imf_gfs': ('imf_gfs', 'imf_gfs_panel.csv', 100)}
+OPTIONAL_FAMILIES = {
+    'eurostat_ai': ('eurostat_ai', 'eurostat_ai_panel.csv', 50),
+    'imf_gfs': ('imf_gfs', 'imf_gfs_panel.csv', 100),
+    'bls_bed': ('bls_bed', 'bls_bed_panel.csv', 200),
+    'oecd_cit': ('oecd_cit', 'oecd_cit_panel.csv', 100),
+}
 
 SCHEMA = '''
 CREATE TABLE snapshots (
