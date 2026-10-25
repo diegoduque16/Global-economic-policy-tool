@@ -1,0 +1,68 @@
+
+name: Refresh US Europe and Historical data
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: 'Which public datasets to refresh'
+        type: choice
+        required: true
+        default: us_europe
+        options:
+          - us_europe
+          - historical
+          - both
+      scope:
+        description: 'Small test or full historical range'
+        type: choice
+        required: true
+        default: smoke
+        options:
+          - smoke
+          - full
+
+permissions:
+  contents: read
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test U.S. and Europe code
+        if: inputs.dataset != 'historical'
+        run: python -m unittest discover -s tests -p 'test_us_europe.py' -v
+
+      - name: Test historical code
+        if: inputs.dataset != 'us_europe'
+        run: python -m unittest discover -s tests -p 'test_historical_maddison.py' -v
+
+      - name: Download U.S. and Europe
+        if: inputs.dataset != 'historical'
+        run: python open_data/us_europe.py --scope "${{ inputs.scope }}" --sources all --out data/us_europe
+
+      - name: Download historical data
+        if: inputs.dataset != 'us_europe'
+        run: |
+          if [ "${{ inputs.scope }}" = "smoke" ]; then
+            python open_data/historical_maddison.py --start 1800 --end 1959 --out data/historical
+          else
+            python open_data/historical_maddison.py --start 1 --end 1959 --out data/historical
+          fi
+
+      - name: Save datasets and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: economics-extension-${{ github.run_number }}
+          path: |
+            data/us_europe/
+            data/historical/
+          if-no-files-found: warn
+          retention-days: 90
