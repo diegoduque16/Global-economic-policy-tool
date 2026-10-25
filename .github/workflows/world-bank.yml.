@@ -1,0 +1,65 @@
+
+name: Refresh World Bank economic data
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: 'Choose a quick test or full global download'
+        type: choice
+        required: true
+        default: smoke
+        options:
+          - smoke
+          - full
+  schedule:
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test downloader
+        run: python -m unittest discover -s tests -p 'test_open_data_v07.py' -v
+
+      - name: Download sample WDI data
+        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'smoke'
+        run: python open_data/ingest.py --countries 'USA;GBR;ZAF' --start 2000 --end 2025 --group growth --limit 2 --out data/wdi
+
+      - name: Download global WDI data
+        if: github.event_name == 'schedule' || inputs.scope == 'full'
+        run: python open_data/ingest.py --countries all --start 1960 --end 2026 --group all --out data/wdi
+
+      - name: Validate downloaded dataset
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('data/wdi/run_report.json').read_text())
+          print('Observations:', report['observations'])
+          print('Errors:', report['errors'])
+          print('Conflicts:', report['conflicts'])
+          if report['observations'] == 0 or report['errors'] or report['conflicts']:
+              raise SystemExit('Validation failed')
+          PY
+
+      - name: Save data and audit trail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-bank-wdi-${{ github.run_number }}
+          path: data/wdi/
+          if-no-files-found: warn
+          retention-days: 90
