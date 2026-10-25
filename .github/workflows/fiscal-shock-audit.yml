@@ -1,0 +1,30 @@
+name: Audit original fiscal policy shock research sources
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  original-source-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run fiscal-source audit regression tests
+        run: python -m unittest discover -s tests -p 'test_fiscal_shocks.py' -v
+      - name: Retrieve original US tax shock archive and inspect files/hashes
+        run: python policy_shocks/audit_sources.py --out fiscal_audit_output
+      - name: Save metadata-only audit (not the original source data)
+        uses: actions/upload-artifact@v4
+        with:
+          name: fiscal-shock-source-audit-${{ github.run_number }}
+          path: fiscal_audit_output/*.json
+          if-no-files-found: error
+          retention-days: 90
