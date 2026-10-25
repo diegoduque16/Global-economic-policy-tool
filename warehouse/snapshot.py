@@ -30,6 +30,7 @@ OPTIONAL_FAMILIES = {
     'imf_gfs': ('imf_gfs', 'imf_gfs_panel.csv', 100),
     'bls_bed': ('bls_bed', 'bls_bed_panel.csv', 200),
     'oecd_cit': ('oecd_cit', 'oecd_cit_panel.csv', 100),
+    'bls_jolts': ('bls_jolts', 'bls_jolts_panel.csv', 5000),
 }
 
 SCHEMA = '''

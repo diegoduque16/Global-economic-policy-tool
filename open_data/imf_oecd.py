@@ -221,5 +221,6 @@ def main():
         # Run validated US job-flow and OECD corporate tax collectors during full builds.
         subprocess.run([sys.executable, str(Path(__file__).with_name('bls_bed.py'))], check=True)
         subprocess.run([sys.executable, str(Path(__file__).with_name('oecd_cit.py'))], check=True)
+        subprocess.run([sys.executable, str(Path(__file__).with_name('bls_jolts.py'))], check=True)
 
 if __name__=='__main__':main()
