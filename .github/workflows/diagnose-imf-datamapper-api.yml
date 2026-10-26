@@ -1,0 +1,59 @@
+name: Diagnose IMF DataMapper API batch access
+'on':
+  workflow_dispatch: null
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Test official IMF v1/v2 JSON and batch filters
+      shell: bash
+      run: "set -euo pipefail\nmkdir -p /tmp/imf_diagnostics\ncat > /tmp/imf_diagnostics/check.py <<'PY_DIAGNOSTIC'\n\"\"\"\
+        Record IMF DataMapper endpoint behavior on a GitHub runner, without access bypasses.\"\"\"\nimport datetime\nimport\
+        \ hashlib\nimport json\nimport re\nimport time\nimport urllib.error\nimport urllib.parse\nimport urllib.request\n\
+        from pathlib import Path\n\nBASE='https://www.imf.org/external/datamapper/api'\nYEAR='2020'\nCHECKS=[\n    ('v2_indicator_catalog',f'{BASE}/v2/indicators','indicators'),\n\
+        \    ('v2_country_catalog',f'{BASE}/v2/countries','countries'),\n    ('v2_single_country_year',f'{BASE}/v2/NGDPD/USA?periods={YEAR}','series'),\n\
+        \    ('v2_multi_country_year',f'{BASE}/v2/NGDPD/USA/FRA/DEU/KEN/GHA?periods={YEAR}','series'),\n    ('v2_single_country_unfiltered',f'{BASE}/v2/NGDPD/USA','series'),\n\
+        \    ('v2_multi_country_unfiltered',f'{BASE}/v2/NGDPD/USA/FRA/DEU/KEN/GHA','series'),\n    ('v1_indicator_catalog',f'{BASE}/v1/indicators','indicators'),\n\
+        \    ('v1_single_country_year',f'{BASE}/v1/NGDPD/USA?periods={YEAR}','series'),\n    ('v1_single_country_unfiltered',f'{BASE}/v1/NGDPD/USA','series'),\n\
+        ]\n\ndef probe(label,url,kind):\n    r={'label':label,'url':url,'expected_kind':kind,'ok':False}\n    request=urllib.request.Request(url,headers={\n\
+        \        'User-Agent':'GlobalEconomicPolicyTool/1.0 (public academic policy research)',\n        'Accept':'application/json,text/csv,*/*','Accept-Encoding':'identity'})\n\
+        \    try:\n        with urllib.request.urlopen(request,timeout=35) as response:\n            raw=response.read(6_000_001)\n\
+        \            r.update({'status_code':response.status,'final_url':response.geturl(),\n              'content_type':response.headers.get('Content-Type',''),\n\
+        \              'bytes':len(raw),'too_large':len(raw)>6_000_000,\n              'sha256':hashlib.sha256(raw).hexdigest()})\n\
+        \            if len(raw)>6_000_000: raise ValueError('Exceeded diagnostic response cap')\n            try: data=json.loads(raw)\n\
+        \            except (ValueError,UnicodeDecodeError):\n                r.update({'json_valid':False,'leading_char':raw[:12].lstrip()[:1].decode('ascii','replace'),\n\
+        \                  'html_like':raw.lstrip()[:40].lower().startswith((b'<!doctype',b'<html'))})\n                return\
+        \ r\n            r['json_valid']=True\n            if not isinstance(data,dict):r['schema_error']='Root must be a\
+        \ JSON object';return r\n            r['top_level_keys']=sorted(data)[:12]\n            obj=data.get(kind if kind!='series'\
+        \ else 'values')\n            if not isinstance(obj,dict):r['schema_error']=f'Missing object: {kind if kind!=\"series\"\
+        \ else \"values\"}';return r\n            r['object_keys']=len(obj)\n            if kind=='series':\n            \
+        \    indicator=obj.get('NGDPD')\n                if not isinstance(indicator,dict):r['schema_error']='NGDPD series\
+        \ missing';return r\n                r['returned_geographies']=len(indicator)\n                r['usa_observations']=len(indicator.get('USA',{}))\
+        \ if isinstance(indicator.get('USA'),dict) else None\n            r['ok']=True\n    except urllib.error.HTTPError\
+        \ as err:\n        r.update({'status_code':err.code,'error_type':'HTTPError','error_message':str(err)[:160]})\n  \
+        \  except Exception as err:\n        r.update({'error_type':type(err).__name__,'error_message':str(err)[:160]})\n\
+        \    return r\n\ndef main():\n    results=[]\n    for label,url,kind in CHECKS:\n        result=probe(label,url,kind)\n\
+        \        results.append(result)\n        print(json.dumps({k:result.get(k) for k in ('label','ok','status_code','content_type','bytes','json_valid','html_like','schema_error','error_message')},sort_keys=True),flush=True)\n\
+        \        time.sleep(.25)\n    output=Path('data/imf_endpoint_diagnostics');output.mkdir(parents=True,exist_ok=True)\n\
+        \    report={'created_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),\n        'dataset':'IMF DataMapper\
+        \ official endpoint accessibility diagnostics',\n        'purpose':'Select a supported reproducible access route;\
+        \ no raw data redistribution or bypass',\n        'checks':results,'passed':sum(x['ok'] for x in results),\n     \
+        \   'failed':sum(not x['ok'] for x in results),\n        'note':'Failures do not change warehouse; current production\
+        \ IMF collector remains separate.'}\n    (output/'report.json').write_text(json.dumps(report,indent=2)+'\\n',encoding='utf-8')\n\
+        \    print('FINISHED: passed',report['passed'],'of',len(CHECKS),'checks; saved audit to artifact')\nif __name__=='__main__':main()\n\
+        \nPY_DIAGNOSTIC\npython /tmp/imf_diagnostics/check.py"
+    - name: Preserve auditable status report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: imf-datamapper-endpoint-diagnostics-${{ github.run_number }}
+        path: data/imf_endpoint_diagnostics/report.json
+        retention-days: 90
+        if-no-files-found: error
