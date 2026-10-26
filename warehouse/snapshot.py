@@ -35,6 +35,7 @@ OPTIONAL_FAMILIES = {
     'bocconi_fiscal': ('bocconi_fiscal', 'bocconi_fiscal_panel.csv', 1000),
     'imf_extension': ('imf_extension', 'imf_extension_panel.csv', 10000),
     'us_state_qcew': ('us_state_qcew', 'us_state_qcew_panel.csv', 5000),
+    'us_state_qcew_historical': ('us_state_qcew_historical', 'us_state_qcew_historical_panel.csv', 9000),
     'us_state_bea': ('us_state_bea', 'us_state_bea_panel.csv', 5000),
     'us_state_tax': ('us_state_tax', 'us_state_tax_panel.csv', 5000),
     'bjk_state_rates': ('bjk_state_rates', 'bjk_state_rates_panel.csv', 10000),
