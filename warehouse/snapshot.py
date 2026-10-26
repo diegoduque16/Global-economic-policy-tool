@@ -33,6 +33,7 @@ OPTIONAL_FAMILIES = {
     'bls_jolts': ('bls_jolts', 'bls_jolts_panel.csv', 5000),
     'historical_turnover': ('historical_turnover', 'historical_turnover_panel.csv', 2800),
     'bocconi_fiscal': ('bocconi_fiscal', 'bocconi_fiscal_panel.csv', 1000),
+    'imf_extension': ('imf_extension', 'imf_extension_panel.csv', 10000),
 }
 
 SCHEMA = '''

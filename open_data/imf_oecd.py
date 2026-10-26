@@ -226,5 +226,6 @@ def main():
         run_historical_turnover(Path(__file__).with_name('historical_manufacturing_turnover.py'),
                                 Path(args.out).parent)
         subprocess.run([sys.executable, str(Path(__file__).with_name('bocconi_fiscal_plans.py'))], check=True)
+        subprocess.run([sys.executable, str(Path(__file__).with_name('imf_extension.py')), '--mode', 'full'], check=True)
 
 if __name__=='__main__':main()
