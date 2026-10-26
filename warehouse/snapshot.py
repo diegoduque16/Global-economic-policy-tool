@@ -37,6 +37,8 @@ OPTIONAL_FAMILIES = {
     'us_state_qcew': ('us_state_qcew', 'us_state_qcew_panel.csv', 5000),
     'us_state_bea': ('us_state_bea', 'us_state_bea_panel.csv', 5000),
     'us_state_tax': ('us_state_tax', 'us_state_tax_panel.csv', 5000),
+    'bjk_state_rates': ('bjk_state_rates', 'bjk_state_rates_panel.csv', 10000),
+    'bjk_county_rates': ('bjk_county_rates', 'bjk_county_rates_panel.csv', 100000),
 }
 
 SCHEMA = '''

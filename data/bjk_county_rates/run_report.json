@@ -1,0 +1,33 @@
+{
+  "status": "VALIDATED_DESCRIPTIVE_NOT_CAUSAL",
+  "errors": [],
+  "conflicts": [],
+  "research_ready": false,
+  "is_causal_policy_shock": false,
+  "source": "Baker, Janas and Kueng, Correlation in State and Local Tax Changes, NBER WP 32786",
+  "source_url": "https://www.openicpsr.org/openicpsr/project/208462/version/V2/view",
+  "source_file_sha256": "6fbfb09d22790f56b227dac38465dc2575a9f3086aa71b5d9cdee600369f34de",
+  "output_sha256": "dce67e73d62f541241e9ceac96a92c72fffd87b510a63951ddfb1b580d267a4b",
+  "observations": 173789,
+  "state_or_county_years": 71778,
+  "geographies": 3140,
+  "year_min": 2000,
+  "year_max": 2022,
+  "missing_by_variable": {
+    "prop_rate": 30395,
+    "sales_rate": 11034,
+    "mean_inc_rate": 116
+  },
+  "zero_by_variable": {
+    "prop_rate": 0,
+    "sales_rate": 19204,
+    "mean_inc_rate": 62816
+  },
+  "limitations": [
+    "Source units and meanings retained without generic percent conversion; verify each rate or excise measure against author codebook before substantive interpretation.",
+    "Different tax types may change together, tax-rate changes are not identified exogenous shocks.",
+    "Missing numeric source cells are omitted, not zero-filled.",
+    "County GEOIDs maintained as padded 5-character strings.",
+    "No fiscal or policy-effective date reconstructed from annual rates."
+  ]
+}

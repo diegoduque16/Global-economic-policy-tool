@@ -1,0 +1,49 @@
+{
+  "status": "VALIDATED_DESCRIPTIVE_NOT_CAUSAL",
+  "errors": [],
+  "conflicts": [],
+  "research_ready": false,
+  "is_causal_policy_shock": false,
+  "source": "Baker, Janas and Kueng, Correlation in State and Local Tax Changes, NBER WP 32786",
+  "source_url": "https://www.openicpsr.org/openicpsr/project/208462/version/V2/view",
+  "source_file_sha256": "41142f91ebbef2e12183dcdcfeafc4e86fb79ca9653457b18c6ae028ed07880e",
+  "output_sha256": "5daaa3c9f97628fa161f0bd2ef5e37c19ec9ae98306e3f2aca26e28c78214044",
+  "observations": 22124,
+  "state_or_county_years": 2448,
+  "geographies": 51,
+  "year_min": 1975,
+  "year_max": 2022,
+  "missing_by_variable": {
+    "corp_min_rate_state": 1387,
+    "corp_max_rate_state": 207,
+    "sales_rate_state": 24,
+    "prop_rate_state": 0,
+    "corp_rate_state": 207,
+    "gas_rate_state": 1275,
+    "spirit_rate_state": 672,
+    "wine_rate_state": 429,
+    "beer_rate_state": 357,
+    "median_inc_rate_state": 144,
+    "top_inc_rate_state": 102
+  },
+  "zero_by_variable": {
+    "corp_min_rate_state": 119,
+    "corp_max_rate_state": 208,
+    "sales_rate_state": 240,
+    "prop_rate_state": 2253,
+    "corp_rate_state": 208,
+    "gas_rate_state": 0,
+    "spirit_rate_state": 414,
+    "wine_rate_state": 103,
+    "beer_rate_state": 5,
+    "median_inc_rate_state": 425,
+    "top_inc_rate_state": 425
+  },
+  "limitations": [
+    "Source units and meanings retained without generic percent conversion; verify each rate or excise measure against author codebook before substantive interpretation.",
+    "Different tax types may change together, tax-rate changes are not identified exogenous shocks.",
+    "Missing numeric source cells are omitted, not zero-filled.",
+    "County GEOIDs maintained as padded 5-character strings.",
+    "No fiscal or policy-effective date reconstructed from annual rates."
+  ]
+}
