@@ -1,0 +1,100 @@
+name: Repair historical turnover 403 with explicit warehouse omissions (v2)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - name: Check out main
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install guarded optional source handling and provenance
+      shell: bash
+      run: "set -euo pipefail\nmkdir -p open_data tests\ncat > open_data/optional_sources.py <<'PY_OPTIONAL'\n\"\"\"Execute the optional historical turnover collector\
+        \ without silently losing provenance.\n\nOnly a specifically recognized HTTP 403 from the publisher is treated as\nan unavailable optional dataset. Other\
+        \ download, code or validation failures\nremain fatal; this never manufactures or imputes historical observations.\n\"\"\"\nfrom __future__ import annotations\n\
+        import datetime as dt\nimport json\nimport subprocess\nimport sys\nfrom pathlib import Path\n\nHISTORICAL_URL = 'https://www.labormarketupdate.net/items/data/historicallts.json'\n\
+        FORBIDDEN_MARKER = 'urllib.error.HTTPError: HTTP Error 403: Forbidden'\n\n\ndef run_historical_turnover(collector_script, data_dir, *, runner=subprocess.run):\n\
+        \    \"\"\"Return True if collected; False ONLY for publisher HTTP 403.\"\"\"\n    collector_script = Path(collector_script)\n    data_dir = Path(data_dir)\n\
+        \    cmd = [sys.executable, str(collector_script)]\n    result = runner(cmd, capture_output=True, text=True, check=False)\n    if result.stdout:\n       \
+        \ print(result.stdout, end='' if result.stdout.endswith('\\n') else '\\n')\n    if result.stderr:\n        print(result.stderr, file=sys.stderr, end='' if\
+        \ result.stderr.endswith('\\n') else '\\n')\n    if result.returncode == 0:\n        return True\n    if FORBIDDEN_MARKER not in (result.stderr or ''):\n\
+        \        raise subprocess.CalledProcessError(result.returncode, cmd,\n                                             output=result.stdout, stderr=result.stderr)\n\
+        \    warn_dir = data_dir / 'collection_warnings'\n    warn_dir.mkdir(parents=True, exist_ok=True)\n    warning = {\n        'family': 'historical_turnover',\n\
+        \        'status': 'SOURCE_UNAVAILABLE_HTTP_403',\n        'source_url': HISTORICAL_URL,\n        'observations_included': 0,\n        'retrieved_utc': dt.datetime.now(dt.timezone.utc).isoformat(),\n\
+        \        'explanation': 'Publisher returned HTTP 403 during this snapshot. Optional historical series omitted; no values estimated, backfilled or marked zero.',\n\
+        \        'recovery': 'Future full builds automatically retry the original source.',\n    }\n    (warn_dir / 'historical_turnover.json').write_text(\n    \
+        \    json.dumps(warning, indent=2, sort_keys=True) + '\\n', encoding='utf-8')\n    print('Historical turnover source HTTP 403: separately recorded and omitted\
+        \ from this build.', file=sys.stderr)\n    return False\nPY_OPTIONAL\ncat > tests/test_optional_sources.py <<'PY_TESTS'\n\"\"\"Source omission must be explicit\
+        \ and restricted to publisher HTTP 403.\"\"\"\nimport json\nimport subprocess\nimport tempfile\nimport unittest\nfrom pathlib import Path\nfrom types import\
+        \ SimpleNamespace\nfrom open_data.optional_sources import run_historical_turnover\n\n\nclass HistoricalSourceResilienceTest(unittest.TestCase):\n    def test_success_includes_data_and_no_warning(self):\n\
+        \        with tempfile.TemporaryDirectory() as tmp:\n            result = SimpleNamespace(returncode=0, stdout='validated', stderr='')\n            self.assertTrue(run_historical_turnover('dummy.py',\
+        \ tmp, runner=lambda *a, **kw: result))\n            self.assertFalse((Path(tmp)/'collection_warnings').exists())\n\n    def test_only_http_403_can_skip_optional_source(self):\n\
+        \        with tempfile.TemporaryDirectory() as tmp:\n            result = SimpleNamespace(returncode=1, stdout='', stderr='urllib.error.HTTPError: HTTP Error\
+        \ 403: Forbidden')\n            self.assertFalse(run_historical_turnover('dummy.py', tmp, runner=lambda *a, **kw: result))\n            audit = json.loads((Path(tmp)/'collection_warnings'/'historical_turnover.json').read_text())\n\
+        \            self.assertEqual(audit['status'], 'SOURCE_UNAVAILABLE_HTTP_403')\n            self.assertEqual(audit['observations_included'], 0)\n\n    def\
+        \ test_404_or_nonnetwork_errors_are_fatal(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            for message in ['urllib.error.HTTPError:\
+        \ HTTP Error 404: Not Found',\n                            'ValueError: Unexpected historical source schema']:\n                result = SimpleNamespace(returncode=1,\
+        \ stdout='', stderr=message)\n                with self.assertRaises(subprocess.CalledProcessError):\n                    run_historical_turnover('dummy.py',\
+        \ tmp, runner=lambda *a, **kw: result)\n            self.assertFalse((Path(tmp)/'collection_warnings').exists())\n\n\nif __name__ == '__main__':\n    unittest.main()\n\
+        PY_TESTS\ncat > /tmp/patch_optional_historical.py <<'PY_PATCH'\nfrom pathlib import Path\n\nscript = Path('open_data/imf_oecd.py')\ns = script.read_text(encoding='utf-8')\n\
+        anchor = \"        subprocess.run([sys.executable, str(Path(__file__).with_name('historical_manufacturing_turnover.py'))], check=True)\"\nreplacement = (\"\
+        \        from optional_sources import run_historical_turnover\\n\"\n               \"        run_historical_turnover(Path(__file__).with_name('historical_manufacturing_turnover.py'),\\\
+        n\"\n               \"                                Path(args.out).parent)\")\nif s.count(anchor) != 1:\n    raise SystemExit('IMF/OECD collector hook changed;\
+        \ refusing unsafe patch')\ns = s.replace(anchor, replacement, 1)\nscript.write_text(s, encoding='utf-8')\n\nsnap = Path('warehouse/snapshot.py')\ns = snap.read_text(encoding='utf-8')\n\
+        anchor = \"        manifest={\\n          'schema_version':1\"\nreplacement = (\"        collection_warnings=[]\\n\"\n               \"        warning_dir=data_dir/'collection_warnings'\\\
+        n\"\n               \"        if warning_dir.is_dir():\\n\"\n               \"            for warning_file in sorted(warning_dir.glob('*.json')):\\n\"\n \
+        \              \"                warning=_read_json(warning_file)\\n\"\n               \"                if warning.get('family')!='historical_turnover' or\
+        \ warning.get('status')!='SOURCE_UNAVAILABLE_HTTP_403':\\n\"\n               \"                    raise ValueError('Unexpected optional source warning: '+str(warning_file))\\\
+        n\"\n               \"                if warning['family'] in report_by_family:\\n\"\n               \"                    raise ValueError('Optional source\
+        \ marked both included and unavailable')\\n\"\n               \"                collection_warnings.append(warning)\\n\"\n               \"        manifest={\\\
+        n          'schema_version':1\")\nif s.count(anchor) != 1:\n    raise SystemExit('Warehouse manifest layout changed; refusing unsafe patch')\ns = s.replace(anchor,\
+        \ replacement, 1)\nanchor = \"          'source_families':report_by_family,'total_source_observations':grand_total,\"\nreplacement = (\"          'source_families':report_by_family,'total_source_observations':grand_total,\\\
+        n\"\n               \"          'omitted_optional_families':sorted(set(OPTIONAL_FAMILIES)-set(report_by_family)),\\n\"\n               \"          'collection_warnings':collection_warnings,\"\
+        )\nif s.count(anchor) != 1:\n    raise SystemExit('Warehouse manifest fields changed; refusing unsafe patch')\ns = s.replace(anchor, replacement, 1)\nsnap.write_text(s,\
+        \ encoding='utf-8')\nprint('Patched fail-closed source exception handling and warehouse manifest omission recording')\nPY_PATCH\npython /tmp/patch_optional_historical.py\n\
+        python -m py_compile open_data/optional_sources.py tests/test_optional_sources.py open_data/imf_oecd.py warehouse/snapshot.py\n"
+    - name: Test failure policy and preexisting warehouse invariants
+      shell: bash
+      run: |
+        set -euo pipefail
+        python -m unittest discover -s tests -p 'test_optional_sources.py' -v
+        python -m unittest discover -s tests -p 'test_snapshot.py' -v
+        python - <<'PY_ASSERT'
+        from pathlib import Path
+        s = Path('open_data/imf_oecd.py').read_text(encoding='utf-8')
+        a = Path('warehouse/snapshot.py').read_text(encoding='utf-8')
+        assert s.count('run_historical_turnover(') == 1
+        assert "subprocess.run([sys.executable, str(Path(__file__).with_name('bocconi_fiscal_plans.py'))], check=True)" in s
+        assert "'collection_warnings':collection_warnings" in a
+        assert "'bocconi_fiscal': ('bocconi_fiscal', 'bocconi_fiscal_panel.csv', 1000)" in a
+        assert "'historical_turnover': ('historical_turnover', 'historical_turnover_panel.csv', 2800)" in a
+        print('PASS: Bocconi collector, historical turnover guard, and warehouse provenance checks')
+        PY_ASSERT
+        git diff --check
+    - name: Commit code only after tests
+      shell: bash
+      run: 'set -euo pipefail
+
+        git config user.name ''github-actions[bot]''
+
+        git config user.email ''41898282+github-actions[bot]@users.noreply.github.com''
+
+        git add open_data/optional_sources.py tests/test_optional_sources.py open_data/imf_oecd.py warehouse/snapshot.py
+
+        git diff --cached --check
+
+        git commit -m ''Log optional historical source HTTP 403 without blocking warehouse''
+
+        git push origin HEAD:main
+
+        '
