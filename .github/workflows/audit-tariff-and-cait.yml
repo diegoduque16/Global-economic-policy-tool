@@ -1,0 +1,346 @@
+name: Audit narrative tariff shocks and California AI unemployment
+
+# Self-contained: upload this one YAML file to .github/workflows/
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: Source to audit
+        type: choice
+        required: true
+        options:
+          - both
+          - tariff
+          - cait
+        default: both
+  schedule:
+    - cron: '0 13 18 * *'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Install audited source extractor
+        shell: bash
+        run: |
+          mkdir -p /tmp/econ_datasets
+          cat > /tmp/econ_datasets/source_audit.py <<'PY_SOURCE_AUDIT'
+          """Auditable source acquisition for narrative U.S. tariff shocks and CAIT.
+          
+          Requires Python 3.12 stdlib only. Schema mapping is NEVER guessed: optional tariff
+          numeric import requires an explicitly configured worksheet, year column, shock
+          column and first data row, after examining the audit output and original paper.
+          CAIT remains tabulated descriptive evidence: no inference that AI caused layoffs.
+          """
+          from __future__ import annotations
+          import argparse
+          import csv
+          from datetime import datetime, timezone
+          import hashlib
+          import io
+          import json
+          import math
+          from pathlib import Path
+          import re
+          import sqlite3
+          import urllib.request
+          from urllib.parse import urlparse
+          import zipfile
+          from xml.etree import ElementTree as ET
+          
+          TARIFF_URL = 'https://raw.githubusercontent.com/dkaenzig/narrative-tariff-shocks/main/narrative-tariff-shocks.xlsx'
+          CAIT_URL = 'https://capolicylab.org/data/cait-monthly-claims.xlsx'
+          SOURCES = {
+              'tariff': dict(url=TARIFF_URL, host='raw.githubusercontent.com', paper='https://doi.org/10.3386/w35102',
+                             license='CC BY 4.0 (source repo)', frequency='annual; validate workbook years'),
+              'cait': dict(url=CAIT_URL, host='capolicylab.org', paper='https://edd.ca.gov/aitracker',
+                           license='Public data download; review redistribution terms before public rehosting',
+                           frequency='monthly; varies by tab'),
+          }
+          NS = {'s':'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+                'r':'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+                'p':'http://schemas.openxmlformats.org/package/2006/relationships'}
+          MAX_DOWNLOAD=55_000_000
+          MAX_UNCOMPRESSED=350_000_000
+          MAX_ROWS_PER_SHEET=1_200_000
+          MAX_COLS=150
+          
+          
+          def sha(data: bytes) -> str:
+              return hashlib.sha256(data).hexdigest()
+          
+          
+          def download(url:str,host:str)->bytes:
+              if urlparse(url).scheme!='https' or urlparse(url).hostname!=host:
+                  raise ValueError('Unapproved source address')
+              request=urllib.request.Request(url,headers={'User-Agent':'GlobalEconomicPolicyTool/1.0 source-audit',
+                                                           'Accept':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*'})
+              with urllib.request.urlopen(request,timeout=90) as response:
+                  final=response.geturl()
+                  if urlparse(final).scheme!='https' or urlparse(final).hostname!=host:
+                      raise ValueError('Source redirected to an unapproved host')
+                  b=response.read(MAX_DOWNLOAD+1)
+              if len(b)>MAX_DOWNLOAD or not b.startswith(b'PK'):
+                  raise ValueError('Unexpected download size or file signature')
+              return b
+          
+          
+          def col_number(ref:str)->int:
+              m=re.fullmatch(r'([A-Z]{1,3})',ref.upper().strip())
+              if not m:raise ValueError('Invalid Excel column: '+ref)
+              n=0
+              for c in m.group(1):n=n*26+(ord(c)-64)
+              if n<1 or n>MAX_COLS:raise ValueError('Column exceeds audited limit')
+              return n
+          
+          
+          def column_letter(n:int)->str:
+              s=''
+              while n: n,v=divmod(n-1,26); s=chr(65+v)+s
+              return s
+          
+          
+          def _path(target:str)->str:
+              target=target.lstrip('/')
+              if target.startswith('xl/'): p=target
+              else:p='xl/'+target
+              if '..' in p.split('/') or not p.startswith('xl/'):
+                  raise ValueError('Unexpected workbook relationship path')
+              return p
+          
+          
+          def parse_workbook(data:bytes):
+              """Yield (sheet_name, rows) with rows as (Excel row number, sparse cell dict).
+              Values preserve the source string; never evaluate spreadsheet formulas.
+              """
+              with zipfile.ZipFile(io.BytesIO(data)) as z:
+                  items=z.infolist(); names={i.filename for i in items}
+                  if len(items)>3000 or sum(i.file_size for i in items)>MAX_UNCOMPRESSED:
+                      raise ValueError('Workbook exceeds decompression safety limits')
+                  if any('..' in i.filename.split('/') or i.filename.startswith('/') for i in items):
+                      raise ValueError('Unsafe workbook path')
+                  for required in ('xl/workbook.xml','xl/_rels/workbook.xml.rels'):
+                      if required not in names:raise ValueError('Missing workbook XML')
+                  book=ET.fromstring(z.read('xl/workbook.xml'))
+                  rels=ET.fromstring(z.read('xl/_rels/workbook.xml.rels'))
+                  targets={e.attrib.get('Id'):e.attrib.get('Target') for e in rels}
+                  shared=[]
+                  if 'xl/sharedStrings.xml' in names:
+                      with z.open('xl/sharedStrings.xml') as fp:
+                          for _,e in ET.iterparse(fp,events=('end',)):
+                              if e.tag=='{%s}si'%NS['s']:
+                                  shared.append(''.join((t.text or '') for t in e.iter('{%s}t'%NS['s'])))
+                                  e.clear()
+                  sheets=[]
+                  for e in book.findall('.//s:sheets/s:sheet',NS):
+                      target=targets.get(e.attrib.get('{%s}id'%NS['r']))
+                      if not target:raise ValueError('Sheet missing relationship')
+                      path=_path(target)
+                      if path not in names:raise ValueError('Missing worksheet '+path)
+                      sheets.append((e.attrib.get('name','Unknown'),path))
+                  if not sheets:raise ValueError('No worksheets')
+                  for name,path in sheets:
+                      result=[]
+                      with z.open(path) as fp:
+                          for _,row in ET.iterparse(fp,events=('end',)):
+                              if row.tag!='{%s}row'%NS['s']:continue
+                              rnum=int(row.attrib.get('r','0'))
+                              if not 1<=rnum<=MAX_ROWS_PER_SHEET:raise ValueError('Invalid row index')
+                              cells={}
+                              for cell in row.findall('s:c',NS):
+                                  ref=cell.attrib.get('r','')
+                                  m=re.match(r'^([A-Z]+)[0-9]+$',ref)
+                                  if not m:continue
+                                  n=col_number(m.group(1))
+                                  t=cell.attrib.get('t','n')
+                                  if t=='inlineStr':
+                                      val=''.join((part.text or '') for part in cell.iter('{%s}t'%NS['s']))
+                                  else:
+                                      v=cell.find('s:v',NS)
+                                      val='' if v is None or v.text is None else v.text
+                                      if t=='s' and val:
+                                          k=int(val)
+                                          if not 0<=k<len(shared):raise ValueError('Invalid shared-string index')
+                                          val=shared[k]
+                                  # Formula cached values might be stale, so leave them out.
+                                  if cell.find('s:f',NS) is not None:val=''
+                                  cells[column_letter(n)]=val
+                              result.append((rnum,cells))
+                              if len(result)>MAX_ROWS_PER_SHEET:raise ValueError('Excessive worksheet row count')
+                              row.clear()
+                      yield name,result
+          
+          
+          def _write_csv(path:Path,head,rows):
+              path.parent.mkdir(parents=True,exist_ok=True)
+              with path.open('w',encoding='utf-8',newline='') as fp:
+                  w=csv.writer(fp);w.writerow(head);w.writerows(rows)
+          
+          
+          def export_sheets(data:bytes,root:Path):
+              used=set(); audit=[]; sheet_data={}
+              for k,(name,rows) in enumerate(parse_workbook(data),1):
+                  safe=re.sub(r'[^a-zA-Z0-9_-]','_',name).strip('_')[:35] or 'sheet'
+                  slug=f'{k:02d}_{safe}'
+                  if slug in used:raise ValueError('Sheet collision')
+                  used.add(slug)
+                  highest=max((col_number(c) for _,r in rows for c in r),default=0)
+                  if highest>MAX_COLS:raise ValueError('Too many columns')
+                  cols=[column_letter(i) for i in range(1,highest+1)]
+                  _write_csv(root/'extracted'/f'{slug}.csv',['excel_row']+cols,
+                             ([number]+[cells.get(c,'') for c in cols] for number,cells in rows))
+                  sample=[{'excel_row':n,**{c:v for c,v in row.items() if v!=''}} for n,row in rows[:10]]
+                  audit.append({'sheet':name,'csv':f'extracted/{slug}.csv','rows':len(rows),'max_columns':highest,
+                                'first_rows':sample})
+                  sheet_data[name]=rows
+              return audit,sheet_data
+          
+          
+          def normalize_tariff(sheets,root,*,sheet,year_col,shock_col,first_row:int):
+              if sheet not in sheets:raise ValueError('Tariff sheet absent: '+sheet)
+              yc=column_letter(col_number(year_col));sc=column_letter(col_number(shock_col))
+              if yc==sc:raise ValueError('Year and shock cannot be same column')
+              if first_row<1:raise ValueError('Invalid first data row')
+              result=[]; years=set(); zeros=0; missing=0
+              for n,cells in sheets[sheet]:
+                  if n<first_row:continue
+                  year=(cells.get(yc) or '').strip()
+                  value=(cells.get(sc) or '').strip()
+                  if not year and not value:continue
+                  if not re.fullmatch(r'(?:18|19|20)\d\d(?:\.0+)?',year):
+                      raise ValueError(f'Non-numeric tariff year at row {n}: {year!r}')
+                  yr=int(float(year))
+                  if not 1840<=yr<=2024:raise ValueError(f'Tariff year outside source study scope: {yr}')
+                  if yr in years:raise ValueError('Duplicate tariff year; check data grain')
+                  years.add(yr)
+                  if not value:
+                      missing+=1;continue  # explicit 0 values ARE retained
+                  try: x=float(value)
+                  except ValueError:raise ValueError(f'Non-numeric tariff shock at row {n}: {value!r}')
+                  if not math.isfinite(x):raise ValueError('Nonfinite tariff shock')
+                  if x==0: zeros+=1
+                  result.append({'country_iso3':'USA','year':yr,'period':str(yr),'series':'narrative_tariff_shock_source_native',
+                                 'value':repr(x),'unit':'SOURCE_NATIVE_VERIFY_CODEBOOK',
+                                 'frequency':'annual','provider':'den Besten et al 2026',
+                                 'source_url':TARIFF_URL,'source_sheet':sheet,'source_excel_row':n,
+                                 'identification_status':'narrative_shock_candidate_requires_codebook_review'})
+              if not result:raise ValueError('No numeric tariff series values after mapping')
+              if min(years)<1840 or max(years)>2024:raise ValueError('Tariff range violation')
+              path=root/'processed'/'tariff_shocks_panel.csv'
+              _write_csv(path,list(result[0]),([r[k] for k in result[0]] for r in result))
+              return {'observations':len(result),'years_with_any_source_row':len(years),'zeros':zeros,
+                      'missing_shock_values':missing,'year_min':min(years),'year_max':max(years),
+                      'mapping':{'sheet':sheet,'year_col':yc,'shock_col':sc,'first_row':first_row},
+                      'source_native_unit_unverified':True,'causal_use':'NOT_READY_CODEBOOK_REVIEW'}
+          
+          
+          def overlap_with_warehouse(sqlite_path,tariff_csv,output_path):
+              """Diagnostic matching ONLY. No causal attribution and no annual aggregation."""
+              with open(tariff_csv,encoding='utf-8',newline='') as f:
+                  years={int(r['year']) for r in csv.DictReader(f)}
+              conn=sqlite3.connect(f'file:{Path(sqlite_path).resolve()}?mode=ro',uri=True)
+              try:
+                  # Exact USA/year alignment only, without joining on monthly/quarterly periods.
+                  rows=conn.execute("""SELECT family,provider,year,period,series,value,unit,frequency
+                                       FROM observations WHERE country_or_polity_code='USA'
+                                       AND (series IN ('PAYEMS','UNRATE','GDPC1','CES0000000001')
+                                            OR series='NY.GDP.MKTP.KD.ZG') ORDER BY year,series""").fetchall()
+              finally: conn.close()
+              matched=[row for row in rows if int(row[2]) in years]
+              _write_csv(output_path,['family','provider','year','period','series','value','unit','frequency'],matched)
+              return {'matched_observation_rows':len(matched),'years_overlap':len({r[2] for r in matched}),
+                      'is_causal_merged_panel':False,'warning':'Diagnostic year overlap only; frequencies and vintages are not reconciled'}
+          
+          
+          def collect(name:str,out:Path,local:Path|None=None,tariff_mapping=None,warehouse:Path|None=None):
+              source=SOURCES[name]; root=out/name; root.mkdir(parents=True,exist_ok=True)
+              raw=local.read_bytes() if local else download(source['url'],source['host'])
+              if not raw.startswith(b'PK') or len(raw)>MAX_DOWNLOAD:raise ValueError('Invalid xlsx input')
+              inventory,sheets=export_sheets(raw,root)
+              report={'source':name,'source_url':source['url'],'research_reference':source['paper'],
+                      'license_note':source['license'],'frequency_note':source['frequency'],
+                      'retrieved_utc':datetime.now(timezone.utc).isoformat(),
+                      'source_sha256':sha(raw),'source_bytes':len(raw),
+                      'worksheets':inventory,'errors':[],'research_ready':False,'warehouse_integrated':False,
+                      'transformation_status':'AUDITED_SOURCE_NOT_SEMANTICALLY_MAPPED',
+                      'caveats':['Do not infer AI-caused layoffs from CAIT claims and exposure categories.',
+                                 'Source-native tariff shocks require paper/codebook definition and timing checks.',
+                                 'Do not publicly republish CAIT source workbook until terms reviewed.']}
+              if name=='tariff' and tariff_mapping:
+                  report['tariff_extracted']=normalize_tariff(sheets,root,**tariff_mapping)
+                  report['transformation_status']='NUMERIC_TARIFF_CANDIDATE_PENDING_CODEBOOK_REVIEW'
+                  if warehouse:
+                      report['year_overlap_diagnostic']=overlap_with_warehouse(warehouse,
+                          root/'processed'/'tariff_shocks_panel.csv',root/'processed'/'overlap_diagnostic.csv')
+              (root/'run_report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+              # We intentionally DO NOT place the raw workbook into this export directory.
+              return report
+          
+          
+          def main():
+              p=argparse.ArgumentParser(description=__doc__)
+              p.add_argument('--dataset',choices=['tariff','cait','both'],default='both')
+              p.add_argument('--out',default='research_data/new_datasets_2026')
+              p.add_argument('--local-tariff',type=Path)
+              p.add_argument('--local-cait',type=Path)
+              p.add_argument('--tariff-sheet')
+              p.add_argument('--tariff-year-col')
+              p.add_argument('--tariff-shock-col')
+              p.add_argument('--tariff-first-row',type=int)
+              p.add_argument('--warehouse-sqlite',type=Path)
+              a=p.parse_args()
+              mapping_items=[a.tariff_sheet,a.tariff_year_col,a.tariff_shock_col,a.tariff_first_row]
+              if any(x is not None for x in mapping_items) and not all(x is not None for x in mapping_items):
+                  p.error('Tariff mapping must include sheet, year col, shock col and first row')
+              mapping=dict(sheet=a.tariff_sheet,year_col=a.tariff_year_col,
+                           shock_col=a.tariff_shock_col,first_row=a.tariff_first_row) if all(x is not None for x in mapping_items) else None
+              if a.warehouse_sqlite and not mapping:p.error('Warehouse diagnostic requires explicit tariff mapping')
+              results=[]
+              for name in (['tariff','cait'] if a.dataset=='both' else [a.dataset]):
+                  results.append(collect(name,Path(a.out),getattr(a,'local_'+name),mapping if name=='tariff' else None,
+                                         a.warehouse_sqlite if name=='tariff' else None))
+              print(json.dumps([{'source':r['source'],'sha256':r['source_sha256'],'sheets':len(r['worksheets']),
+                                 'status':r['transformation_status']} for r in results],indent=2))
+          
+          if __name__=='__main__':main()
+
+          PY_SOURCE_AUDIT
+          python -m py_compile /tmp/econ_datasets/source_audit.py
+          python - <<'PY_SMOKE'
+          import sys
+          sys.path.insert(0, '/tmp/econ_datasets')
+          from source_audit import col_number, column_letter
+          assert col_number('A') == 1 and col_number('AZ') == 52
+          assert column_letter(52) == 'AZ'
+          try:
+              col_number('A1')
+          except ValueError:
+              pass
+          else:
+              raise AssertionError('Expected unsafe-column check')
+          print('Source-extractor smoke tests passed')
+          PY_SMOKE
+      - name: Audit live sources, validate XLSX, export source-native tables
+        shell: bash
+        env:
+          REQUEST_DATASET: ${{ inputs.dataset }}
+        run: |
+          set -euo pipefail
+          python /tmp/econ_datasets/source_audit.py \
+            --dataset "${REQUEST_DATASET:-both}" \
+            --out research_data/new_datasets_2026
+          echo "## New economic source audit" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source extracts and audit reports are in the downloadable Actions artifact below." >> "$GITHUB_STEP_SUMMARY"
+          echo "These are audited source-native tables, not a harmonized causal warehouse integration." >> "$GITHUB_STEP_SUMMARY"
+      - name: Save verified audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tariff-cait-audit-${{ github.run_number }}
+          path: research_data/new_datasets_2026/
+          retention-days: 90
+          if-no-files-found: warn
