@@ -228,5 +228,6 @@ def main():
         subprocess.run([sys.executable, str(Path(__file__).with_name('bocconi_fiscal_plans.py'))], check=True)
         subprocess.run([sys.executable, str(Path(__file__).with_name('imf_extension.py')), '--mode', 'full'], check=True)
         subprocess.run([sys.executable, str(Path(__file__).with_name('us_state_qcew.py')), '--mode', 'full'], check=True)
+        subprocess.run([sys.executable, str(Path(__file__).with_name('us_state_bea.py')), '--mode', 'full'], check=True)
 
 if __name__=='__main__':main()
