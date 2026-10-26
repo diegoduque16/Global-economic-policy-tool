@@ -1,0 +1,201 @@
+name: Audit historic US state tax source (1951 onward)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Write schema discovery code
+        shell: bash
+        run: |
+          mkdir -p audit/state_tax_history
+          cat > /tmp/state_tax_source_audit.py <<'PY_TAX_AUDIT'
+          
+          """Discover original Census STC historical archives; audit only, no warehouse modifications."""
+          import csv
+          import datetime
+          import hashlib
+          import io
+          import json
+          from pathlib import Path
+          import re
+          import time
+          import urllib.request
+          import urllib.error
+          import urllib.parse
+          import zipfile
+          import xml.etree.ElementTree as ET
+          
+          BASE = 'https://www2.census.gov/programs-surveys/stc/datasets/historical/'
+          SOURCES = ('STC-Historical-DB.xlsx', 'State-Government-Tax-Collections.zip')
+          NS = {'m': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+                'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+                'p': 'http://schemas.openxmlformats.org/package/2006/relationships'}
+          OUT = Path('audit/state_tax_history')
+          
+          def fetch(name):
+              assert name in SOURCES
+              url = BASE + name
+              request = urllib.request.Request(url, headers={'User-Agent':'GlobalEconomicPolicyTool/1.0 (open public research)', 'Accept':'application/zip,application/octet-stream,*/*'})
+              last_error = None
+              for attempt in range(3):
+                  try:
+                      with urllib.request.urlopen(request, timeout=90) as resp:
+                          if urllib.parse.urlsplit(resp.geturl()).hostname not in ('www2.census.gov','www.census.gov'):
+                              raise ValueError('Non-Census redirect destination')
+                          data = resp.read(22_000_001)
+                      if len(data) > 22_000_000 or not zipfile.is_zipfile(io.BytesIO(data)):
+                          raise ValueError('Not a valid Census XLSX/ZIP or file too large')
+                      return data, url
+                  except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+                      last_error = str(exc)
+                      if attempt < 2: time.sleep(2**attempt)
+              raise RuntimeError('Census public download unavailable: '+str(last_error))
+          
+          def normalise_part(target):
+              if target.startswith('/'):
+                  candidate = target.lstrip('/')
+              elif target.startswith('xl/'):
+                  candidate = target
+              else:
+                  candidate = 'xl/' + target
+              candidate = candidate.replace('\\','/')
+              if '..' in candidate.split('/'):
+                  raise ValueError('Invalid XLSX relationship path')
+              return candidate
+          
+          def inspect_xlsx(data, label):
+              result = {'name':label, 'bytes':len(data), 'sha256':hashlib.sha256(data).hexdigest(), 'sheets':[], 'first_rows':{}, 'year_markers':{}}
+              with zipfile.ZipFile(io.BytesIO(data)) as z:
+                  files = set(z.namelist())
+                  if not {'xl/workbook.xml','xl/_rels/workbook.xml.rels'}.issubset(files):
+                      raise ValueError('Not an XLSX workbook: '+label)
+                  rels = ET.fromstring(z.read('xl/_rels/workbook.xml.rels'))
+                  relmap = {n.attrib['Id']:normalise_part(n.attrib['Target']) for n in rels if 'Id' in n.attrib}
+                  ss = []
+                  if 'xl/sharedStrings.xml' in files:
+                      root = ET.fromstring(z.read('xl/sharedStrings.xml'))
+                      for e in root.findall('m:si',NS):
+                          ss.append(''.join(n.text or '' for n in e.iter('{%s}t'%NS['m'])))
+                  workbook = ET.fromstring(z.read('xl/workbook.xml'))
+                  for sh in workbook.findall('m:sheets/m:sheet', NS):
+                      name = sh.attrib['name']
+                      rid = sh.attrib.get('{%s}id'%NS['r'])
+                      member = relmap.get(rid)
+                      if not member or member not in files:
+                          raise ValueError('Missing expected sheet member: '+str(member))
+                      if z.getinfo(member).file_size > 90_000_000:
+                          raise ValueError('Unusually large worksheet; reject')
+                      year_tokens = set()
+                      preview = []
+                      total_rows = 0
+                      # Stream XML to keep large historical workbooks memory bounded.
+                      with z.open(member) as stream:
+                          for event, elem in ET.iterparse(stream, events=('end',)):
+                              if elem.tag != '{%s}row'%NS['m']:
+                                  continue
+                              total_rows += 1
+                              samples=[]
+                              for cell in elem.findall('m:c', NS):
+                                  address = cell.attrib.get('r','')
+                                  column = re.match(r'[A-Z]+', address)
+                                  v = cell.find('m:v',NS)
+                                  raw = v.text if v is not None else None
+                                  if cell.attrib.get('t')=='s' and raw is not None:
+                                      idx=int(raw)
+                                      value=ss[idx] if 0 <= idx < len(ss) else '[BAD SHARED STRING INDEX]'
+                                  elif cell.attrib.get('t')=='inlineStr':
+                                      value=''.join(t.text or '' for t in cell.iter('{%s}t'%NS['m']))
+                                  else: value=raw
+                                  if value is None: continue
+                                  sval=str(value).strip()
+                                  if (m:=re.fullmatch(r'(19[5-9][0-9]|20[0-2][0-9])(?:\.0)?', sval)):
+                                      y=int(float(sval))
+                                      if 1951 <= y <= 2026: year_tokens.add(y)
+                                  if total_rows <= 14 and column and len(column.group(0)) <= 2 and len(samples)<32:
+                                      samples.append([address, sval[:110]])
+                              if total_rows <= 14:preview.append(samples)
+                              elem.clear()
+                      result['sheets'].append({'name':name,'member':member,'rows_xml':total_rows, 'year_markers':sorted(year_tokens)})
+                      result['first_rows'][name]=preview
+                      result['year_markers'][name]=sorted(year_tokens)
+              return result
+          
+          def audit():
+              OUT.mkdir(parents=True, exist_ok=True)
+              report={'status':'SOURCE_SCHEMA_DISCOVERY_ONLY_NOT_INGESTED',
+                      'purpose':'Discover Census fiscal-years 1951 onward, tax category structure, missing values and state availability',
+                      'readme':'No warehouse modification; observed year labels do not guarantee complete comparable state-year values.',
+                      'retrieved_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                      'source_reports':[], 'errors':[],
+                      'limitations':['STC covers state governments, not state-and-local combined collections.',
+                                     'Do not assume District of Columbia is in the STC universe.',
+                                     'Do not treat tax receipts as exogenous changes in tax law.',
+                                     'Validate Census classification changes including the post-2005 framework before merging years.',
+                                     'Fiscal years vary between states.']}
+              raw_workbooks = {}
+              for source in SOURCES:
+                  try:
+                      data, url = fetch(source)
+                      entry={'url':url,'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest(), 'workbooks':[],'non_workbook_members':[]}
+                      if source.endswith('.xlsx'):
+                          raw_workbooks[source]=data
+                      else:
+                          with zipfile.ZipFile(io.BytesIO(data)) as outer:
+                              for info in outer.infolist():
+                                  if info.is_dir():continue
+                                  entry['non_workbook_members'].append({'name':info.filename,'bytes':info.file_size})
+                                  if info.filename.lower().endswith('.xlsx') and info.file_size<20_000_000:
+                                      raw_workbooks['zip:'+info.filename]=outer.read(info)
+                      report['source_reports'].append(entry)
+                  except Exception as exc:
+                      report['errors'].append({'source':source,'error_type':type(exc).__name__,'message':str(exc)[:500]})
+              seen_hashes = set()
+              for name, data in raw_workbooks.items():
+                  h=hashlib.sha256(data).hexdigest()
+                  if h in seen_hashes: continue
+                  seen_hashes.add(h)
+                  try:
+                      info=inspect_xlsx(data,name)
+                      report['source_reports'].append({'workbook':info})
+                  except Exception as exc:
+                      report['errors'].append({'source':name,'error_type':type(exc).__name__,'message':str(exc)[:500]})
+              if not seen_hashes or not any('workbook' in x for x in report['source_reports']):
+                  report['status']='SOURCE_DISCOVERY_FAILED'
+              (OUT/'audit.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+              with (OUT/'sheet_overview.csv').open('w',newline='',encoding='utf-8') as f:
+                  writer=csv.writer(f,lineterminator=chr(10))
+                  writer.writerow(['workbook','sheet','rows_xml','earliest_year_label','latest_year_label','year_marker_count'])
+                  for entry in report['source_reports']:
+                      workbook=entry.get('workbook')
+                      if not workbook:continue
+                      for sh in workbook['sheets']:
+                          ys=sh['year_markers']
+                          writer.writerow([workbook['name'],sh['name'],sh['rows_xml'],min(ys) if ys else '', max(ys) if ys else '',len(ys)])
+              print(json.dumps({'status':report['status'],'sources':len(report['source_reports']),
+                                'errors':report['errors'],
+                                'sheet_summary':[{'name':e['workbook']['name'],
+                                                  'sheets':[{'name':s['name'],'rows':s['rows_xml'], 'earliest':(min(s['year_markers']) if s['year_markers'] else None),'latest':(max(s['year_markers']) if s['year_markers'] else None)} for s in e['workbook']['sheets']]} for e in report['source_reports'] if 'workbook' in e]},indent=2)[:12500])
+              return 0 if report['status']!='SOURCE_DISCOVERY_FAILED' else 1
+          
+          if __name__=='__main__':
+              raise SystemExit(audit())
+          PY_TAX_AUDIT
+          python -m py_compile /tmp/state_tax_source_audit.py
+      - name: Inspect official historical Census tax archives
+        run: python /tmp/state_tax_source_audit.py
+      - name: Preserve audit and workbook previews
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: census-state-tax-history-source-audit-${{ github.run_number }}
+          path: audit/state_tax_history/
+          retention-days: 90
+          if-no-files-found: warn
