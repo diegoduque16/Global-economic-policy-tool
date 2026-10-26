@@ -1,0 +1,69 @@
+{
+  "source_name": "IMF WP/26/011 Table 1 numeric transcription",
+  "source_url": "https://www.imf.org/-/media/files/publications/wp/2026/english/wpiea2026011-source-pdf.pdf",
+  "source_printed_pages": [
+    12,
+    13,
+    14
+  ],
+  "source_csv_sha256": "c08aa5d3361dc5b5acccd85d80eb2cf3dd304c41b65f05d690bada03845f72a3",
+  "source_stated_episode_count_introduction": 73,
+  "source_stated_episode_count_later_sections": 72,
+  "transcribed_country_year_episode_rows": 72,
+  "coverage_countries_named_in_paper": 14,
+  "countries_with_episode_rows": 12,
+  "countries_explicitly_without_identified_episodes": [
+    "AGO",
+    "COD"
+  ],
+  "by_country": {
+    "AGO": 0,
+    "CIV": 8,
+    "CMR": 8,
+    "COD": 0,
+    "ETH": 5,
+    "GHA": 8,
+    "KEN": 7,
+    "MOZ": 3,
+    "MUS": 3,
+    "NGA": 1,
+    "SEN": 6,
+    "TZA": 9,
+    "UGA": 12,
+    "ZAF": 2
+  },
+  "arithmetic_consistent_rows": 70,
+  "quarantined_rows": 2,
+  "issues": [
+    {
+      "iso3": "KEN",
+      "year": 2023,
+      "published_total_pp_gdp": "2.10",
+      "component_sum_pp_gdp": "1.05",
+      "difference_pp_gdp": "1.05",
+      "printed_page": 13,
+      "flag": "QUARANTINED_PUBLISHED_TOTAL_MISMATCH"
+    },
+    {
+      "iso3": "KEN",
+      "year": 2024,
+      "published_total_pp_gdp": "2.10",
+      "component_sum_pp_gdp": "1.05",
+      "difference_pp_gdp": "1.05",
+      "printed_page": 13,
+      "flag": "QUARANTINED_PUBLISHED_TOTAL_MISMATCH"
+    }
+  ],
+  "status": "QUARANTINED_PENDING_AUTHOR_OR_PRIMARY_SOURCE_CLARIFICATION",
+  "warehouse_inclusion_permitted": false,
+  "causal_inference_ready": false,
+  "notes": [
+    "Do not impute no-episode countries to zero for all years.",
+    "Preserve the published total: do not replace Kenya 2023/2024 with calculated totals without evidence.",
+    "The paper reports 73 episodes in one section and 72 later; Table 1 transcribes to 72.",
+    "The narrative-study identification strategy is subject to anticipation, selection, and measurement concerns.",
+    "This is a manually transcribed derived numeric table, not an author-provided machine-readable dataset.",
+    "Published Table 1 includes consolidations only; absence is not a verified no-policy-shock year.",
+    "All magnitudes are estimated % of GDP; positive numbers denote fiscal tightening, not stimulus."
+  ]
+}
