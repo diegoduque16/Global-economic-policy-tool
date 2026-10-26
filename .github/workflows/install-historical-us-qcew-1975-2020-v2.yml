@@ -1,0 +1,282 @@
+name: Install historical US QCEW 1975-2020 v2 (verified SIC source)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: historical-qcew-state-totals-v2
+  cancel-in-progress: false
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install revised fail-closed historic collector
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p open_data docs data/us_state_qcew_historical
+          cat > open_data/us_state_qcew_historical.py <<'PY_QCEW_COLLECTOR'
+          """Official BLS QCEW annual statewide all-industry totals, 1975-2020.
+          
+          1975-2000 uses SIC archive; 2001-2020 NAICS. SIC->NAICS industry
+          breaks are avoided by choosing only source-coded all-ownership, all-industry totals.
+          This importer DOES NOT use state-sector sums. It fails closed on unexpected archives.
+          """
+          from __future__ import annotations
+          import argparse, csv, datetime as dt, hashlib, io, json, math, re, time, urllib.request, urllib.error, urllib.parse, zipfile
+          from pathlib import Path
+          from open_data.us_state_qcew import STATES
+          
+          YEARS=tuple(range(1975,2021))
+          STATES_BY_AREA={v+'000':k for k,v in STATES.items()}
+          assert len(STATES_BY_AREA)==51
+          FIELDS=('provider','country_iso3','year','period','series','value','unit','frequency','disaggregation','obs_status','source_url','retrieved_utc')
+          MEASURES={
+           'annual_avg_emplvl':'covered_jobs_annual_monthly_average',
+           'annual_avg_estabs_count':'establishments_annual_average',
+           'total_annual_wages':'nominal_usd_annual_total',
+           'annual_avg_wkly_wage':'nominal_usd_per_week',
+           'avg_annual_pay':'nominal_usd_per_year'
+          }
+          
+          def archive_url(year):
+              year=int(year)
+              if year not in YEARS:raise ValueError('Unsupported year')
+              if year<=2000:
+                  return f'https://data.bls.gov/cew/data/files/{year}/sic/csv/sic_{year}_annual_by_industry.zip'
+              return f'https://data.bls.gov/cew/data/files/{year}/csv/{year}_annual_by_industry.zip'
+          
+          def download(year, retries=3, max_bytes=500_000_000):
+              url=archive_url(year)
+              for attempt in range(retries):
+                  try:
+                      req=urllib.request.Request(url,headers={'User-Agent':'GlobalEconomicPolicyTool/1.0 academic research','Accept':'application/zip,application/octet-stream,*/*','Accept-Encoding':'identity'})
+                      with urllib.request.urlopen(req,timeout=240) as resp:
+                          parts=urllib.parse.urlsplit(resp.geturl())
+                          if parts.scheme!='https' or parts.hostname not in {'data.bls.gov','www.bls.gov'}:raise ValueError('Unexpected archive redirect')
+                          raw=resp.read(max_bytes+1)
+                      if not 200<len(raw)<=max_bytes or not zipfile.is_zipfile(io.BytesIO(raw)):raise ValueError('Downloaded payload not bounded ZIP')
+                      return raw
+                  except (urllib.error.HTTPError,urllib.error.URLError,TimeoutError):
+                      if attempt+1>=retries:raise
+                      time.sleep(3*(attempt+1))
+          
+          def number(source):
+              val=str(source if source is not None else '').strip().replace(',','')
+              if val.upper() in {'','N','NA','-','(D)','D','S'}:return None
+              x=float(val)
+              if not math.isfinite(x) or x<0:raise ValueError('Invalid numerical BLS field')
+              return x
+          
+          def candidate_members(z):
+              all_csv=[info for info in z.infolist() if not info.is_dir() and info.filename.lower().endswith('.csv')]
+              if len(all_csv)<1 or len(all_csv)>20000:raise ValueError('Unexpected archive CSV file count')
+              # Archive by-industry has many sector files. Inspect only total/all-industry
+              # members so overlapping industrial subcomponents are never summed.
+              matches=[]
+              for member in all_csv:
+                  base=member.filename.replace('\\','/').split('/')[-1]
+                  if re.search(r'(?:\btotal\b|all industries|\b10\s*\(|\b10\s*\.)',base,re.I):
+                      if member.file_size>80_000_000:raise ValueError('Oversized candidate CSV member')
+                      matches.append(member)
+              if not matches:
+                  raise ValueError('No total-industry filename found; first files: '+repr([x.filename for x in all_csv[:15]]))
+              if len(matches)>30:raise ValueError('Too many total-industry candidates: '+repr([x.filename for x in matches[:40]]))
+              return matches
+          
+          def parse_archive(raw,year,when):
+              url=archive_url(year)
+              if not zipfile.is_zipfile(io.BytesIO(raw)):raise ValueError('Invalid archive')
+              lookup={}; candidates=[]
+              with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                  members=candidate_members(z)
+                  for member in members:
+                      candidates.append(member.filename)
+                      with z.open(member) as inp:
+                          text=inp.read(80_000_001)
+                      if len(text)>80_000_000:raise ValueError('Member too large')
+                      reader=csv.DictReader(io.StringIO(text.decode('utf-8-sig')))
+                      required={'area_fips','year','qtr','own_code','industry_code','size_code','disclosure_code','annual_avg_emplvl','total_annual_wages'}
+                      if not required.issubset(reader.fieldnames or []):raise ValueError(f'Schema missing required columns: {member.filename}')
+                      for r in reader:
+                          area=str(r['area_fips']).strip()
+                          if area not in STATES_BY_AREA:continue
+                          if str(r['own_code']).strip()!='0' or str(r['size_code']).strip()!='0':continue
+                          ag=str(r.get('agglvl_code') or '').strip().lstrip('0')
+                          if int(ag or '0') not in (18,50):continue # SIC state-total 18; NAICS state-total 50
+                          code=str(r['industry_code']).strip().upper()
+                          # agglvl_code itself identifies statewide Total Covered (18 SIC, 50 NAICS).
+                          # Preserve the original industry_code, but never infer aggregates by summing industries.
+                          if int(r['year'])!=year or str(r['qtr']).strip()!='A':raise ValueError('Wrong reference period')
+                          key=(area,year)
+                          if key in lookup:raise ValueError(f'Duplicate source total record: {key}')
+                          disc=str(r.get('disclosure_code') or '').strip().upper()
+                          if disc not in ('','N'):raise ValueError('Unknown disclosure code')
+                          if disc=='N':raise ValueError('Suppressed statewide all-industry total '+area)
+                          if number(r['annual_avg_emplvl']) is None or number(r['annual_avg_emplvl'])<=0:raise ValueError('Missing/zero state employment '+area)
+                          lookup[key]=(r,member.filename,code,ag)
+              if len(lookup)!=51:
+                  absent=sorted(set(STATES_BY_AREA)-{x[0] for x in lookup})
+                  raise ValueError(f'{year}: state total coverage {len(lookup)}/51; missing={absent}; candidates={candidates[:10]}')
+              output=[]; zero=0; omitted=0
+              for area in sorted(STATES_BY_AREA):
+                  r,member,code,ag=lookup[area,year]
+                  dimensions={'state_abbr':STATES_BY_AREA[area],'state_fips':area[:2],'state_qcew_area_fips':area,
+                              'industry_code':code,'ownership_code':'0','ownership_scope':'all_ownerships',
+                              'industry_scope':'all_industries','source_classification':'SIC' if year<=2000 else 'NAICS',
+                              'source_aggregation_level':ag,'source_archive_member':member}
+                  for field,unit in MEASURES.items():
+                      alias=field
+                      if field=='annual_avg_estabs_count' and field not in r and 'annual_avg_estabs' in r:alias='annual_avg_estabs'
+                      val=number(r.get(alias))
+                      if val is None:omitted+=1;continue
+                      if val==0:zero+=1
+                      output.append({'provider':'BLS QCEW','country_iso3':'USA','year':year,'period':str(year),
+                         'series':'BLS_QCEW_HIST.'+field,'value':str(val),'unit':unit,'frequency':'annual',
+                         'disaggregation':json.dumps(dimensions,sort_keys=True),'obs_status':'published_state_total',
+                         'source_url':url,'retrieved_utc':when})
+              if len(output)<204:raise ValueError('Insufficient yearly numeric measurements')
+              return output,{'year':year,'source_url':url,'archive_sha256':hashlib.sha256(raw).hexdigest(),
+                             'archive_bytes':len(raw),'candidate_member_count':len(candidates),
+                             'source_members':sorted(set(r[1] for r in lookup.values())),'states':len(lookup),
+                             'observations':len(output),'omitted':omitted,'explicit_zero':zero}
+          
+          def collect(years=YEARS,out='data/us_state_qcew_historical',fetch=download):
+              years=tuple(years)
+              if not years or len(set(years))!=len(years) or any(y not in YEARS for y in years):raise ValueError('Invalid years')
+              out=Path(out); (out/'processed').mkdir(parents=True,exist_ok=True)
+              when=dt.datetime.now(dt.timezone.utc).isoformat()
+              rows=[]; audits=[]; errors=[]
+              try:
+                  for y in years:
+                      raw=fetch(y)
+                      rec,report=parse_archive(raw,y,when)
+                      rows.extend(rec);audits.append(report)
+                      print('YEAR_VALIDATED',json.dumps({'year':y,'rows':len(rec),'bytes':len(raw)}),flush=True)
+                  keys=set()
+                  for r in rows:
+                      d=json.loads(r['disaggregation']);key=(r['year'],d['state_fips'],r['series'])
+                      if key in keys:raise ValueError('Duplicate year/state/indicator '+repr(key))
+                      keys.add(key)
+                  panel=out/'processed'/'us_state_qcew_historical_panel.csv'
+                  with panel.open('w',newline='',encoding='utf-8') as f:
+                      w=csv.DictWriter(f,fieldnames=FIELDS,lineterminator='\n');w.writeheader();w.writerows(rows)
+                  digest=hashlib.sha256(panel.read_bytes()).hexdigest()
+              except Exception as exc:
+                  errors.append({'error_type':type(exc).__name__,'message':str(exc)[:1100],
+                                 'years_validated':[x['year'] for x in audits]})
+                  digest=None
+              status='VALIDATED_DESCRIPTIVE_NOT_CAUSAL' if not errors else 'FAILED_CLOSED'
+              report={'source':'Official BLS QCEW historical SIC/NAICS annual files','source_url':'https://www.bls.gov/cew/downloadable-data-files.htm',
+                      'status':status,'observations':len(rows) if not errors else 0,'years':list(years),
+                      'years_validated':[x['year'] for x in audits],'state_count':51,'archive_audit':audits,'panel_sha256':digest,
+                      'errors':errors,'conflicts':[],'research_ready':False,'causal_inference_ready':False,
+                      'notes':['1975-2000 source-coded SIC state total vs 2001-2020 source-coded NAICS state total.',
+                        'Never sum SIC or NAICS industry rows to construct state totals.',
+                        'Missing/suppressed values omitted, explicit zeros preserved, nominal wages not deflated.',
+                        'State-year all-industry total is comparable across industry-code eras but other methodology shifts and revisions remain.',
+                        'Observational employment and wage data are not causal tax-policy shocks.']}
+              (out/'run_report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+              print('COLLECTOR_REPORT',json.dumps({k:report[k] for k in ('status','observations','years_validated','errors')},sort_keys=True),flush=True)
+              if errors:raise RuntimeError(str(errors))
+              return report
+          
+          if __name__=='__main__':
+              ap=argparse.ArgumentParser()
+              ap.add_argument('--mode',choices=('pilot','full'),default='pilot')
+              ap.add_argument('--out',default='data/us_state_qcew_historical')
+              a=ap.parse_args()
+              collect(years=(1975,1988,2000,2001,2010,2020) if a.mode=='pilot' else YEARS,out=a.out)
+          PY_QCEW_COLLECTOR
+          python -m py_compile open_data/us_state_qcew_historical.py warehouse/snapshot.py
+      - name: Offline source parser tests for both SIC and NAICS total records
+        shell: bash
+        run: |
+          python - <<'PY_QCEW_TEST'
+          import io,zipfile,csv
+          from open_data.us_state_qcew_historical import parse_archive, STATES_BY_AREA, archive_url
+          fields=['area_fips','year','qtr','own_code','size_code','agglvl_code','industry_code','disclosure_code','annual_avg_estabs_count','annual_avg_emplvl','total_annual_wages','annual_avg_wkly_wage','avg_annual_pay']
+          def fake(y, n=51):
+              b=io.StringIO();w=csv.DictWriter(b,fieldnames=fields);w.writeheader()
+              for area in list(STATES_BY_AREA)[:n]:
+                  w.writerow(dict(area_fips=area,year=y,qtr='A',own_code='0',size_code='0',agglvl_code='18' if y<2001 else '50',industry_code='SIC_10' if y<2001 else '10',annual_avg_estabs_count='230',annual_avg_emplvl='8888',total_annual_wages='100000',annual_avg_wkly_wage='220',avg_annual_pay='11440',disclosure_code=''))
+              dest=io.BytesIO()
+              with zipfile.ZipFile(dest,'w',zipfile.ZIP_DEFLATED) as z:z.writestr('year/year.annual 10 (Total Covered).csv',b.getvalue())
+              return dest.getvalue()
+          for year in (1975,2000,2001,2020):
+              rows,stats=parse_archive(fake(year),year,'test')
+              assert len(rows)==255 and stats['states']==51,(year,stats)
+          try:parse_archive(fake(1975,50),1975,'test')
+          except ValueError as exc:assert 'coverage 50/51' in str(exc)
+          else:raise AssertionError('Missing states were not rejected')
+          assert archive_url(1975)=='https://data.bls.gov/cew/data/files/1975/sic/csv/sic_1975_annual_by_industry.zip'
+          assert archive_url(2020)=='https://data.bls.gov/cew/data/files/2020/csv/2020_annual_by_industry.zip'
+          print('Verified offline SIC and NAICS statewide-total parser tests.')
+          PY_QCEW_TEST
+      - name: Validate representative official years before full historical collection
+        run: python -m open_data.us_state_qcew_historical --mode pilot --out data/qcew_historical_pilot
+      - name: Collect complete 1975-2020 historical employment and wage totals
+        run: python -m open_data.us_state_qcew_historical --mode full --out data/us_state_qcew_historical
+      - name: Audit full report and register optional warehouse family
+        shell: bash
+        run: |
+          python - <<'PY_QCEW_REG'
+          import csv,json,hashlib
+          from pathlib import Path
+          report=json.loads(Path('data/us_state_qcew_historical/run_report.json').read_text())
+          assert report['status']=='VALIDATED_DESCRIPTIVE_NOT_CAUSAL' and not report['errors']
+          assert report['years_validated']==list(range(1975,2021))
+          assert len(report['archive_audit'])==46
+          assert all(y['states']==51 for y in report['archive_audit'])
+          assert report['observations']>=46*51*4
+          panel=Path('data/us_state_qcew_historical/processed/us_state_qcew_historical_panel.csv')
+          assert hashlib.sha256(panel.read_bytes()).hexdigest()==report['panel_sha256']
+          with panel.open(newline='',encoding='utf-8') as f:assert sum(1 for _ in csv.DictReader(f))==report['observations']
+          p=Path('warehouse/snapshot.py');s=p.read_text()
+          anchor="    'us_state_qcew': ('us_state_qcew', 'us_state_qcew_panel.csv', 5000),"
+          entry="    'us_state_qcew_historical': ('us_state_qcew_historical', 'us_state_qcew_historical_panel.csv', 9000),"
+          assert s.count(anchor)==1,'Warehouse registration anchor missing or ambiguous'
+          if entry not in s:
+              assert "'us_state_qcew_historical':" not in s,'Conflicting registration exists'
+              s=s.replace(anchor,anchor+'\n'+entry)
+              compile(s,str(p),'exec');p.write_text(s)
+          print('REGISTERED_HISTORICAL_QCEW',report['observations'])
+          PY_QCEW_REG
+          python -m py_compile warehouse/snapshot.py
+      - name: Save validation report even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: historical-us-qcew-v2-validation-${{ github.run_number }}
+          path: |
+            data/qcew_historical_pilot/run_report.json
+            data/us_state_qcew_historical/run_report.json
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Commit validated outcomes and registration to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add open_data/us_state_qcew_historical.py data/us_state_qcew_historical warehouse/snapshot.py
+          git diff --cached --check
+          if git diff --cached --quiet; then echo "Already installed"; else
+            git commit -m "Install validated BLS QCEW statewide totals 1975-2020"
+            git push origin HEAD:main
+          fi
+
