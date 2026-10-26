@@ -1,0 +1,139 @@
+name: Recover tariff and CAIT warehouse integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_warehouse:
+        description: 'Build a full source-separated economic warehouse after installation (may take a while)'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tariff-cait-warehouse-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Recreate tested installer from previously uploaded workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          import subprocess
+          import sys
+          import textwrap
+
+          source = Path('.github/workflows/install-tariff-cait-warehouse.yml').read_text(encoding='utf-8')
+          start = "          cat > /tmp/install_tariff_cait.py <<'PYINSTALL'\n"
+          end = '\n          PYINSTALL\n'
+          if source.count(start) != 1:
+              raise RuntimeError('Previously installed source script marker missing; refusing an unsafe partial install')
+          segment = source.split(start, 1)[1]
+          if segment.count(end) != 1:
+              raise RuntimeError('Previously installed source script end marker missing')
+          code = textwrap.dedent(segment.split(end, 1)[0]) + '\n'
+          ast.parse(code)
+          path = Path('/tmp/recovered_install_tariff_cait.py')
+          path.write_text(code, encoding='utf-8')
+          subprocess.run([sys.executable, str(path)], check=True)
+          PY
+          # The GitHub Actions bot may change ordinary code, but cannot change
+          # workflow files without the separately restricted 'workflows' permission.
+          # Retain all source integration edits while discarding only the attempted
+          # rewrite of the original warehouse workflow.
+          git restore -- .github/workflows/economic-warehouse.yml
+          python -m py_compile open_data/tariff_cait_panels.py warehouse/snapshot.py
+          python -m unittest discover -s tests -p 'test_snapshot.py' -v
+          git diff --check
+      - name: Commit only ordinary code and source documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- open_data/tariff_cait_panels.py warehouse/snapshot.py open_data/expanded_source_catalog.csv docs/TARIFF_CAIT_WAREHOUSE_INTEGRATION.md
+          if git diff --cached --quiet; then
+            echo 'Source collector and warehouse registration already installed'
+          else
+            git commit -m 'Install validated tariff and California AI data source collectors'
+            git push origin HEAD:main
+          fi
+          echo '## Installer completed' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Added source collector, two optional warehouse families and methodology/catalog updates.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'The original warehouse workflow file remains unchanged; use this workflow with build_warehouse=true for full collection.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Download complete World Bank data
+        if: inputs.build_warehouse == true
+        run: python open_data/ingest.py --countries all --start 1960 --end 2026 --group all --out data/wdi
+      - name: Download complete US and Europe data
+        if: inputs.build_warehouse == true
+        run: python open_data/us_europe.py --scope full --sources all --out data/us_europe
+      - name: Download historical Maddison data
+        if: inputs.build_warehouse == true
+        run: python open_data/historical_maddison.py --start 1 --end 1959 --out data/historical
+      - name: Download full IMF and OECD data
+        if: inputs.build_warehouse == true
+        run: python open_data/imf_oecd.py --scope full --source both --out data/imf_oecd
+      - name: Download full labor data
+        if: inputs.build_warehouse == true
+        run: python open_data/labor_markets.py --scope full --source all --out data/labor
+      - name: Download Eurostat AI enterprise data
+        if: inputs.build_warehouse == true
+        run: python open_data/eurostat_ai.py
+      - name: Download and validate narrative tariff and California AI data
+        if: inputs.build_warehouse == true
+        run: |
+          python -m pip install --disable-pip-version-check openpyxl==3.1.5
+          python open_data/tariff_cait_panels.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for name, minimum in [('tariff', 185), ('cait', 1872)]:
+              report = json.loads((Path('data')/name/'run_report.json').read_text())
+              assert not report.get('errors') and not report.get('conflicts')
+              assert report['observations'] >= minimum
+              assert report['research_ready'] is False
+              print(name, report['observations'], 'source-native observations')
+          PY
+      - name: Build audited, source-separated economic SQLite warehouse
+        if: inputs.build_warehouse == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          ID="economic-tariff-cait-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+          echo "WAREHOUSE_ID=$ID" >> "$GITHUB_ENV"
+          python warehouse/snapshot.py --data data --out warehouse_output --snapshot-id "$ID"
+      - name: Save versioned snapshot artifact
+        if: inputs.build_warehouse == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-tariff-cait-warehouse-${{ github.run_number }}
+          path: |
+            warehouse_output/*.tar.gz
+            warehouse_output/*/manifest.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Summarize full warehouse
+        if: inputs.build_warehouse == true
+        shell: bash
+        run: |
+          echo '## Source-separated warehouse built' >> "$GITHUB_STEP_SUMMARY"
+          echo "Snapshot: $WAREHOUSE_ID" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Source-native units, frequencies and CAIT geographic restrictions are retained.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No causal estimation or definition harmonization has been performed.' >> "$GITHUB_STEP_SUMMARY"
