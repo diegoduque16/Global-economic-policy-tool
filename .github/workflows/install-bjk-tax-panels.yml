@@ -1,0 +1,72 @@
+name: Install BJK state and county tax panels
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bjk-tax-installer
+  cancel-in-progress: false
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate and convert uploaded BJK panels
+        shell: bash
+        run: |
+          set -euo pipefail
+          python install_bjk_panels.py --archive bjk_descriptive_panels_and_audit.zip
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          expected = {'bjk_state_rates': (22124, 'bjk_state_rates_panel.csv'),
+                      'bjk_county_rates': (173789, 'bjk_county_rates_panel.csv')}
+          for family, (count, filename) in expected.items():
+              root = Path('data') / family
+              report = json.loads((root/'run_report.json').read_text())
+              assert not report['errors'] and not report['conflicts']
+              assert report['status'] == 'VALIDATED_DESCRIPTIVE_NOT_CAUSAL'
+              assert report['observations'] == count, (family, report['observations'], count)
+              with (root/'processed'/filename).open(newline='', encoding='utf-8') as f:
+                  assert sum(1 for _ in csv.DictReader(f)) == count
+          s=Path('warehouse/snapshot.py').read_text()
+          assert "'bjk_state_rates':" in s and "'bjk_county_rates':" in s
+          print('BJK state and county panels passed post-conversion validation')
+          PY
+          python -m py_compile warehouse/snapshot.py
+      - name: Save validation reports as downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bjk-tax-panel-validation-${{ github.run_number }}
+          path: |
+            data/bjk_state_rates/run_report.json
+            data/bjk_county_rates/run_report.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Commit validated panels and warehouse registration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/bjk_state_rates data/bjk_county_rates warehouse/snapshot.py
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'BJK integration already installed.'
+          else
+            git commit -m 'Integrate validated BJK descriptive state and county tax panels'
+            git push origin HEAD:main
+          fi
