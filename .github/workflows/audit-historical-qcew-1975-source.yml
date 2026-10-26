@@ -1,0 +1,73 @@
+name: Audit historical BLS QCEW 1975 source (SIC)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Inspect 1975 SIC historical archive without publishing source data
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv, io, json, urllib.request, urllib.error, urllib.parse, zipfile, hashlib
+          from collections import Counter
+          from pathlib import PurePosixPath
+
+          sources = [
+              ('SIC_1975_annual_by_industry', 'https://data.bls.gov/cew/data/files/1975/sic/csv/sic_1975_annual_by_industry.zip'),
+              ('SIC_1975_annual_by_area', 'https://data.bls.gov/cew/data/files/1975/sic/csv/sic_1975_annual_by_area.zip'),
+          ]
+          chosen = None
+          for label, url in sources:
+              print('AUDIT_CANDIDATE', label, url, flush=True)
+              try:
+                  request = urllib.request.Request(url, headers={
+                      'User-Agent': 'GlobalEconomicPolicyTool/1.0 (research source audit)',
+                      'Accept': 'application/zip,application/octet-stream,*/*',
+                      'Accept-Encoding': 'identity'})
+                  with urllib.request.urlopen(request, timeout=150) as response:
+                      final = urllib.parse.urlparse(response.geturl())
+                      if final.scheme != 'https' or final.hostname not in ('data.bls.gov', 'www.bls.gov'):
+                          raise ValueError('Unexpected source redirect: ' + response.geturl())
+                      raw = response.read(120_000_001)
+                  if len(raw) > 120_000_000 or not zipfile.is_zipfile(io.BytesIO(raw)):
+                      raise ValueError('Source is not a valid ZIP smaller than 120MB')
+                  print('ARCHIVE_OK', json.dumps({'label': label, 'url': url, 'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()}), flush=True)
+                  chosen = (label, url, raw)
+                  break
+              except Exception as error:
+                  print('CANDIDATE_FAILED', label, type(error).__name__, str(error)[:300], flush=True)
+          if chosen is None:
+              raise SystemExit('No official 1975 SIC archive could be retrieved. Do not invent data or fall back silently.')
+
+          label, url, raw = chosen
+          with zipfile.ZipFile(io.BytesIO(raw)) as z:
+              members = [i for i in z.infolist() if not i.is_dir() and i.filename.lower().endswith('.csv')]
+              if not members:
+                  raise SystemExit('Official SIC archive has no CSV members')
+              print('ARCHIVE_MEMBER_COUNT', len(members), flush=True)
+              print('ARCHIVE_MEMBER_EXAMPLES', json.dumps([i.filename for i in members[:28]]), flush=True)
+              candidates = [i for i in members if any(t in PurePosixPath(i.filename.replace('\\','/')).name.lower() for t in ('10.csv', '0000', 'all', 'total'))]
+              sample = (candidates or members)[:7]
+              print('SELECTED_MEMBER_SAMPLES', json.dumps([i.filename for i in sample]), flush=True)
+              for item in sample:
+                  if item.file_size > 50_000_000:
+                      print('MEMBER_TOO_LARGE_TO_SAMPLE', item.filename, item.file_size, flush=True)
+                      continue
+                  with z.open(item) as source:
+                      body = source.read(min(item.file_size, 1_000_000))
+                  text = body.decode('utf-8-sig', errors='replace')
+                  reader = csv.DictReader(io.StringIO(text))
+                  print('MEMBER', item.filename, 'BYTES', item.file_size, 'COLUMNS', json.dumps(reader.fieldnames), flush=True)
+                  preview = []
+                  for _, record in zip(range(5), reader):
+                      preview.append({k: record.get(k) for k in list(record)[:16]})
+                  print('RECORD_PREVIEW', json.dumps(preview, default=str), flush=True)
+          print('AUDIT_DONE: source retrieved; no data committed or published; inspect member format before reattempting importer.', flush=True)
+          PY
