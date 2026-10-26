@@ -110,8 +110,7 @@ jobs:
                       'All magnitudes are estimated % of GDP; positive numbers denote fiscal tightening, not stimulus.']}
               out.mkdir(parents=True,exist_ok=True)
               with (out/'audited_episodes.csv').open('w',newline='',encoding='utf-8') as stream:
-                  writer=csv.DictWriter(stream,fieldnames=list(checked[0]),lineterminator='
-')
+                  writer=csv.DictWriter(stream,fieldnames=list(checked[0]),lineterminator=chr(10))
                   writer.writeheader();writer.writerows(checked)
               (out/'audit.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
               return report
