@@ -1,0 +1,452 @@
+name: Install batched IMF expansion and fiscal-research access audit
+'on':
+  workflow_dispatch: null
+permissions:
+  contents: write
+concurrency:
+  group: imf-batched-install
+  cancel-in-progress: false
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Write batched importer, research access audit, and tests
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p open_data
+        cat > open_data/imf_batched.py <<'PY_BATCHED'
+        """Incremental IMF DataMapper importer for *additional* macroeconomic indicators.
+
+        This collector is not a fiscal-policy-shock dataset. It intentionally does not
+        merge or deduplicate across other warehouse source families. IMF projection
+        status and provider-native units remain attached to every observation.
+        """
+        from __future__ import annotations
+        import argparse
+        import csv
+        import datetime as dt
+        import hashlib
+        import json
+        import math
+        import re
+        import time
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+        from collections import Counter
+        from pathlib import Path
+
+        BASE = 'https://www.imf.org/external/datamapper/api/v2'
+        INDICATORS = ('NGDPD','NGDPDPC','PPPGDP','PPPPC','LP','BCA_NGDPD',
+                      'PCPIEPCH','prim_exp','ie','pb','d')
+        FIELDS = ('provider','country_iso3','year','period','series','value','unit',
+                  'frequency','disaggregation','obs_status','source_url')
+        MAX_BYTES = 5_000_000
+
+
+        def windows(start, end, width=10):
+            if not 1800 <= start <= end <= 2100 or not 1 <= width <= 25:
+                raise ValueError('Invalid window parameters')
+            for year in range(start, end + 1, width):
+                yield year, min(year + width - 1, end)
+
+
+        def batches(items, size=10):
+            if size < 1 or size > 15:
+                raise ValueError('Country batch must contain 1..15 items')
+            for i in range(0, len(items), size):
+                yield tuple(items[i:i+size])
+
+
+        def batch_url(indicator, countries, start, end):
+            if not re.fullmatch('[A-Za-z0-9_]+', indicator):
+                raise ValueError('Unexpected indicator code')
+            if not 1 <= len(countries) <= 15 or any(not re.fullmatch('[A-Z]{3}', c) for c in countries):
+                raise ValueError('Invalid country codes')
+            if end - start > 24 or start > end:
+                raise ValueError('Unbounded time window')
+            periods = ','.join(str(x) for x in range(start, end + 1))
+            return BASE + '/' + indicator + '/' + '/'.join(countries) + '?' + urllib.parse.urlencode({'periods':periods})
+
+
+        def fetch(url, attempts=4, max_bytes=MAX_BYTES):
+            if not url.startswith(BASE + '/'):
+                raise ValueError('Request outside official IMF DataMapper API')
+            req = urllib.request.Request(url, headers={
+                'User-Agent':'EconomicResearchSourceCollector/1.0 (noncommercial; contact repo maintainer)',
+                'Accept':'application/json',
+                'Accept-Encoding':'identity'})
+            for attempt in range(attempts):
+                try:
+                    with urllib.request.urlopen(req, timeout=55) as resp:
+                        if urllib.parse.urlsplit(resp.geturl()).hostname != 'www.imf.org':
+                            raise ValueError('IMF response redirected to other origin')
+                        raw = resp.read(max_bytes + 1)
+                        if not raw or len(raw)>max_bytes:
+                            raise ValueError('Empty or oversized API response')
+                        if not ('json' in (resp.headers.get('Content-Type','').lower()) or raw.lstrip().startswith(b'{')):
+                            raise ValueError('Non-JSON API response')
+                        return raw
+                except urllib.error.HTTPError as exc:
+                    if exc.code not in (429,500,502,503,504) or attempt+1==attempts:
+                        raise
+                    retry_after=exc.headers.get('Retry-After')
+                    try:pause=min(max(float(retry_after),0),30) if retry_after else min(2**attempt,15)
+                    except (ValueError,TypeError):pause=min(2**attempt,15)
+                    time.sleep(pause)
+                except (urllib.error.URLError,TimeoutError):
+                    if attempt+1==attempts:raise
+                    time.sleep(min(2**attempt,15))
+            raise RuntimeError('Request retries exhausted')
+
+
+        def parse_chunk(raw, indicator, countries, start, end, meta, source_url):
+            obj=json.loads(raw)
+            if not isinstance(obj,dict) or not isinstance(obj.get('values'),dict):
+                raise ValueError('Unexpected IMF values response schema')
+            values=obj['values'].get(indicator)
+            if values is None and not obj['values']:
+                return []  # No observations for this indicator/country/period chunk.
+            if not isinstance(values,dict):
+                raise ValueError('Unexpected IMF indicator response in batch')
+            unexpected=set(values).difference(countries)
+            if unexpected:raise ValueError('Unexpected countries returned: '+repr(sorted(unexpected)[:8]))
+            projection=meta.get('projection-year')
+            try:projection=int(projection) if projection is not None else None
+            except (TypeError,ValueError):projection=None
+            rows=[]
+            for country,periods in values.items():
+                if not isinstance(periods,dict):raise ValueError('Unexpected IMF country series schema')
+                for yy,raw_value in periods.items():
+                    if not str(yy).isdigit():raise ValueError('Non-annual time value: '+str(yy))
+                    year=int(yy)
+                    if not start<=year<=end:
+                        raise ValueError('API ignored requested time window')
+                    if raw_value is None:continue
+                    try:v=float(raw_value)
+                    except (ValueError,TypeError) as exc:raise ValueError('Nonnumeric source value') from exc
+                    if not math.isfinite(v):raise ValueError('Nonfinite source value')
+                    extra={'imf_dataset':meta.get('dataset'),'source_vintage':meta.get('source'),
+                           'indicator_label':meta.get('label'),
+                           'projection_year_metadata':projection,
+                           'source_indicator_code':indicator}
+                    rows.append({'provider':'IMF DataMapper batched expansion',
+                      'country_iso3':country,'year':year,'period':str(year),'series':'IMF_DATAMAPPER.'+indicator,
+                      'value':v,'unit':meta.get('unit') or 'source_defined_unverified',
+                      'frequency':'annual','disaggregation':json.dumps(extra,sort_keys=True),
+                      'obs_status':'projection' if projection is not None and year>=projection else 'historical_or_current',
+                      'source_url':source_url})
+            return rows
+
+
+        def collect(out='data/imf_batched', mode='pilot', get=fetch, throttle=0.2):
+            out=Path(out); checkpoints=out/'checkpoints'; checkpoints.mkdir(parents=True,exist_ok=True)
+            now=dt.datetime.now(dt.timezone.utc).isoformat()
+            report={'source':'IMF DataMapper additional indicators','mode':mode,
+                'retrieved_utc':now,'status':'NOT_VALIDATED','research_ready':False,
+                'errors':[],'conflicts':[],'notes':[
+                  'Additional IMF macro indicators, NOT narratively identified policy shocks.',
+                  'IMF units and projection status retained without harmonization.',
+                  'Country/indicator/time window bounded; failures stop publication.',
+                  'Source documents can differ in vintages, indicators and periods; no cross-family deduplication.']}
+            try:
+                if mode not in ('pilot','full'):raise ValueError('Bad import mode')
+                raw_meta=get(BASE+'/indicators')
+                raw_countries=get(BASE+'/countries')
+                indicators=json.loads(raw_meta).get('indicators')
+                country_map=json.loads(raw_countries).get('countries')
+                if not isinstance(indicators,dict) or not isinstance(country_map,dict) or len(country_map)<150:
+                    raise ValueError('IMF metadata schema or country coverage changed')
+                requested= ('NGDPD','prim_exp','pb') if mode=='pilot' else INDICATORS
+                countries=('USA','FRA','DEU','KEN','GHA') if mode=='pilot' else tuple(sorted(c for c in country_map if re.fullmatch('[A-Z]{3}',c)))
+                start,end=(2017,2026) if mode=='pilot' else (1960,2026)
+                missing_indicators=set(requested)-set(indicators)
+                if missing_indicators:raise ValueError('Missing source indicators: '+repr(missing_indicators))
+                if any(c not in country_map for c in countries):raise ValueError('Pilot country missing from IMF country metadata')
+                (out/'source_indicator_metadata.json').write_text(json.dumps({k:indicators[k] for k in requested},indent=2)+'\n')
+                records={}; chunks=0; downloaded=0; reused=0; hashes=[]; indicator_counts=Counter()
+                for indicator in requested:
+                    for group in batches(list(countries),size=(5 if mode=='pilot' else 10)):
+                        for first,last in windows(start,end, width=10):
+                            url=batch_url(indicator,group,first,last)
+                            batch_id=hashlib.sha256((url+'|'+hashlib.sha256(raw_meta).hexdigest()+'|'+hashlib.sha256(raw_countries).hexdigest()).encode()).hexdigest()
+                            target=checkpoints/(batch_id+'.json')
+                            if target.exists():
+                                raw=target.read_bytes()
+                                reused+=1
+                            else:
+                                raw=get(url)
+                                downloaded+=1
+                            parsed=parse_chunk(raw,indicator,set(group),first,last,indicators[indicator],url)
+                            if not target.exists():target.write_bytes(raw)
+                            hashes.append({'batch_key':batch_id,'indicator':indicator,'countries':len(group),
+                                'start':first,'end':last,'rows':len(parsed),'sha256':hashlib.sha256(raw).hexdigest(),
+                                'bytes':len(raw)})
+                            for row in parsed:
+                                key=(row['country_iso3'],row['year'],row['series'])
+                                if key in records:raise ValueError('Duplicate IMF source observation: '+str(key))
+                                records[key]=row
+                                indicator_counts[indicator]+=1
+                            chunks+=1
+                            if throttle and downloaded>0:time.sleep(throttle)
+                rows=sorted(records.values(),key=lambda x:(x['country_iso3'],x['year'],x['series']))
+                count=len(rows); num_countries=len({r['country_iso3'] for r in rows})
+                if mode=='pilot':
+                    if count<20 or num_countries<3 or len(indicator_counts)<2:
+                        raise ValueError('Pilot IMF coverage unexpectedly sparse')
+                else:
+                    if count<10000 or num_countries<100 or len(indicator_counts)<len(requested):
+                        raise ValueError('Full IMF coverage unexpectedly sparse')
+                dest=out/'processed'/'imf_batched_panel.csv';dest.parent.mkdir(parents=True,exist_ok=True)
+                with dest.open('w',newline='',encoding='utf-8') as file:
+                    writer=csv.DictWriter(file,fieldnames=FIELDS);writer.writeheader();writer.writerows(rows)
+                report.update({'status':'VALIDATED_MACRO_OBSERVATIONS_NOT_CAUSAL_SHOCKS',
+                    'observations':count,'country_count':num_countries,'indicator_count':len(indicator_counts),
+                    'indicator_rows':dict(indicator_counts),'earliest_year':min(x['year'] for x in rows),
+                    'latest_year':max(x['year'] for x in rows),'request_chunks':chunks,
+                    'downloaded_chunks':downloaded,'reused_checkpoints':reused,
+                    'panel_sha256':hashlib.sha256(dest.read_bytes()).hexdigest(),
+                    'source_metadata_sha256':hashlib.sha256(raw_meta).hexdigest(),
+                    'country_metadata_sha256':hashlib.sha256(raw_countries).hexdigest(),
+                    'chunk_manifest':hashes,
+                    'note':'One group of countries, one indicator and ten years per request. Source policy identification is absent.'})
+            except Exception as exc:
+                report['status']='VALIDATION_FAILED'
+                report['errors'].append({'type':type(exc).__name__,'message':str(exc)[:400]})
+            (out/'run_report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+            print(json.dumps({k:report.get(k) for k in ('status','observations','country_count','indicator_count',
+                'request_chunks','downloaded_chunks','reused_checkpoints','errors')},indent=2))
+            if report['errors']:raise SystemExit('IMF batched collector failed; see run_report.json')
+            return report
+
+
+        if __name__=='__main__':
+            p=argparse.ArgumentParser()
+            p.add_argument('--mode',choices=['pilot','full'],default='pilot')
+            p.add_argument('--out',default='data/imf_batched')
+            p.add_argument('--throttle',type=float,default=0.2)
+            args=p.parse_args()
+            collect(out=args.out,mode=args.mode,throttle=args.throttle)
+        PY_BATCHED
+        mkdir -p open_data
+        cat > open_data/audit_imf_research.py <<'PY_RESEARCH_AUDIT'
+        """Access-only audit of official 2024/2026 IMF research sources.
+
+        This probe does not treat a fiscal-shock ZIP as a paginable IMF macro API and
+        never skips access controls. It records accessible official source metadata.
+        """
+        from __future__ import annotations
+        import datetime as dt
+        import hashlib
+        import json
+        import urllib.error
+        import urllib.request
+        from pathlib import Path
+
+        SOURCES={
+         'imf_2024_fiscal_consolidation_attachment':
+           'https://www.imf.org/-/media/files/publications/wp/2024/datasets/wp24210.zip',
+         'imf_2024_fiscal_consolidation_publication':
+           'https://www.imf.org/en/publications/wp/issues/2024/09/27/an-updated-action-based-dataset-of-fiscal-consolidation-554986',
+         'imf_2026_sub_saharan_fiscal_consolidation':
+           'https://www.elibrary.imf.org/view/journals/001/2026/011/article-A001-en.xml'
+        }
+
+        def audit(out='data/imf_research_access'):
+            out=Path(out);out.mkdir(parents=True,exist_ok=True)
+            report={'retrieved_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
+                'purpose':'official fiscal-shock research attachment and table availability; no access bypass',
+                'status':'AUDITED_RETRIEVAL_ONLY','sources':[],'research_ready':False}
+            for name,url in SOURCES.items():
+                entry={'name':name,'url':url,'accessible':False,'notes':[]}
+                try:
+                    req=urllib.request.Request(url,headers={
+                      'User-Agent':'Mozilla/5.0 (compatible; EconomicResearchSourceAudit/1.0)',
+                      'Accept':'text/html,application/zip,application/pdf,*/*',
+                      'Range':'bytes=0-2047' if name.endswith('_attachment') else 'bytes=0-65535'})
+                    with urllib.request.urlopen(req,timeout=25) as response:
+                        raw=response.read(2_000_001)
+                        entry.update({'accessible':True,'status_code':response.status,
+                            'content_type':response.headers.get('Content-Type'),
+                            'server_accept_ranges':response.headers.get('Accept-Ranges'),
+                            'content_range':response.headers.get('Content-Range'),
+                            'bytes_read':len(raw),'response_prefix_sha256':hashlib.sha256(raw).hexdigest(),
+                            'is_zip_signature':raw.startswith(b'PK')})
+                        if name.endswith('_attachment') and response.status==200:
+                            entry['notes'].append('Server returned HTTP 200 rather than 206; range chunking is not confirmed.')
+                except urllib.error.HTTPError as ex:
+                    entry.update({'status_code':ex.code,'error_type':'HTTPError',
+                        'error_message':str(ex)[:200],
+                        'server_accept_ranges':ex.headers.get('Accept-Ranges') if ex.headers else None})
+                    if ex.code==403:
+                        entry['notes'].append('Access denied. Dividing ZIP into ranges will not bypass HTTP 403.')
+                except Exception as ex:
+                    entry.update({'error_type':type(ex).__name__,'error_message':str(ex)[:200]})
+                report['sources'].append(entry)
+            p=out/'audit.json';p.write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+            print(json.dumps(report,indent=2))
+            return report
+
+        if __name__=='__main__':audit()
+        PY_RESEARCH_AUDIT
+        mkdir -p tests
+        cat > tests/test_imf_batched.py <<'PY_BATCH_TESTS'
+        import io, json, tempfile, unittest
+        from pathlib import Path
+        from open_data.imf_batched import windows,batches,batch_url,parse_chunk,collect,BASE
+
+        class BatchedIMFTest(unittest.TestCase):
+            def test_windows(self):
+                self.assertEqual(list(windows(2016,2026,10)),[(2016,2025),(2026,2026)])
+                self.assertEqual(list(batches(['USA','FRA','DEU'],2)),[('USA','FRA'),('DEU',)])
+            def test_url_is_bounded(self):
+                self.assertIn('NGDPD/USA/FRA?',batch_url('NGDPD',['USA','FRA'],2019,2020))
+                self.assertIn('periods=2019%2C2020',batch_url('NGDPD',['USA','FRA'],2019,2020))
+                with self.assertRaises(ValueError):batch_url('NGDPD',['USA'],1900,2020)
+            def test_parse_projection_and_zero(self):
+                payload=json.dumps({'values':{'NGDPD':{'USA':{'2025':0,'2026':4.1},'FRA':{'2025':7.5}}}}).encode()
+                rows=parse_chunk(payload,'NGDPD',{'USA','FRA'},2025,2026,{'unit':'Billions USD','dataset':'WEO','projection-year':2026},BASE+'/NGDPD/USA/FRA')
+                self.assertEqual(len(rows),3)
+                self.assertEqual(len([r for r in rows if r['obs_status']=='projection']),1)
+                self.assertEqual(len([r for r in rows if r['value']==0]),1)
+            def test_empty_batch_is_not_an_api_failure(self):
+                self.assertEqual(parse_chunk(b'{"values":{}}','NGDPD',{'USA'},1970,1979,{},'source'),[])
+            def test_unknown_country_and_unbounded_time_rejected(self):
+                for doc in [ {'values':{'NGDPD':{'ZZZ':{'2025':2}}}},
+                             {'values':{'NGDPD':{'USA':{'2012':2}}}} ]:
+                    with self.assertRaises(ValueError):
+                        parse_chunk(json.dumps(doc).encode(),'NGDPD',{'USA'},2025,2026,{},'source')
+            def test_failed_batch_does_not_publish_partial(self):
+                with tempfile.TemporaryDirectory() as d:
+                    def get(u):
+                        if u.endswith('indicators'):return json.dumps({'indicators':{x:{} for x in ('NGDPD','prim_exp','pb')}}).encode()
+                        if u.endswith('countries'):return json.dumps({'countries':{**{f'{i:03}':{} for i in range(160)},'USA':{},'FRA':{},'DEU':{},'KEN':{},'GHA':{}}}).encode()
+                        raise ValueError('Provider not accessible')
+                    with self.assertRaises(SystemExit):collect(d,mode='pilot',get=get,throttle=0)
+                    self.assertEqual(json.loads((Path(d)/'run_report.json').read_text())['status'],'VALIDATION_FAILED')
+                    self.assertFalse((Path(d)/'processed'/'imf_batched_panel.csv').exists())
+
+        if __name__=='__main__':unittest.main()
+        PY_BATCH_TESTS
+        python -m py_compile open_data/imf_batched.py open_data/audit_imf_research.py tests/test_imf_batched.py
+    - name: Run local unit and regression tests
+      shell: bash
+      run: |
+        set -euo pipefail
+        python -m unittest discover -s tests -p 'test_imf_batched.py' -v
+        python -m unittest discover -s tests -p 'test_snapshot.py' -v
+    - name: Try a small IMF DataMapper pilot (three indicators, five countries)
+      shell: bash
+      run: |
+        set -euo pipefail
+        python open_data/imf_batched.py --mode pilot --out data/imf_batched_pilot --throttle 0.4
+    - name: Audit 2024 IMF fiscal ZIP and 2026 African narrative paper
+      if: always()
+      shell: bash
+      run: |
+        set -euo pipefail
+        python open_data/audit_imf_research.py
+    - name: Verify pilot rows without treating macro data as policy shocks
+      shell: bash
+      run: |
+        set -euo pipefail
+        python - <<'PY_PILOT'
+        import csv,hashlib,json
+        from pathlib import Path
+        p=Path('data/imf_batched_pilot/processed/imf_batched_panel.csv')
+        r=json.loads(Path('data/imf_batched_pilot/run_report.json').read_text())
+        with p.open(newline='',encoding='utf-8') as f:rows=list(csv.DictReader(f))
+        assert len(rows)==r['observations']>=20 and r['country_count']>=3
+        assert r['indicator_count']>=2
+        assert r['status']=='VALIDATED_MACRO_OBSERVATIONS_NOT_CAUSAL_SHOCKS'
+        assert not r['research_ready'] and not r['errors'] and not r['conflicts']
+        assert hashlib.sha256(p.read_bytes()).hexdigest()==r['panel_sha256']
+        assert all(x['series'].startswith('IMF_DATAMAPPER.') for x in rows)
+        print('Pilot rows verified:',len(rows),'countries:',r['country_count'])
+        PY_PILOT
+    - name: Connect IMF batch collector to future full warehouse snapshots
+      shell: bash
+      run: |
+        set -euo pipefail
+        python - <<'PY_PATCH'
+        from pathlib import Path
+        collector=Path('open_data/imf_oecd.py')
+        s=collector.read_text(encoding='utf-8')
+        anchor="        subprocess.run([sys.executable, str(Path(__file__).with_name('bocconi_fiscal_plans.py'))], check=True)"
+        assert s.count(anchor)==1, 'Expected Bocconi source hook not found; fail closed'
+        s=s.replace(anchor,anchor+"\n        subprocess.run([sys.executable, str(Path(__file__).with_name('imf_batched.py')), '--mode', 'full'], check=True)",1)
+        collector.write_text(s,encoding='utf-8')
+        snap=Path('warehouse/snapshot.py')
+        s=snap.read_text(encoding='utf-8')
+        anchor="    'bocconi_fiscal': ('bocconi_fiscal', 'bocconi_fiscal_panel.csv', 1000),"
+        assert s.count(anchor)==1, 'Expected warehouse optional family not found'
+        s=s.replace(anchor,anchor+"\n    'imf_batched': ('imf_batched', 'imf_batched_panel.csv', 10000),",1)
+        snap.write_text(s,encoding='utf-8')
+        flow=Path('.github/workflows/economic-warehouse.yml')
+        s=flow.read_text(encoding='utf-8')
+        anchor='      - name: Download full IMF and OECD data'
+        assert s.count(anchor)==1,'Warehouse workflow IMF step layout changed'
+        cache_step=("      - name: Restore IMF batched response checkpoints\n"
+                    "        uses: actions/cache/restore@v4\n"
+                    "        with:\n"
+                    "          path: data/imf_batched/checkpoints\n"
+                    "          key: imf-batched-${{ github.run_id }}\n"
+                    "          restore-keys: |\n"
+                    "            imf-batched-\n")
+        s=s.replace(anchor,cache_step+anchor,1)
+        cache_save=("\n      - name: Save IMF checkpoints for future resumable builds\n"
+                    "        if: always()\n"
+                    "        uses: actions/cache/save@v4\n"
+                    "        with:\n"
+                    "          path: data/imf_batched/checkpoints\n"
+                    "          key: imf-batched-${{ github.run_id }}\n")
+        s=s.rstrip()+cache_save
+        flow.write_text(s,encoding='utf-8')
+        for path in (collector,snap):
+            compile(path.read_text(encoding='utf-8'),str(path),'exec')
+        assert s.count('Restore IMF batched response checkpoints')==1
+        assert s.count('Save IMF checkpoints for future resumable builds')==1
+        print('Added source-separated IMF expansion, full collector hook and snapshot checkpointing')
+        PY_PATCH
+        python -m unittest discover -s tests -p 'test_snapshot.py' -v
+        python -m unittest discover -s tests -p 'test_imf_batched.py' -v
+        python - <<'PY_GATE'
+        from pathlib import Path
+        s=Path('.github/workflows/economic-warehouse.yml').read_text(encoding='utf-8')
+        assert 'IMF batched response checkpoints' in s
+        assert "--mode', 'full'" in Path('open_data/imf_oecd.py').read_text()
+        assert 'imf_batched_panel.csv' in Path('warehouse/snapshot.py').read_text()
+        assert 'bocconi_fiscal_panel.csv' in Path('warehouse/snapshot.py').read_text()
+        print('Existing fiscal/historical importers preserved; chunked IMF expansion configured')
+        PY_GATE
+        git diff --check
+    - name: Preserve pilot and IMF research source audit
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: imf-batching-and-fiscal-source-audit-${{ github.run_number }}
+        path: 'data/imf_batched_pilot/run_report.json
+
+          data/imf_research_access/audit.json
+
+          data/imf_batched_pilot/source_indicator_metadata.json'
+        retention-days: 90
+        if-no-files-found: warn
+    - name: Commit validated importer and integration to main
+      shell: bash
+      run: |
+        set -euo pipefail
+        git config user.name 'github-actions[bot]'
+        git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+        git add open_data/imf_batched.py open_data/audit_imf_research.py tests/test_imf_batched.py open_data/imf_oecd.py warehouse/snapshot.py .github/workflows/economic-warehouse.yml
+        git diff --cached --check
+        git commit -m 'Add batched IMF DataMapper expansion with auditable fiscal research discovery'
+        git push origin HEAD:main
