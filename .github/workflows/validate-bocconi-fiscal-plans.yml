@@ -1,0 +1,173 @@
+name: Validate Bocconi narrative fiscal adjustment plans
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate university-hosted action-based fiscal adjustment source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/bocconi_fiscal_audit.py <<'PYCODE'
+          """Source-only structural audit; does not publish, merge or model the data."""
+          import datetime as dt
+          import hashlib
+          import io
+          import json
+          from pathlib import Path
+          import re
+          import sys
+          import urllib.request
+          import zipfile
+          import xml.etree.ElementTree as ET
+          from urllib.parse import urlparse
+
+          SOURCE = 'https://igier.unibocconi.eu/sites/default/files/media/attach/AppendixTables.xlsx'
+          LANDING = 'https://igier.unibocconi.eu/research/datasets/fiscal-adjustment-plans/dataset'
+          ROOT = Path('research/bocconi_fiscal_plans')
+          ROOT.mkdir(parents=True, exist_ok=True)
+          MAX_BYTES = 35_000_000
+          NS = {'m':'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+                'r':'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+                'p':'http://schemas.openxmlformats.org/package/2006/relationships'}
+          report = {
+              'source':'Bocconi IGIER action-based fiscal adjustment plans',
+              'source_url':SOURCE, 'landing_url':LANDING,
+              'retrieved_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
+              'status':'NOT_RETRIEVED','warehouse_integrated':False,'research_ready':False,
+              'notes':['Bocconi/IGIER research data, distinct from Adler et al. IMF 2024 update.',
+                       'Narratively identified fiscal adjustments, not all tax or spending changes.',
+                       'Tax changes and public expenditure changes must remain separate.',
+                       'Unexpected/announced/implemented measures and future horizons must not be collapsed.',
+                       'Check column meanings, GDP normalization, country coverage, provenance and reuse terms before integration.',
+                       'Workbook is inspected ephemerally; the public GitHub artifact contains only audit metadata.'],
+              'errors':[]
+          }
+
+          def fetch():
+              req = urllib.request.Request(SOURCE,headers={
+                  'User-Agent':'Mozilla/5.0 (compatible; research data source audit)',
+                  'Accept':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream,*/*'})
+              with urllib.request.urlopen(req,timeout=75) as response:
+                  final = response.geturl()
+                  host = (urlparse(final).hostname or '').lower()
+                  if urlparse(final).scheme!='https' or not (host.endswith('unibocconi.eu') or host.endswith('unibocconi.it')):
+                      raise ValueError('Untrusted redirect: '+final[:200])
+                  data = response.read(MAX_BYTES+1)
+                  report['http_status'] = response.status
+                  report['final_url'] = final
+                  report['content_type'] = response.headers.get('Content-Type')
+              if len(data)>MAX_BYTES:raise ValueError('Workbook exceeds 35 MB safety limit')
+              if not zipfile.is_zipfile(io.BytesIO(data)):
+                  raise ValueError('Downloaded body is not an Office Open XML ZIP archive')
+              report['source_bytes']=len(data)
+              report['source_sha256']=hashlib.sha256(data).hexdigest()
+              return data
+
+          def col_number(cell_ref):
+              letters=re.match(r'^[A-Z]+',cell_ref)
+              num=0
+              for ch in (letters.group() if letters else ''):num=num*26+ord(ch)-64
+              return num
+
+          def inspect(raw):
+              with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                  files=z.infolist()
+                  if len(files)>1000:raise ValueError('Unexpected workbook member count')
+                  if sum(f.file_size for f in files)>200_000_000:raise ValueError('Expanded workbook exceeds limit')
+                  names=set(z.namelist())
+                  for name in names:
+                      if name.startswith('/') or '..' in name.split('/'):
+                          raise ValueError('Unsafe archive path '+name[:80])
+                  if not {'xl/workbook.xml','[Content_Types].xml'}<=names:
+                      raise ValueError('Invalid workbook structure')
+                  book=ET.fromstring(z.read('xl/workbook.xml'))
+                  sheetdefs=book.findall('.//m:sheets/m:sheet',NS)
+                  if not sheetdefs:raise ValueError('No sheets in workbook')
+                  relmap={}
+                  if 'xl/_rels/workbook.xml.rels' in names:
+                      relxml=ET.fromstring(z.read('xl/_rels/workbook.xml.rels'))
+                      for relation in relxml:
+                          target=relation.get('Target','').lstrip('/')
+                          if target.startswith('xl/'):
+                              path=target
+                          else:
+                              path='xl/'+target
+                          relmap[relation.get('Id')]=path
+                  strings=[]
+                  if 'xl/sharedStrings.xml' in names:
+                      sr=ET.fromstring(z.read('xl/sharedStrings.xml'))
+                      for si in sr.findall('m:si',NS):
+                          strings.append(''.join(t.text or '' for t in si.findall('.//m:t',NS)))
+                  results=[]
+                  for index,sheet in enumerate(sheetdefs,1):
+                      name=sheet.get('name','')
+                      rid=sheet.get('{'+NS['r']+'}id')
+                      default='xl/worksheets/sheet'+str(index)+'.xml'
+                      path=relmap.get(rid,default)
+                      if path not in names:
+                          results.append({'sheet':name,'error':'Worksheet data target missing: '+path})
+                          continue
+                      content=z.read(path)
+                      xml=ET.fromstring(content)
+                      rows=xml.findall('.//m:sheetData/m:row',NS)
+                      samples=[]
+                      for row in rows[:15]:
+                          cells=[]
+                          for c in row.findall('m:c',NS):
+                              if col_number(c.get('r',''))>14:continue
+                              val=c.find('m:v',NS)
+                              typ=c.get('t','')
+                              if val is not None and val.text is not None:
+                                  v=val.text
+                                  if typ=='s':
+                                      try:v=strings[int(v)]
+                                      except (IndexError,ValueError):v='INVALID_SHARED_STRING'
+                              else:
+                                  v=''.join(x.text or '' for x in c.findall('.//m:is//m:t',NS))
+                              if v.strip():cells.append({'cell':c.get('r',''),'value':v[:115]})
+                          if cells:samples.append({'row':row.get('r'),'cells':cells[:14]})
+                      results.append({'sheet':name,'path':path,'xml_bytes':len(content),
+                                     'row_nodes':len(rows),'first_nonempty_rows':samples[:9]})
+                  report['worksheets']=results
+                  report['sheet_count']=len(results)
+                  report['shared_string_count']=len(strings)
+                  report['total_worksheet_row_nodes']=sum(x.get('row_nodes',0) for x in results)
+                  if report['total_worksheet_row_nodes']<30:
+                      raise ValueError('Unexpectedly few workbook rows: '+str(report['total_worksheet_row_nodes']))
+                  report['status']='WORKBOOK_RETRIEVED_REQUIRES_VARIABLE_MAPPING'
+
+          try:
+              inspect(fetch())
+          except Exception as e:
+              report['status']='SOURCE_AUDIT_FAILED'
+              report['errors'].append({'type':type(e).__name__,'message':str(e)[:400]})
+          (ROOT/'audit.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+          print(json.dumps({k:v for k,v in report.items() if k!='worksheets'},indent=2))
+          if 'worksheets' in report:
+              print('SHEET_PREVIEWS',json.dumps(report['worksheets'],ensure_ascii=False)[:15000])
+          if report['status']!='WORKBOOK_RETRIEVED_REQUIRES_VARIABLE_MAPPING':
+              sys.exit('Bocconi workbook audit failed; see audit artifact')
+          PYCODE
+          python /tmp/bocconi_fiscal_audit.py
+
+      - name: Retain only source audit (not copyrighted workbook)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bocconi-fiscal-plan-source-audit-${{ github.run_number }}
+          path: research/bocconi_fiscal_plans/audit.json
+          retention-days: 90
+          if-no-files-found: error
