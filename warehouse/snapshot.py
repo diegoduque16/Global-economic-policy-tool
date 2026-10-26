@@ -26,6 +26,8 @@ FAMILIES = {
 }
 
 OPTIONAL_FAMILIES = {
+    'tariff_shocks': ('tariff', 'tariff_shocks_panel.csv', 185),
+    'cait_ai_claims': ('cait', 'cait_panel.csv', 1872),
     'eurostat_ai': ('eurostat_ai', 'eurostat_ai_panel.csv', 50),
     'imf_gfs': ('imf_gfs', 'imf_gfs_panel.csv', 100),
     'bls_bed': ('bls_bed', 'bls_bed_panel.csv', 200),
