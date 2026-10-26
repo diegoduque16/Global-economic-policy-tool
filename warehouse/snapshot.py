@@ -36,6 +36,7 @@ OPTIONAL_FAMILIES = {
     'imf_extension': ('imf_extension', 'imf_extension_panel.csv', 10000),
     'us_state_qcew': ('us_state_qcew', 'us_state_qcew_panel.csv', 5000),
     'us_state_bea': ('us_state_bea', 'us_state_bea_panel.csv', 5000),
+    'us_state_tax': ('us_state_tax', 'us_state_tax_panel.csv', 5000),
 }
 
 SCHEMA = '''
