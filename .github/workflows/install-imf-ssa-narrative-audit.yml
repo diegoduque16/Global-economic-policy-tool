@@ -1,0 +1,288 @@
+name: Stage IMF SSA 2026 narrative fiscal episodes (audit only)
+'on':
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: stage-imf-ssa-narrative
+  cancel-in-progress: false
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Write derived table and audited quarantine validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p open_data tests research_data/imf_ssa_2026
+          cat > open_data/imf_ssa_2026.py <<'PY_COLLECT'
+          """Validate a manual numeric transcription of IMF WP/26/011, Table 1.
+
+          This is a STAGING / PROVENANCE-ONLY data product. Never feed directly into a
+          causal analysis or warehouse while source discrepancies remain unresolved.
+          All reported component values and totals are preserved without modification.
+          """
+          from __future__ import annotations
+          import argparse
+          import csv
+          from decimal import Decimal, InvalidOperation
+          from hashlib import sha256
+          import json
+          from pathlib import Path
+
+          SOURCE_URL='https://www.imf.org/-/media/files/publications/wp/2026/english/wpiea2026011-source-pdf.pdf'
+          SOURCE_SHA256='c08aa5d3361dc5b5acccd85d80eb2cf3dd304c41b65f05d690bada03845f72a3'
+          COUNTRIES={'AGO','CMR','CIV','COD','ETH','GHA','KEN','MUS','MOZ','NGA','SEN','ZAF','TZA','UGA'}
+          NO_EPISODES={'AGO','COD'}
+          EXPECTED_INCONSISTENCIES={('KEN',2023),('KEN',2024)}
+
+
+          def audit(input_csv:Path, out:Path)->dict:
+              data=input_csv.read_bytes()
+              digest=sha256(data).hexdigest()
+              if digest!=SOURCE_SHA256:
+                  raise ValueError('Transcription checksum unexpectedly changed; re-review original table')
+              with input_csv.open(newline='',encoding='utf-8') as source:
+                  rows=list(csv.DictReader(source))
+              required={'country','iso3','year','tax_pp_gdp','spend_pp_gdp',
+                        'published_total_pp_gdp','pdf_printed_page'}
+              if not rows or set(rows[0])!=required:
+                  raise ValueError('Unexpected source columns')
+              if len(rows)!=72:
+                  raise ValueError(f'Unexpected count {len(rows)}; inspect source table')
+              seen=set(); checked=[]; issues=[]
+              for row in rows:
+                  iso=row['iso3'];year=int(row['year']);page=int(row['pdf_printed_page'])
+                  if iso not in COUNTRIES or iso in NO_EPISODES or not 1990<=year<=2024 or page not in (12,13,14):
+                      raise ValueError('Source country/year/page invalid')
+                  key=(iso,year)
+                  if key in seen:raise ValueError(f'Duplicate source episode: {key}')
+                  seen.add(key)
+                  try:
+                      tax=Decimal(row['tax_pp_gdp']);spend=Decimal(row['spend_pp_gdp'])
+                      total=Decimal(row['published_total_pp_gdp'])
+                  except InvalidOperation as exc:raise ValueError('Non-numeric source field') from exc
+                  if not all(x.is_finite() and x>=0 for x in (tax,spend,total)) or total==0:
+                      raise ValueError('Nonpositive or nonfinite episode')
+                  computed=tax+spend
+                  discrepancy=(total-computed).quantize(Decimal('0.01'))
+                  flagged=discrepancy!=0
+                  status='QUARANTINED_PUBLISHED_TOTAL_MISMATCH' if flagged else 'TABLE_ARITHMETIC_CONSISTENT'
+                  annotated={**row,'component_sum_pp_gdp':f'{computed:.2f}',
+                      'published_minus_components_pp_gdp':f'{discrepancy:.2f}',
+                      'validation_status':status,
+                      'dominant_instrument':('tax' if tax>spend else 'spending' if spend>tax else 'equal')}
+                  checked.append(annotated)
+                  if flagged:issues.append({'iso3':iso,'year':year,'published_total_pp_gdp':str(total),
+                            'component_sum_pp_gdp':str(computed),'difference_pp_gdp':str(discrepancy),
+                            'printed_page':page,'flag':status})
+              if set((x['iso3'],x['year']) for x in issues)!=EXPECTED_INCONSISTENCIES:
+                  raise ValueError('Unexpected mismatch pattern; inspect against source before installing')
+              episodes_by_country={code:sum(x['iso3']==code for x in checked) for code in sorted(COUNTRIES)}
+              report={'source_name':'IMF WP/26/011 Table 1 numeric transcription','source_url':SOURCE_URL,
+                  'source_printed_pages':[12,13,14], 'source_csv_sha256':digest,
+                  'source_stated_episode_count_introduction':73,
+                  'source_stated_episode_count_later_sections':72,
+                  'transcribed_country_year_episode_rows':len(rows),
+                  'coverage_countries_named_in_paper':14,
+                  'countries_with_episode_rows':len(set(x['iso3'] for x in rows)),
+                  'countries_explicitly_without_identified_episodes':sorted(NO_EPISODES),
+                  'by_country':episodes_by_country,'arithmetic_consistent_rows':len(rows)-len(issues),
+                  'quarantined_rows':len(issues),'issues':issues,
+                  'status':'QUARANTINED_PENDING_AUTHOR_OR_PRIMARY_SOURCE_CLARIFICATION',
+                  'warehouse_inclusion_permitted':False,
+                  'causal_inference_ready':False,
+                  'notes':['Do not impute no-episode countries to zero for all years.',
+                      'Preserve the published total: do not replace Kenya 2023/2024 with calculated totals without evidence.',
+                      'The paper reports 73 episodes in one section and 72 later; Table 1 transcribes to 72.',
+                      'The narrative-study identification strategy is subject to anticipation, selection, and measurement concerns.',
+                      'This is a manually transcribed derived numeric table, not an author-provided machine-readable dataset.',
+                      'Published Table 1 includes consolidations only; absence is not a verified no-policy-shock year.',
+                      'All magnitudes are estimated % of GDP; positive numbers denote fiscal tightening, not stimulus.']}
+              out.mkdir(parents=True,exist_ok=True)
+              with (out/'audited_episodes.csv').open('w',newline='',encoding='utf-8') as stream:
+                  writer=csv.DictWriter(stream,fieldnames=list(checked[0]))
+                  writer.writeheader();writer.writerows(checked)
+              (out/'audit.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+              return report
+
+
+          def main():
+              p=argparse.ArgumentParser()
+              p.add_argument('--input',default='research_data/imf_ssa_2026/table1_transcription.csv')
+              p.add_argument('--out',default='research_data/imf_ssa_2026/audit')
+              opts=p.parse_args()
+              result=audit(Path(opts.input),Path(opts.out))
+              print(json.dumps({k:result[k] for k in ('status','transcribed_country_year_episode_rows',
+                   'arithmetic_consistent_rows','quarantined_rows','warehouse_inclusion_permitted','issues')},indent=2))
+
+          if __name__=='__main__':main()
+          PY_COLLECT
+          cat > tests/test_imf_ssa_2026.py <<'PY_TEST'
+          from pathlib import Path
+          import csv,json,tempfile,unittest
+          from open_data.imf_ssa_2026 import audit,EXPECTED_INCONSISTENCIES
+
+          class IMFSSANarrativeTests(unittest.TestCase):
+              def test_published_table_has_specific_known_conflicts(self):
+                  with tempfile.TemporaryDirectory() as t:
+                      r=audit(Path('research_data/imf_ssa_2026/table1_transcription.csv'),Path(t))
+                      self.assertEqual(r['transcribed_country_year_episode_rows'],72)
+                      self.assertEqual(r['source_stated_episode_count_introduction'],73)
+                      self.assertEqual(r['source_stated_episode_count_later_sections'],72)
+                      self.assertEqual(r['arithmetic_consistent_rows'],70)
+                      self.assertEqual({(a['iso3'],a['year']) for a in r['issues']},EXPECTED_INCONSISTENCIES)
+                      self.assertFalse(r['warehouse_inclusion_permitted'])
+                      self.assertFalse(r['causal_inference_ready'])
+                      self.assertEqual(r['by_country']['AGO'],0)
+                      self.assertEqual(r['by_country']['COD'],0)
+                      with open(Path(t)/'audited_episodes.csv',newline='',encoding='utf-8') as f:
+                          rows=list(csv.DictReader(f))
+                      self.assertEqual(len(rows),72)
+                      self.assertEqual(sum(x['validation_status'].startswith('QUARANTINED') for x in rows),2)
+              def test_input_mutation_fails_closed(self):
+                  original=Path('research_data/imf_ssa_2026/table1_transcription.csv').read_bytes()
+                  with tempfile.TemporaryDirectory() as t:
+                      file=Path(t)/'bad.csv';file.write_bytes(original.replace(b'KEN,2023',b'KEN,2022'))
+                      with self.assertRaises(ValueError):audit(file,Path(t)/'result')
+              def test_full_coverage_and_no_duplicates(self):
+                  with tempfile.TemporaryDirectory() as t:
+                      report=audit(Path('research_data/imf_ssa_2026/table1_transcription.csv'),Path(t))
+                      self.assertEqual(report['coverage_countries_named_in_paper'],14)
+                      self.assertEqual(report['countries_with_episode_rows'],12)
+                      self.assertEqual(sum(report['by_country'].values()),72)
+
+          if __name__=='__main__':unittest.main()
+          PY_TEST
+          cat > research_data/imf_ssa_2026/table1_transcription.csv <<'CSV_SOURCE'
+          country,iso3,year,tax_pp_gdp,spend_pp_gdp,published_total_pp_gdp,pdf_printed_page
+          Cameroon,CMR,1991,0.65,0.13,0.78,12
+          Cameroon,CMR,1992,0.65,0.13,0.78,12
+          Cameroon,CMR,1994,0.40,1.30,1.70,12
+          Cameroon,CMR,1995,1.65,1.55,3.20,12
+          Cameroon,CMR,1996,1.25,0.25,1.50,12
+          Cameroon,CMR,2017,0.30,0.00,0.30,12
+          Cameroon,CMR,2018,0.60,0.33,0.93,12
+          Cameroon,CMR,2024,0.00,0.40,0.40,12
+          Côte d’Ivoire,CIV,1994,3.10,2.00,5.10,12
+          Côte d’Ivoire,CIV,1995,0.00,0.70,0.70,12
+          Côte d’Ivoire,CIV,2017,0.00,0.80,0.80,12
+          Côte d’Ivoire,CIV,2018,0.30,0.00,0.30,12
+          Côte d’Ivoire,CIV,2019,0.30,0.40,0.70,13
+          Côte d’Ivoire,CIV,2021,0.80,0.00,0.80,13
+          Côte d’Ivoire,CIV,2023,1.10,0.00,1.10,13
+          Côte d’Ivoire,CIV,2024,0.80,0.70,1.50,13
+          Ethiopia,ETH,2003,0.50,0.00,0.50,13
+          Ethiopia,ETH,2018,0.00,0.15,0.15,13
+          Ethiopia,ETH,2019,0.00,0.15,0.15,13
+          Ethiopia,ETH,2023,0.25,0.50,0.75,13
+          Ethiopia,ETH,2024,0.25,0.50,0.75,13
+          Ghana,GHA,1995,0.00,1.00,1.00,13
+          Ghana,GHA,2001,0.90,0.00,0.90,13
+          Ghana,GHA,2002,0.30,0.00,0.30,13
+          Ghana,GHA,2005,0.50,0.00,0.50,13
+          Ghana,GHA,2011,0.80,0.00,0.80,13
+          Ghana,GHA,2015,2.00,2.00,4.00,13
+          Ghana,GHA,2017,0.40,0.80,1.20,13
+          Ghana,GHA,2018,0.33,0.00,0.33,13
+          Kenya,KEN,1993,0.55,1.55,2.10,13
+          Kenya,KEN,1994,0.55,1.55,2.10,13
+          Kenya,KEN,1995,0.90,0.00,0.90,13
+          Kenya,KEN,1996,0.90,0.00,0.90,13
+          Kenya,KEN,2011,1.10,0.00,1.10,13
+          Kenya,KEN,2023,0.45,0.60,2.10,13
+          Kenya,KEN,2024,0.45,0.60,2.10,13
+          Mauritius,MUS,1996,1.00,0.00,1.00,13
+          Mauritius,MUS,1997,1.00,0.00,1.00,13
+          Mauritius,MUS,2007,1.00,0.00,1.00,13
+          Mozambique,MOZ,2003,0.70,0.00,0.70,13
+          Mozambique,MOZ,2008,0.40,0.00,0.40,13
+          Mozambique,MOZ,2023,0.60,0.60,1.20,13
+          Nigeria,NGA,2013,0.00,1.00,1.00,13
+          Senegal,SEN,1995,0.75,1.10,1.85,13
+          Senegal,SEN,1996,0.75,1.10,1.85,14
+          Senegal,SEN,2002,0.60,1.50,2.10,14
+          Senegal,SEN,2013,0.40,0.00,0.40,14
+          Senegal,SEN,2014,0.30,0.80,1.10,14
+          Senegal,SEN,2018,0.00,0.30,0.30,14
+          South Africa,ZAF,1993,1.12,0.00,1.12,14
+          South Africa,ZAF,1994,0.38,0.00,0.38,14
+          Tanzania,TZA,1994,1.40,0.00,1.40,14
+          Tanzania,TZA,1995,1.40,0.35,1.75,14
+          Tanzania,TZA,1996,0.00,0.35,0.35,14
+          Tanzania,TZA,2000,0.00,0.10,0.10,14
+          Tanzania,TZA,2001,0.00,0.10,0.10,14
+          Tanzania,TZA,2007,0.50,0.00,0.50,14
+          Tanzania,TZA,2008,0.50,0.00,0.50,14
+          Tanzania,TZA,2023,0.25,0.50,0.75,14
+          Tanzania,TZA,2024,0.25,0.50,0.75,14
+          Uganda,UGA,1996,0.25,0.00,0.25,14
+          Uganda,UGA,1997,0.25,0.00,0.25,14
+          Uganda,UGA,2002,0.00,0.20,0.20,14
+          Uganda,UGA,2003,0.00,0.20,0.20,14
+          Uganda,UGA,2005,0.25,0.00,0.25,14
+          Uganda,UGA,2006,0.25,0.00,0.25,14
+          Uganda,UGA,2007,0.35,0.00,0.35,14
+          Uganda,UGA,2008,0.35,0.00,0.35,14
+          Uganda,UGA,2021,0.35,1.20,1.55,14
+          Uganda,UGA,2022,0.35,1.20,1.55,14
+          Uganda,UGA,2023,0.00,0.30,0.30,14
+          Uganda,UGA,2024,0.00,0.30,0.30,14
+          CSV_SOURCE
+          cat > research_data/imf_ssa_2026/README.md <<'MD_SOURCE'
+          # IMF 2026 sub-Saharan Africa narrative fiscal-policy episodes — staged only
+
+          Source: Abdel-Latif, Bechchani, David & Lemaire (2026), *A Narrative Fiscal Consolidation Dataset for Sub-Saharan Africa*, IMF Working Paper WP/26/011, **Table 1**, printed pp. 12–14.
+
+          Official publication: https://www.imf.org/-/media/files/publications/wp/2026/english/wpiea2026011-source-pdf.pdf
+
+          This file is a **manual numeric transcription** of the published Table 1, **not** an official author-provided dataset. The CSV preserves published component and total figures exactly. It is staged separately from `warehouse/snapshot.py` and has **not** been used in causal analysis.
+
+          ## Source inconsistencies, not to silently fix
+
+          - The paper's introduction describes **73 episodes**, but later descriptions use **72**; the published table has **72 country–year event rows**.
+          - Kenya **2023**: tax 0.45, spending 0.60, published total 2.10; the components sum to **1.05 percentage points of GDP**.
+          - Kenya **2024**: same discrepancy.
+          - Angola (AGO) and DRC (COD) have no identified episodes in the table. That is **not a license to assign zeros to unobserved country-years**.
+
+          **Validation policy:** All 72 source rows are retained. The two Kenya records are quarantined; 70 other rows pass arithmetic checks. The episode-count conflict and two arithmetic conflicts keep `warehouse_inclusion_permitted=false` until clarified and reviewed. Under no circumstances replace source totals with calculated values silently, or treat missing years as observed no-policy-change years.
+
+          ## Next verification step
+
+          Obtain the authors' downloadable machine-readable dataset or an erratum; reconcile published totals and declared episode count, check fiscal-year/calendar-year mapping and documentary evidence, and independently audit sample construction. Only then introduce a source-separated `imf_ssa_narrative` warehouse family with an explicit readiness flag.
+
+          Run: `python open_data/imf_ssa_2026.py`, then `python -m unittest discover -s tests -p 'test_imf_ssa_2026.py' -v`.
+          MD_SOURCE
+          python -m py_compile open_data/imf_ssa_2026.py tests/test_imf_ssa_2026.py
+          python -m unittest discover -s tests -p 'test_imf_ssa_2026.py' -v
+          python open_data/imf_ssa_2026.py
+          test "$(python -c "import json;print(json.load(open('research_data/imf_ssa_2026/audit/audit.json'))['quarantined_rows'])")" = 2
+          git diff --check
+      - name: Preserve research audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: imf-ssa-fiscal-narrative-source-audit-${{ github.run_number }}
+          path: |
+            research_data/imf_ssa_2026/audit/audit.json
+            research_data/imf_ssa_2026/audit/audited_episodes.csv
+          retention-days: 90
+          if-no-files-found: warn
+      - name: Commit staged source after validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add open_data/imf_ssa_2026.py tests/test_imf_ssa_2026.py research_data/imf_ssa_2026/table1_transcription.csv research_data/imf_ssa_2026/README.md research_data/imf_ssa_2026/audit/audit.json research_data/imf_ssa_2026/audit/audited_episodes.csv
+          git diff --cached --check
+          if git diff --cached --quiet; then echo 'Already staged'; else git commit -m 'Stage audited IMF SSA fiscal episodes with published inconsistencies quarantined';git push origin HEAD:main; fi
