@@ -1,0 +1,240 @@
+"""Conservative, version-pinned Bocconi fiscal adjustment measure importer.
+
+Research review pending. This is NOT the IMF 2024 31-country dataset.
+The source's GDP normalisation and plan announcement/exogeneity coding live in
+other Bocconi files. These original measure-level impact values must not be
+presented as identified, GDP-normalised shocks.
+"""
+from __future__ import annotations
+
+import csv
+from collections import Counter
+import datetime as dt
+import hashlib
+import io
+import json
+import math
+import posixpath
+import re
+import urllib.request
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from zipfile import ZipFile
+
+URL = 'https://igier.unibocconi.eu/sites/default/files/media/attach/AppendixTables.xlsx'
+LANDING = 'https://igier.unibocconi.eu/research/datasets/fiscal-adjustment-plans/dataset'
+PINNED_SHA256 = '2023beeb67041c7f510702c9b138760b186688b3dfa667b2d928e0c0b5bdba78'
+OUT = Path('data/bocconi_fiscal')
+NS = {'m':'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+      'r':'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+      'p':'http://schemas.openxmlformats.org/package/2006/relationships'}
+ISO3 = {'AUS','AUT','BEL','CAN','DEU','DNK','FIN','FRA','ESP','IRL','ITA','JPN','PRT','GBR','SWE','USA'}
+ALIASES = {'GBP':'GBR','UK':'GBR','GB':'GBR','UNITEDKINGDOM':'GBR','GREATBRITAIN':'GBR',
+           'BRITAIN':'GBR','ENGLAND':'GBR','GER':'DEU','GERMANY':'DEU'}
+FIELDS = ['provider','country_iso3','year','period','series','value','unit',
+          'frequency','disaggregation','obs_status','source_url']
+
+
+def _local(tag):
+    return tag.rsplit('}',1)[-1]
+
+
+def _shared_strings(z):
+    if 'xl/sharedStrings.xml' not in z.namelist():
+        return []
+    root=ET.fromstring(z.read('xl/sharedStrings.xml'))
+    return [''.join(t.text or '' for t in e.findall('.//m:t',NS))
+            for e in root.findall('m:si',NS)]
+
+
+def _worksheet_path(z,name):
+    book=ET.fromstring(z.read('xl/workbook.xml'))
+    rels=ET.fromstring(z.read('xl/_rels/workbook.xml.rels'))
+    targets={r.attrib.get('Id'):r.attrib.get('Target','') for r in rels}
+    for sh in book.findall('.//m:sheets/m:sheet',NS):
+        if sh.attrib.get('name')==name:
+            rid=sh.attrib.get('{'+NS['r']+'}id')
+            target=targets.get(rid,'')
+            if not target:raise ValueError('Missing worksheet relationship for '+name)
+            path=(target.lstrip('/') if target.startswith('/') else posixpath.normpath(posixpath.join('xl',target)))
+            if path not in z.namelist():raise ValueError('Missing sheet XML: '+path)
+            return path
+    raise ValueError('Required Bocconi source worksheet not found: '+name)
+
+
+def _cell_value(cell,strings):
+    kind=cell.attrib.get('t','')
+    if kind=='inlineStr':return ''.join(t.text or '' for t in cell.findall('.//m:t',NS))
+    node=cell.find('m:v',NS)
+    if node is None or node.text is None:return None
+    value=node.text
+    if kind=='s':
+        i=int(value)
+        if not 0<=i<len(strings):raise ValueError('Invalid shared string reference')
+        return strings[i]
+    return value
+
+
+def _table_rows(z,name):
+    strings=_shared_strings(z)
+    path=_worksheet_path(z,name)
+    root=ET.fromstring(z.read(path))
+    for row in root.findall('.//m:sheetData/m:row',NS):
+        cells={}
+        for cell in row.findall('m:c',NS):
+            col=re.match(r'[A-Z]+',cell.attrib.get('r',''))
+            if col:
+                cells[col.group(0)]=_cell_value(cell,strings)
+        yield int(row.attrib.get('r','0')),cells
+
+
+def _slug(text):
+    return re.sub(r'[^a-z0-9]+','_',str(text).lower()).strip('_')[:45] or 'uncategorized'
+
+def _country_code(raw):
+    # Source cells can contain punctuation (e.g., U.K.), whitespace, or country names.
+    label=re.sub(r'[^A-Z]', '', str(raw or '').upper())
+    return ALIASES.get(label,label)
+
+
+def _download(url=URL):
+    req=urllib.request.Request(url,headers={
+        'User-Agent':'Mozilla/5.0 (EconomicPolicyResearch noncommercial source audit)',
+        'Accept':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*'})
+    with urllib.request.urlopen(req,timeout=90) as resp:
+        if resp.geturl()!=URL:raise ValueError('Source redirected; manual verification required')
+        buf=resp.read(20_000_001)
+    if len(buf)>20_000_000:raise ValueError('Workbook exceeds safe size')
+    if not buf.startswith(b'PK'):raise ValueError('Downloaded content is not an Excel ZIP')
+    return buf
+
+
+def collect(raw=None):
+    OUT.mkdir(parents=True,exist_ok=True)
+    report={'dataset':'Bocconi IGIER action-based fiscal adjustment measure-level input',
+            'source_url':URL,'landing_url':LANDING,
+            'retrieved_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
+            'research_ready':False,'warehouse_integrated':False,
+            'original_workbook_sheet':'InputTables',
+            'source_scope':'16 OECD countries; fiscal consolidation measures, not all policy actions',
+            'limitations':[
+                'Native workbook Impact t..t+5 units preserved; NOT independently established as GDP-normalized.',
+                'Source Year and impact horizon retained separately: do not assume date of formal announcement.',
+                'Input, InputCountry, and national sheets duplicate measures; only InputTables is ingested.',
+                'Impact t+1..t+5 are distinct horizons, not observed macroeconomic outcomes.',
+                'Zero impact and missing impact are not interchangeable; both are accounted for.',
+                'Country and plan-year availability varies, not a balanced panel.',
+                'Source only includes narrative-selected fiscal consolidations, not tax cuts or stimulus generally.',
+                'Detailed plans, timing, exogeneity and GDP normalization require complementary Bocconi files.',
+                'Research license/provenance must be assessed before any public release.',
+                'This is NOT the 2024 IMF Adler et al. fiscal consolidation dataset.'],
+            'errors':[],'conflicts':[],'status':'NOT_VALIDATED'}
+    try:
+        if raw is None:raw=_download()
+        checksum=hashlib.sha256(raw).hexdigest()
+        report.update({'source_sha256':checksum,'source_bytes':len(raw),
+                       'source_sha256_matches_validated_vintage':checksum==PINNED_SHA256})
+        if checksum!=PINNED_SHA256:raise ValueError('Workbook checksum changed; inspect new source vintage before import')
+        with ZipFile(io.BytesIO(raw)) as z:
+            if z.testzip() is not None:raise ValueError('Corrupt workbook ZIP')
+            iterator=iter(_table_rows(z,'InputTables'))
+            header_row,headers=next(iterator)
+            expected={'A':'Country','B':'Year','C':'Category','D':'Real Components',
+                      'E':'Tax/Spend','F':'Measure','G':'Impact t','H':'Impact t+1',
+                      'I':'Impact t+2','J':'Impact t+3','K':'Impact t+4','L':'Impact t+5'}
+            for col,title in expected.items():
+                if str(headers.get(col) or '').strip()!=title:
+                    raise ValueError(f'Unexpected workbook schema: {col} should be {title!r}, got {headers.get(col)!r}')
+            data=[];countries=set();years=set();categories={};input_rows=0
+            zeros=0;missing=0;unrecognized=0;source_rows_seen=0;invalid_numerics=[]
+            raw_country_labels=Counter();rejected_labels=Counter();rejection_reasons=Counter()
+            for ix,c in iterator:
+                source_rows_seen+=1
+                raw_country=str(c.get('A') or '').strip()
+                code=_country_code(raw_country)
+                raw_country_labels[raw_country or '[blank]']+=1
+                try:year=int(float(c.get('B')))
+                except (ValueError,TypeError):
+                    unrecognized+=1;rejection_reasons['invalid_or_missing_year']+=1
+                    rejected_labels[raw_country or '[blank]']+=1
+                    continue
+                if code not in ISO3:
+                    unrecognized+=1;rejection_reasons['unmapped_country_label']+=1
+                    rejected_labels[raw_country or '[blank]']+=1
+                    continue
+                if not 1978<=year<=2014:
+                    unrecognized+=1;rejection_reasons['year_outside_1978_2014']+=1
+                    rejected_labels[raw_country or '[blank]']+=1
+                    continue
+                input_rows+=1;countries.add(code);years.add(year)
+                cat=str(c.get('C') or '').strip();comp=str(c.get('D') or '').strip()
+                tax_spend=str(c.get('E') or '').strip();measure=str(c.get('F') or '').strip()
+                categories[tax_spend]=categories.get(tax_spend,0)+1
+                for horizon,col in enumerate('GHIJKL'):
+                    cell=c.get(col)
+                    if cell is None or str(cell).strip()=='':missing+=1;continue
+                    try:value=float(cell)
+                    except (ValueError,TypeError):
+                        invalid_numerics.append([ix,col,str(cell)[:80]]);continue
+                    if not math.isfinite(value):raise ValueError('Nonfinite fiscal impact')
+                    if value==0:zeros+=1;continue
+                    extra={'source_sheet':'InputTables','source_excel_row':ix,
+                           'source_year':year,'horizon_years':horizon,
+                           'horizon_calendar_year':year+horizon,
+                           'category':cat,'component':comp,'tax_or_spending':tax_spend,
+                           'measure':measure,'source_document':str(c.get('M') or '')[:1200],
+                           'source_note':str(c.get('N') or '')[:600],
+                           'original_impact_column':expected[col],
+                           'source_workbook_sha256':checksum}
+                    data.append({'provider':'Bocconi IGIER Alesina-Favero-Giavazzi fiscal plans',
+                        'country_iso3':code,'year':year,
+                        'period':str(year)+'+h'+str(horizon),
+                        'series':'BOCCONI_FISCAL.impact.'+_slug(tax_spend)+'.'+_slug(comp)+'.h'+str(horizon),
+                        'value':value,'unit':'source_workbook_native_fiscal_impact_unverified',
+                        'frequency':'annual_plan_horizon',
+                        'disaggregation':json.dumps(extra,ensure_ascii=False,sort_keys=True),
+                        'obs_status':'historically_reconstructed_not_causal_estimate',
+                        'source_url':URL})
+        report.update({'input_measure_rows':input_rows,'source_rows_seen':source_rows_seen,'observations':len(data),
+                       'countries':sorted(countries),'country_count':len(countries),
+                       'earliest_source_year':min(years) if years else None,
+                       'latest_source_year':max(years) if years else None,
+                       'original_tax_spend_categories':categories,
+                       'explicit_zero_horizon_cells_excluded':zeros,
+                       'blank_horizon_cells_excluded':missing,
+                       'skipped_non_measure_rows':unrecognized,
+                       'raw_country_labels':dict(raw_country_labels.most_common()),
+                       'rejected_country_labels':dict(rejected_labels.most_common()),
+                       'rejection_reasons':dict(rejection_reasons),
+                       'invalid_numeric_impact_cells':invalid_numerics[:20],
+                       'total_invalid_numeric_impact_cells':len(invalid_numerics)})
+        if invalid_numerics:raise ValueError('Unexpected nonnumeric impact fields in workbook')
+        # All 16 country datasets must be present before we call this a complete import.
+        # Do not weaken coverage checks to mask an excluded country.
+        if (input_rows<2000 or len(countries)!=16 or len(data)<1000 or
+                min(years)>1985 or max(years)<2009 or
+                input_rows < 0.80*source_rows_seen or
+                rejection_reasons.get('unmapped_country_label',0)>0):
+            raise ValueError('Incomplete country/year mapping: '+json.dumps({k:report.get(k) for k in (
+                'input_measure_rows','observations','country_count','countries',
+                'rejected_country_labels','rejection_reasons','earliest_source_year','latest_source_year')}))
+        data.sort(key=lambda row:(row['country_iso3'],int(row['year']),row['period'],row['series'],row['disaggregation']))
+        root=OUT/'processed';root.mkdir(parents=True,exist_ok=True)
+        file=root/'bocconi_fiscal_panel.csv'
+        with file.open('w',newline='',encoding='utf-8') as stream:
+            w=csv.DictWriter(stream,fieldnames=FIELDS);w.writeheader();w.writerows(data)
+        report['panel_sha256']=hashlib.sha256(file.read_bytes()).hexdigest()
+        report.update({'status':'VALIDATED_MEASURE_LEVEL_UNITS_REQUIRE_REVIEW','warehouse_integrated':True})
+    except Exception as exc:
+        report['errors'].append({'type':type(exc).__name__,'message':str(exc)[:400]})
+        report['status']='VALIDATION_FAILED'
+    (OUT/'run_report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+    print(json.dumps({k:report.get(k) for k in ('status','input_measure_rows','observations','country_count',
+                          'earliest_source_year','latest_source_year','original_tax_spend_categories',
+                          'explicit_zero_horizon_cells_excluded','blank_horizon_cells_excluded',
+                          'source_sha256_matches_validated_vintage','countries',
+                          'rejected_country_labels','rejection_reasons','errors')},indent=2))
+    if report['errors']:raise SystemExit('Bocconi fiscal collector failed: see data/bocconi_fiscal/run_report.json')
+    return report
+
+if __name__=='__main__':collect()

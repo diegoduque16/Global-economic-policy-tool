@@ -223,5 +223,6 @@ def main():
         subprocess.run([sys.executable, str(Path(__file__).with_name('oecd_cit.py'))], check=True)
         subprocess.run([sys.executable, str(Path(__file__).with_name('bls_jolts.py'))], check=True)
         subprocess.run([sys.executable, str(Path(__file__).with_name('historical_manufacturing_turnover.py'))], check=True)
+        subprocess.run([sys.executable, str(Path(__file__).with_name('bocconi_fiscal_plans.py'))], check=True)
 
 if __name__=='__main__':main()
