@@ -1,0 +1,78 @@
+name: Audit US historical state tax-rate sources
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Inspect published source landing pages without ingesting data
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit/state_tax_rates
+          python - <<'PY'
+          import datetime as dt
+          import json
+          import urllib.request
+          import urllib.error
+          from pathlib import Path
+
+          sources = [
+              {
+                  'id': 'janas_baker_kueng_2025_v2',
+                  'title': 'U.S. State and Local Tax Rates, 1975-2022',
+                  'landing': 'https://www.openicpsr.org/openicpsr/project/208462/version/V2/view',
+                  'expected_file': 'BJK_State_Tax_Panel_public_v2.dta',
+                  'years': [1975, 2022],
+                  'kind': 'tax_rates',
+                  'warning': 'Validate state vs local coverage and variables; tax rates are not exogenous shocks.'
+              },
+              {
+                  'id': 'robinson_tazhitdinova_2025',
+                  'title': 'One hundred years of U.S. state taxation',
+                  'landing': 'https://doi.org/10.1016/j.jpubeco.2024.105273',
+                  'years': [1910, 2022],
+                  'kind': 'tax_rates_and_receipts',
+                  'warning': 'Publication access does not establish downloadable machine-readable replication data.'
+              }
+          ]
+          report = {
+              'status': 'SOURCE_ACCESS_AUDIT_ONLY_NOT_INGESTED',
+              'retrieved_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
+              'sources': [],
+              'research_ready': False,
+              'causal_policy_shocks': False,
+              'next_gate': 'Identify authoritative source file download endpoints, review licenses and variable definitions; inspect Stata files, state-year keys, and missing values before warehouse integration.'
+          }
+          for source in sources:
+              result = dict(source)
+              request = urllib.request.Request(source['landing'], headers={'User-Agent': 'EconomicResearchSourceAudit/1.0', 'Accept': 'text/html'})
+              try:
+                  with urllib.request.urlopen(request, timeout=25) as response:
+                      body = response.read(200_000)
+                      result.update({'http_status': response.status, 'resolved_url': response.geturl(), 'sample_bytes':len(body), 'expected_filename_visible': source.get('expected_file', '').encode('utf-8') in body if source.get('expected_file') else None})
+              except Exception as error:
+                  result.update({'access_error':str(error)[:250]})
+              report['sources'].append(result)
+          out = Path('audit/state_tax_rates/source_audit.json')
+          out.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(report, indent=2))
+          PY
+      - name: Upload source-access audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: state-tax-rate-source-audit-${{ github.run_number }}
+          path: audit/state_tax_rates/source_audit.json
+          if-no-files-found: warn
+          retention-days: 90
