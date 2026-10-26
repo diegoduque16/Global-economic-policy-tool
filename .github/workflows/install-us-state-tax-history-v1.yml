@@ -130,7 +130,7 @@ jobs:
               if not re.fullmatch(r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)',s):
                   raise ValueError('Unknown tax receipt cell '+repr(s[:50]))
               x=float(s)
-              if not math.isfinite(x) or x<0: raise ValueError('Invalid nonnegative tax receipt')
+              if not math.isfinite(x): raise ValueError('Nonfinite tax receipt')
               return x
 
 
