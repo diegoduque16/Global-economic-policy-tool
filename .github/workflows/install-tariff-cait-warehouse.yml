@@ -1,0 +1,189 @@
+name: Install tariff and California AI sources into economic warehouse pipeline
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tariff-cait-warehouse-installer
+  cancel-in-progress: false
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install validated source collectors as permanent repository code
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/install_tariff_cait.py <<'PYINSTALL'
+          """Install two independently validated source families without combining unlike measures.
+
+          Uses the source-specific collector already exercised by successful GitHub run
+          40368987349, preserving every original column, definition and provenance field.
+          No causal modeling or cross-source harmonization is performed.
+          """
+          from pathlib import Path
+          import ast
+          import csv
+          import io
+          import textwrap
+          import sys
+
+          root=Path.cwd()
+          workflow=root/'.github/workflows/prepare-tariff-cait-panels.yml'
+          txt=workflow.read_text(encoding='utf-8')
+          begin="          cat > /tmp/build_panels.py <<'PYTHON'\n"
+          end="\n          PYTHON\n"
+          if txt.count(begin)!=1:raise RuntimeError('Source collector marker missing or changed')
+          part=txt.split(begin,1)[1]
+          if end not in part:raise RuntimeError('Source collector end marker missing')
+          code=textwrap.dedent(part.split(end,1)[0])+'\n'
+          ast.parse(code)
+          needle="OUT = Path('new_dataset_panels_2026')"
+          if code.count(needle)!=1:raise RuntimeError('Unexpected collector output location')
+          code=code.replace(needle,"OUT = Path('data')")
+          needle="info=fun();summaries.append(info)"
+          if code.count(needle)!=1:raise RuntimeError('Unexpected collector report layout')
+          code=code.replace(needle,"info=fun();info['observations']=info['panel']['observations'];summaries.append(info)")
+          # Fail closed if critical provenance and duplicate-measure guards disappear.
+          for marker in ('claim_groups','DO_NOT_SUM','source_sha256','SOURCE_NATIVE_NOT_CAUSAL_VALIDATED',
+                         'if len(records)!=185','CAIT exposure shares fail to sum to one'):
+              if marker not in code:raise RuntimeError('Source guard missing: '+marker)
+          ast.parse(code)
+          target=root/'open_data/tariff_cait_panels.py'
+          target.write_text(code,encoding='utf-8')
+
+          snap=root/'warehouse/snapshot.py'
+          current=snap.read_text(encoding='utf-8')
+          anchor='OPTIONAL_FAMILIES = {\n'
+          if current.count(anchor)!=1:raise RuntimeError('Warehouse optional source registry not found')
+          families=("    'tariff_shocks': ('tariff', 'tariff_shocks_panel.csv', 185),\n"
+                    "    'cait_ai_claims': ('cait', 'cait_panel.csv', 1872),\n")
+          if "'tariff_shocks':" not in current and "'cait_ai_claims':" not in current:
+              current=current.replace(anchor,anchor+families,1)
+          elif not all(x in current for x in families.strip().splitlines()):
+              raise RuntimeError('Existing optional family mapping differs; manual review required')
+          snap.write_text(current,encoding='utf-8')
+          ast.parse(current)
+
+          workflow=root/'.github/workflows/economic-warehouse.yml'
+          existing=workflow.read_text(encoding='utf-8')
+          marker='      - name: Build validated SQLite snapshot and versioned archive\n'
+          if existing.count(marker)!=1:raise RuntimeError('Warehouse build step missing or ambiguous')
+          step=("      - name: Retrieve and validate source-native tariff and California AI panels\n"
+                "        run: |\n"
+                "          python -m pip install --disable-pip-version-check openpyxl==3.1.5\n"
+                "          python open_data/tariff_cait_panels.py\n"
+                "      - name: Check imported source count and noncausal source status\n"
+                "        run: |\n"
+                "          python - <<'PYCHECK'\n"
+                "          import json\n"
+                "          from pathlib import Path\n"
+                "          for name,minimum in [('tariff',185),('cait',1872)]:\n"
+                "              r=json.loads((Path('data')/name/'run_report.json').read_text())\n"
+                "              assert not r['errors'] and not r['conflicts']\n"
+                "              assert r['observations'] >= minimum\n"
+                "              assert r['research_ready'] is False\n"
+                "              assert r['warehouse_integrated'] is False  # prior to snapshot build\n"
+                "          PYCHECK\n")
+          if 'python open_data/tariff_cait_panels.py' not in existing:
+              existing=existing.replace(marker,step+marker,1)
+          workflow.write_text(existing,encoding='utf-8')
+
+          # Source catalog records do not falsely claim LIVE until collector runs.
+          catalog=root/'open_data/expanded_source_catalog.csv'
+          with catalog.open(newline='',encoding='utf-8-sig') as f:
+              reader=csv.DictReader(f);columns=reader.fieldnames;rows=list(reader)
+          required=['theme','dataset','measures','scope','priority','access_mode','current_status',
+                    'official_source_url','research_rationale_or_limit']
+          if columns!=required:raise RuntimeError('Source catalog structure changed')
+          new=[
+            dict(zip(required,['Causal policy events','Den Besten et al 2026 narrative US tariff shocks',
+             'Yearly distributed narrative tariff-policy instrument','USA 1840-2024','P0',
+             'Author-hosted public Excel (CC BY 4.0)','NOT INGESTED',
+             'https://github.com/dkaenzig/narrative-tariff-shocks',
+             'Source-native instrument; verify paper interpretation and sign before causal research'])),
+            dict(zip(required,['AI, productivity & innovation','California AI Exposure and UI Claims Tracker',
+             'Initial claims and AI exposure share and score by source-defined exposure measure',
+             'California monthly 2017-present','P0','Public research Excel (terms review)',
+             'NOT INGESTED','https://edd.ca.gov/aitracker',
+             'Exposure is not causal displacement; California claims are not all layoffs; avoid double-counting measures']))]
+          names={r['dataset'] for r in rows}
+          rows.extend(x for x in new if x['dataset'] not in names)
+          stream=io.StringIO(newline='')
+          writer=csv.DictWriter(stream,fieldnames=required,lineterminator='\n')
+          writer.writeheader();writer.writerows(rows)
+          catalog.write_text(stream.getvalue(),encoding='utf-8-sig')
+
+          doc=root/'docs/TARIFF_CAIT_WAREHOUSE_INTEGRATION.md'
+          doc.write_text('''# Narrative tariff and California AI unemployment panels
+
+          These are **two separate, source-native datasets**, collected with
+          `open_data/tariff_cait_panels.py`. Original workbook schemas are checked
+          on each run; checksum and provenance live in the per-source reports.
+          The previously validated extraction was GitHub Actions run 40368987349.
+
+          `warehouse/snapshot.py` registers optional `tariff_shocks` and
+          `cait_ai_claims` source families. Monthly CAIT rows remain monthly,
+          geographic disaggregation explicitly remains California, and tariff
+          shocks remain annual. The warehouse's definition-harmonized and
+          causal-ready flags stay false.
+
+          **DO NOT:** interpret tariff instruments as observed tariff rates;
+          confuse source-native shock signs with tax changes; claim observed
+          AI causation from CAIT; aggregate both Anthropic and Eloundou claims
+          together; collapse California claims into nationally representative
+          USA totals; add shares across exposure groups without checking unit
+          and denominator; silently turn zero into missing.
+
+          Run **Build versioned economic research warehouse** after this installer
+          to include both optional sources in the full audited snapshot. The
+          collector is executed inside that main workflow, not a one-time
+          GitHub artifact dependency. Licensing review is required before
+          publishing any full dataset publicly, especially CAIT derivatives.
+          Source studies: https://doi.org/10.3386/w35102 and
+          https://edd.ca.gov/aitracker .
+          ''',encoding='utf-8')
+          # Avoid Markdown indentation inherited from heredoc.
+          doc.write_text(textwrap.dedent(doc.read_text(encoding='utf-8')),encoding='utf-8')
+          print('INSTALLED collector, snapshot optional families, warehouse step, catalog and methodology docs')
+          PYINSTALL
+          python /tmp/install_tariff_cait.py
+      - name: Verify code and warehouse regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile open_data/tariff_cait_panels.py warehouse/snapshot.py
+          python -m unittest discover -s tests -p test_snapshot.py -v
+          git diff --check
+      - name: Commit installation to repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add open_data/tariff_cait_panels.py warehouse/snapshot.py .github/workflows/economic-warehouse.yml open_data/expanded_source_catalog.csv docs/TARIFF_CAIT_WAREHOUSE_INTEGRATION.md
+          if git diff --cached --quiet; then
+            echo 'Already installed; no changes to commit'
+          else
+            git commit -m 'Integrate validated tariff and CAIT sources into versioned warehouse pipeline'
+            git push origin HEAD:main
+          fi
+      - name: Summarize result
+        if: success()
+        run: |
+          echo '## Installer complete' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Source collectors and warehouse family configuration saved on main.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Next: Run **Build versioned economic research warehouse**. The source measures remain noncausal, separate and versioned.' >> "$GITHUB_STEP_SUMMARY"
