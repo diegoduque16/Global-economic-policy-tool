@@ -179,9 +179,21 @@ def build_snapshot(data_dir, output_dir, *, snapshot_id, git_sha='', include_raw
         for path in sorted(snapshot_dir.rglob('*')):
             if path.is_file() and path.name!='manifest.json':
                 inventories.append({'path':str(path.relative_to(snapshot_dir)),'sha256':digest(path),'bytes':path.stat().st_size})
+        collection_warnings=[]
+        warning_dir=data_dir/'collection_warnings'
+        if warning_dir.is_dir():
+            for warning_file in sorted(warning_dir.glob('*.json')):
+                warning=_read_json(warning_file)
+                if warning.get('family')!='historical_turnover' or warning.get('status')!='SOURCE_UNAVAILABLE_HTTP_403':
+                    raise ValueError('Unexpected optional source warning: '+str(warning_file))
+                if warning['family'] in report_by_family:
+                    raise ValueError('Optional source marked both included and unavailable')
+                collection_warnings.append(warning)
         manifest={
           'schema_version':1,'snapshot_id':snapshot_id,'created_utc':timestamp,'git_sha':git_sha,
           'source_families':report_by_family,'total_source_observations':grand_total,
+          'omitted_optional_families':sorted(set(OPTIONAL_FAMILIES)-set(report_by_family)),
+          'collection_warnings':collection_warnings,
           'files':inventories,'contains_raw_source_payloads':include_raw,
           'is_definition_harmonized':False,'is_causal_inference_ready':False,
           'notes':['Observations from different providers may overlap; no cross-source deduplication or harmonization.',

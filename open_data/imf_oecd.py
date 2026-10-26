@@ -222,7 +222,9 @@ def main():
         subprocess.run([sys.executable, str(Path(__file__).with_name('bls_bed.py'))], check=True)
         subprocess.run([sys.executable, str(Path(__file__).with_name('oecd_cit.py'))], check=True)
         subprocess.run([sys.executable, str(Path(__file__).with_name('bls_jolts.py'))], check=True)
-        subprocess.run([sys.executable, str(Path(__file__).with_name('historical_manufacturing_turnover.py'))], check=True)
+        from optional_sources import run_historical_turnover
+        run_historical_turnover(Path(__file__).with_name('historical_manufacturing_turnover.py'),
+                                Path(args.out).parent)
         subprocess.run([sys.executable, str(Path(__file__).with_name('bocconi_fiscal_plans.py'))], check=True)
 
 if __name__=='__main__':main()
