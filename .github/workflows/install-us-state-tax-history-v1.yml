@@ -1,0 +1,447 @@
+name: Install Census state tax collections 1951-2025 (audited history)
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: census-state-tax-installer
+  cancel-in-progress: false
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install audited historical tax importer and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p open_data tests docs
+          cat > open_data/us_state_tax.py <<'PY_TAX_COLLECTOR'
+          """Annual Census state-government tax collections (historical fiscal-year panel).
+
+          Official public XLSX. Preserve source categories and original fiscal-year labels.
+          This is not a policy-shock, tax-rate, or state-and-local revenue series.
+          """
+          import argparse
+          import collections
+          import csv
+          import datetime as dt
+          import hashlib
+          import io
+          import json
+          import math
+          from pathlib import Path
+          import re
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          import zipfile
+          import xml.etree.ElementTree as ET
+
+          if __package__:
+              from open_data.us_state_qcew import STATES
+          else:
+              from us_state_qcew import STATES
+
+          URL='https://www2.census.gov/programs-surveys/stc/datasets/historical/STC-Historical-DB.xlsx'
+          COLUMNS=('provider','country_iso3','year','period','series','value','unit',
+                   'frequency','disaggregation','obs_status','source_url','retrieved_utc')
+          NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+          RELNS='http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+          PKGREL='http://schemas.openxmlformats.org/package/2006/relationships'
+          MISSING={'','X','N','NA','N/A','(NA)','(D)','(X)','(S)','(L)','-','--','...','.'}
+          EXAMPLES={'C105':'total state-government tax collections',
+                    'T01':'property tax','T09':'general sales tax',
+                    'T40':'individual income tax','T41':'corporation net income tax'}
+
+
+          def download(url=URL, attempts=3):
+              if url!=URL: raise ValueError('Unapproved source URL')
+              req=urllib.request.Request(url,headers={'User-Agent':'GlobalEconomicPolicyTool/1.0 academic-source-audit'})
+              for attempt in range(attempts):
+                  try:
+                      with urllib.request.urlopen(req, timeout=90) as response:
+                          if urllib.parse.urlsplit(response.geturl()).hostname not in ('www2.census.gov','www.census.gov'):
+                              raise ValueError('Unexpected download host')
+                          raw=response.read(12_000_001)
+                      if not raw or len(raw)>12_000_000 or not zipfile.is_zipfile(io.BytesIO(raw)):
+                          raise ValueError('Invalid or oversized XLSX')
+                      return raw
+                  except (urllib.error.HTTPError,urllib.error.URLError,TimeoutError):
+                      if attempt==attempts-1: raise
+                      time.sleep(2**attempt)
+              raise RuntimeError('Download failed')
+
+
+          def xlsx_rows(blob):
+              """Stream a single-sheet XLSX without a spreadsheet-library dependency."""
+              with zipfile.ZipFile(io.BytesIO(blob)) as z:
+                  names=set(z.namelist())
+                  if not {'xl/workbook.xml','xl/_rels/workbook.xml.rels'}.issubset(names):
+                      raise ValueError('Missing Excel workbook manifest')
+                  wb=ET.fromstring(z.read('xl/workbook.xml'))
+                  sheets=wb.findall(f'{{{NS}}}sheets/{{{NS}}}sheet')
+                  if len(sheets)!=1: raise ValueError('Unexpected number of Census worksheets')
+                  rid=sheets[0].attrib.get(f'{{{RELNS}}}id')
+                  rels=ET.fromstring(z.read('xl/_rels/workbook.xml.rels'))
+                  relmap={x.attrib.get('Id'):x.attrib.get('Target','') for x in rels}
+                  name=relmap.get(rid,'')
+                  if name.startswith('/'): name=name.lstrip('/')
+                  elif not name.startswith('xl/'): name='xl/'+name
+                  if '..' in name.split('/') or name not in names: raise ValueError('Unsafe or missing worksheet member')
+                  if z.getinfo(name).file_size>100_000_000: raise ValueError('Oversized sheet')
+                  shared=[]
+                  if 'xl/sharedStrings.xml' in names:
+                      tree=ET.fromstring(z.read('xl/sharedStrings.xml'))
+                      for entry in tree.findall(f'{{{NS}}}si'):
+                          shared.append(''.join(t.text or '' for t in entry.iter(f'{{{NS}}}t')))
+                  with z.open(name) as stream:
+                      for _,row in ET.iterparse(stream,events=('end',)):
+                          if row.tag!=f'{{{NS}}}row': continue
+                          values={}
+                          for cell in row.findall(f'{{{NS}}}c'):
+                              col=re.match('[A-Z]+',cell.attrib.get('r',''))
+                              if col is None: continue
+                              val=cell.find(f'{{{NS}}}v')
+                              raw=val.text if val is not None else None
+                              if cell.attrib.get('t')=='s' and raw is not None:
+                                  index=int(raw)
+                                  if index<0 or index>=len(shared): raise ValueError('Bad shared string index')
+                                  raw=shared[index]
+                              elif cell.attrib.get('t')=='inlineStr':
+                                  raw=''.join(t.text or '' for t in cell.iter(f'{{{NS}}}t'))
+                              if raw is not None: values[col.group(0)]=str(raw).strip()
+                          yield values
+                          row.clear()
+
+
+          def parse_number(raw):
+              s=str(raw or '').strip().replace(',','')
+              if s.upper() in MISSING: return None
+              if not re.fullmatch(r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)',s):
+                  raise ValueError('Unknown tax receipt cell '+repr(s[:50]))
+              x=float(s)
+              if not math.isfinite(x) or x<0: raise ValueError('Invalid nonnegative tax receipt')
+              return x
+
+
+          def parse(raw, states=None, start=1951, end=2025, now=None):
+              states=set(states or STATES)
+              if not states.issubset(STATES): raise ValueError('Unknown state')
+              rows=iter(xlsx_rows(raw))
+              headers=next(rows,None); titles=next(rows,None)
+              if not headers or not titles or tuple(headers.get(c) for c in ('A','B','C','D'))!=('Year','State','Name','FY Ending Date'):
+                  raise ValueError('Census column schema changed')
+              codes={col:code for col,code in headers.items() if re.fullmatch(r'(?:T\d{2}|C\d{3})',code)}
+              if not set(EXAMPLES).issubset(set(codes.values())): raise ValueError('Missing essential Census tax codes')
+              if len(codes)<20 or len(codes)!=len(set(codes.values())): raise ValueError('Duplicate or missing tax columns')
+              now=now or dt.datetime.now(dt.timezone.utc).isoformat()
+              data=[];seen=set();years=set();present=collections.defaultdict(set);missing=collections.Counter();zero_count=0
+              skipped_national=0;future_rows=0;year_row_count=collections.Counter();has_dc=False
+              for row in rows:
+                  yr=(row.get('A') or '').strip()
+                  if not re.fullmatch(r'\d{4}(?:\.0)?',yr):continue
+                  year=int(float(yr))
+                  if year>end:
+                      future_rows+=1
+                      continue
+                  if year<start: continue
+                  name=(row.get('C') or '').strip()
+                  abbr=name.split()[0].upper() if name else ''
+                  if abbr not in STATES:
+                      skipped_national+=1
+                      continue
+                  if abbr not in states: continue
+                  fy_end=row.get('D','')
+                  years.add(year);year_row_count[year]+=1
+                  if abbr=='DC':has_dc=True
+                  for col,code in codes.items():
+                      cell=row.get(col,'')
+                      numeric=parse_number(cell)
+                      if numeric is None:
+                          missing[str(cell or '').upper()]+=1
+                          continue
+                      key=(year,abbr,code)
+                      if key in seen: raise ValueError('Duplicate state-year-tax code '+repr(key))
+                      seen.add(key);present[year].add(abbr)
+                      if numeric==0:zero_count+=1
+                      disagg={'state_abbr':abbr,'state_fips':STATES[abbr],
+                          'census_state_code':(row.get('B') or '').strip(),
+                          'original_state_name':name,'fiscal_year_end_raw':fy_end,
+                          'tax_code':code,'tax_label':titles.get(col,'').strip(),
+                          'code_kind':'Census composite' if code.startswith('C') else 'Census category',
+                          'classification_era':'pre_2005' if year<2005 else '2005_onward',
+                          'state_government_only':True,'not_legislative_tax_change':True}
+                      data.append({'provider':'US Census Annual Survey of State Government Tax Collections',
+                          'country_iso3':'USA','year':year,'period':str(year),
+                          'series':'CENSUS.STC.'+code,'value':numeric,'unit':'thousands_of_us_dollars_current',
+                          'frequency':'annual','disaggregation':json.dumps(disagg,sort_keys=True),
+                          'obs_status':'observed_source_figure','source_url':URL,'retrieved_utc':now})
+              if not data:raise ValueError('No state tax data parsed')
+              return data,{'year_min':min(years),'year_max':max(years),'year_count':len(years),
+                  'tax_codes':sorted(codes.values()),'series_count':len({r['series'] for r in data}),
+                  'state_count':len({json.loads(r['disaggregation'])['state_abbr'] for r in data}),
+                  'has_dc':has_dc,'states_1951':len(present.get(1951,set())),
+                  'states_2025':len(present.get(2025,set())),'rows_by_year':dict(year_row_count),
+                  'source_missing_cells':dict(missing),'explicit_zero_cells':zero_count,
+                  'ignored_post_2025_rows':future_rows,'skipped_nonstate_rows':skipped_national,
+                  'observations':len(data)}
+
+
+          def collect(mode='pilot', out='data/us_state_tax', get=download):
+              out=Path(out);out.mkdir(parents=True,exist_ok=True)
+              report={'status':'NOT_VALIDATED','mode':mode,'errors':[],'conflicts':[],
+                  'research_ready':False,'is_causal_policy_shock':False,
+                  'source_url':URL,'retrieved_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
+                  'limitations':['State government collections only; not state+local total.',
+                   'Taxes collected are not tax rates or enacted tax-law changes.',
+                   'Fiscal years differ among states; source FY ending date is preserved.',
+                   '2005 classification boundary is retained; do not blindly compare all subcategories across vintages.',
+                   'Nominal $ thousands; no inflation/price normalization.',
+                   'Tax composite codes overlap with components and must not be summed together.',
+                   '2026 labels are excluded pending confirmed full-year data.',
+                   'Missing and X markers are not zero-filled.']}
+              try:
+                  if mode not in ('pilot','full'):raise ValueError('Invalid mode')
+                  blob=get();allowed=('CA','CT','FL','NY','TX') if mode=='pilot' else None
+                  start=2023 if mode=='pilot' else 1951
+                  data,stats=parse(blob,allowed,start,2025,report['retrieved_utc'])
+                  if mode=='pilot':
+                      if stats['year_min']!=2023 or stats['year_max']!=2025 or stats['state_count']!=5:
+                          raise ValueError('Pilot missing requested states or years')
+                      if stats['observations']<100:raise ValueError('Pilot too small')
+                  else:
+                      if stats['year_min']!=1951 or stats['year_max']!=2025 or stats['year_count']<70:
+                          raise ValueError('Historical coverage incomplete')
+                      if stats['states_1951']<45 or stats['states_2025']<49 or stats['series_count']<20:
+                          raise ValueError('Historical state/code coverage insufficient')
+                      if stats['observations']<70_000:raise ValueError('Unexpectedly sparse historical panel')
+                  path=out/'processed'/'us_state_tax_panel.csv';path.parent.mkdir(parents=True,exist_ok=True)
+                  with path.open('w',encoding='utf-8',newline='') as f:
+                      writer=csv.DictWriter(f,fieldnames=COLUMNS);writer.writeheader();writer.writerows(data)
+                  report.update(stats)
+                  report.update({'status':'VALIDATED_HISTORIC_STATE_TAX_COLLECTIONS_DESCRIPTIVE',
+                      'source_sha256':hashlib.sha256(blob).hexdigest(),
+                      'panel_sha256':hashlib.sha256(path.read_bytes()).hexdigest()})
+              except Exception as exc:
+                  report['status']='VALIDATION_FAILED';report['errors']=[{'type':type(exc).__name__,'message':str(exc)}]
+              (out/'run_report.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+              print(json.dumps(report,indent=2)[:18000])
+              return 1 if report['errors'] else 0
+
+
+          if __name__=='__main__':
+              p=argparse.ArgumentParser();p.add_argument('--mode',choices=['pilot','full'],default='pilot')
+              p.add_argument('--out',default='data/us_state_tax')
+              a=p.parse_args();raise SystemExit(collect(a.mode,a.out))
+          PY_TAX_COLLECTOR
+          cat > tests/test_us_state_tax.py <<'PY_TAX_TESTS'
+          """Offline schema, annual series, and missingness tests for Census historical STC."""
+          import csv
+          import io
+          import json
+          from pathlib import Path
+          import tempfile
+          import unittest
+          import zipfile
+          from open_data.us_state_tax import parse, collect, xlsx_rows, parse_number
+
+          NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+
+          def sample_book(duplicates=False,bad_schema=False):
+              headers=['Year','State','Name','FY Ending Date','C105','T01','T09','T40','T41']
+              if bad_schema:headers[4]='WRONG'
+              headers+=['T'+str(x).zfill(2) for x in range(10,30)]
+              labels=['','','','','Total Taxes','Property tax','Sales tax','Individual income tax','Corporate income tax']+[f'Tax {x}' for x in range(10,30)]
+              rows=[headers,labels]
+              for y in (2023,2024,2025):
+                  rows.append([str(y),'0','US STATE GOVTS','N/A','99999','100','200','300','400']+['90']*20)
+                  for i,name in enumerate(('CA','CT','FL','NY','TX')):
+                      vals=[str(y),str(i+1),name+' STATE GOVT','63025',str(1000+i),'0','X',str(100+i),str(20+i)]+[str(i+x) for x in range(20)]
+                      rows.append(vals)
+              if duplicates:
+                  rows.append(['2025','1','CA STATE GOVT','63025','1','2','3','4','5']+['6']*20)
+              def xml_cell(col,val,ri):
+                  label=''
+                  n=col+1
+                  while n: n,rem=divmod(n-1,26);label=chr(65+rem)+label
+                  return f'<c r="{label}{ri}" t="inlineStr"><is><t>{val}</t></is></c>'
+              xml=f'<worksheet xmlns="{NS}"><sheetData>'+''.join(
+                  f'<row r="{i}">'+''.join(xml_cell(j,v,i) for j,v in enumerate(row))+'</row>'
+                  for i,row in enumerate(rows,1))+'</sheetData></worksheet>'
+              workbook=f'<workbook xmlns="{NS}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="STC_Historical_DB (2025)" sheetId="1" r:id="rId1"/></sheets></workbook>'
+              rel='<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'
+              payload=io.BytesIO()
+              with zipfile.ZipFile(payload,'w') as z:
+                  z.writestr('xl/workbook.xml',workbook)
+                  z.writestr('xl/_rels/workbook.xml.rels',rel)
+                  z.writestr('xl/worksheets/sheet1.xml',xml)
+              return payload.getvalue()
+
+          class TaxTests(unittest.TestCase):
+              def test_row_stream(self):
+                  rows=list(xlsx_rows(sample_book()))
+                  self.assertEqual(rows[0]['A'],'Year')
+                  self.assertEqual(rows[2]['C'],'US STATE GOVTS')
+
+              def test_missing_distinct_from_explicit_zero(self):
+                  self.assertIsNone(parse_number('X'))
+                  self.assertEqual(parse_number('0'),0)
+                  self.assertIsNone(parse_number('(NA)'))
+                  with self.assertRaises(ValueError):parse_number('unknown')
+
+              def test_state_only_and_tax_code_preservation(self):
+                  rows,stats=parse(sample_book(),states={'CA','CT','FL','NY','TX'},start=2023,end=2025)
+                  self.assertEqual(stats['state_count'],5)
+                  self.assertEqual(stats['year_count'],3)
+                  self.assertEqual(stats['states_2025'],5)
+                  self.assertGreaterEqual(stats['explicit_zero_cells'],15)
+                  self.assertGreaterEqual(stats['source_missing_cells']['X'],15)
+                  self.assertTrue(all(json.loads(x['disaggregation'])['state_abbr'] in {'CA','CT','FL','NY','TX'} for x in rows))
+                  self.assertTrue(any(x['series']=='CENSUS.STC.C105' for x in rows))
+                  self.assertFalse(any(x['value'] is None for x in rows))
+
+              def test_duplicate_state_raises_after_schema_validated(self):
+                  with self.assertRaisesRegex(ValueError,'Duplicate state-year-tax code'):
+                      parse(sample_book(duplicates=True))
+
+              def test_five_state_pilot_end_to_end(self):
+                  with tempfile.TemporaryDirectory() as d:
+                      rc=collect(mode='pilot',out=d,get=sample_book)
+                      self.assertEqual(rc,0)
+                      report=json.loads((Path(d)/'run_report.json').read_text())
+                      self.assertEqual(report['state_count'],5)
+                      file=Path(d)/'processed'/'us_state_tax_panel.csv'
+                      with file.open() as f:
+                          self.assertEqual(sum(1 for x in csv.DictReader(f)),report['observations'])
+
+              def test_source_validation_stops_bad_codebook(self):
+                  with tempfile.TemporaryDirectory() as d:
+                      rc=collect(mode='pilot',out=d,get=lambda:sample_book(bad_schema=True))
+                      self.assertEqual(rc,1)
+                      report=json.loads((Path(d)/'run_report.json').read_text())
+                      self.assertEqual(report['status'],'VALIDATION_FAILED')
+
+          if __name__=='__main__':unittest.main()
+          PY_TAX_TESTS
+          cat > docs/us_state_tax_research_plan.md <<'MD_TAX_PLAN'
+          # U.S. state-government tax collections — historical source
+
+          ## Official source and scope
+
+          U.S. Census Bureau, Annual Survey of State Government Tax Collections, original historical Excel workbook:
+          https://www2.census.gov/programs-surveys/stc/datasets/historical/STC-Historical-DB.xlsx
+
+          The 1951–2025 target is the Census fiscal-year annual panel. 2026-looking labels present in the historical workbook are deliberately excluded pending source verification. The source is for **state-government-only collections**, not state-plus-local totals. Washington, D.C. coverage is recorded empirically rather than assumed. The Census fiscal-year ending date field is retained as `fiscal_year_end_raw`; economic outcomes are not automatically aligned with tax policy effective dates.
+
+          ## Measures, metadata and non-causal limits
+
+          Every original `Cnnn` composite and `Tnn` category is a distinct series, named `CENSUS.STC.<code>`, with the original sheet header label preserved in `disaggregation.tax_label`. Values are nominal **thousands of U.S. dollars**; cross-year inflation normalization is left to downstream analyses with proper deflators.
+
+          * `X` / missing values remain missing and are not represented by zero observations.
+          * Explicit source zeros are preserved as zero values.
+          * Aggregate and component taxes overlap. **Never add totals and subcomponents together** to calculate tax collections.
+          * `classification_era` records a pre-2005 versus later boundary for historical comparability reviews; official codebook checks are required before long-run code-specific causal estimates.
+          * Source filename, retrieval date, workbook SHA-256, field labels, state identity, and state-reported fiscal-year ending string are retained for audit.
+          * Tax collections react to economic activity and compliance as well as laws; they are **not** exogenous tax-law changes or statutory tax rates.
+          * State and local government fiscal data, documented policy enactments, tax rates, budget changes, and matched outcome series must be researched separately.
+
+          ## Installation
+
+          Run the dedicated installation GitHub Action; it compiles/tests, performs a five-state 2023–2025 pilot, performs a 1951–2025 full source validation, checks audit metadata, and commits only importer/tests/integration code if successful. The next ordinary economic-warehouse workflow will fetch fresh public data and generate a newly versioned snapshot. Do not publish a public GitHub release or raw-source bundle without source-license review.
+          MD_TAX_PLAN
+          python -m py_compile open_data/us_state_tax.py tests/test_us_state_tax.py
+          python -m unittest discover -s tests -p 'test_us_state_tax.py' -v
+      - name: Pilot five-state historical tax data against official Census XLSX
+        shell: bash
+        run: |
+          set -euo pipefail
+          python open_data/us_state_tax.py --mode pilot --out data/us_state_tax_pilot
+          python - <<'PY_CHECK_PILOT'
+          import csv,json
+          from pathlib import Path
+          x=Path('data/us_state_tax_pilot')
+          report=json.loads((x/'run_report.json').read_text())
+          assert not report['errors'] and report['state_count']==5 and report['year_min']==2023 and report['year_max']==2025, report
+          rows=list(csv.DictReader((x/'processed/us_state_tax_panel.csv').open()))
+          assert len(rows)==report['observations']
+          assert any(r['value']=='0.0' for r in rows)
+          assert report['source_missing_cells'].get('X',0)>0
+          print('Live five-state Census STC audit passed:',len(rows),'source tax observations')
+          PY_CHECK_PILOT
+      - name: Validate full 1951-2025 official historical state tax panel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python open_data/us_state_tax.py --mode full --out data/us_state_tax
+          python - <<'PY_CHECK_FULL'
+          import csv,hashlib,json
+          from pathlib import Path
+          x=Path('data/us_state_tax')
+          report=json.loads((x/'run_report.json').read_text())
+          assert report['status']=='VALIDATED_HISTORIC_STATE_TAX_COLLECTIONS_DESCRIPTIVE'
+          assert not report['errors'] and report['year_min']==1951 and report['year_max']==2025
+          assert report['year_count']>=70 and report['states_2025']>=49
+          p=x/'processed/us_state_tax_panel.csv'
+          assert sum(1 for r in csv.DictReader(p.open()))==report['observations']
+          assert hashlib.sha256(p.read_bytes()).hexdigest()==report['panel_sha256']
+          assert report['is_causal_policy_shock'] is False
+          print('Validated official Census historical state tax rows',report['observations'],'states',report['state_count'],'years',report['year_count'],'tax codes',report['series_count'])
+          PY_CHECK_FULL
+      - name: Connect historical Census tax data to future warehouse snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_INTEGRATE_TAX'
+          from pathlib import Path
+          p=Path('open_data/imf_oecd.py');s=p.read_text()
+          existing="subprocess.run([sys.executable, str(Path(__file__).with_name('us_state_bea.py')), '--mode', 'full'], check=True)"
+          addition="subprocess.run([sys.executable, str(Path(__file__).with_name('us_state_tax.py')), '--mode', 'full'], check=True)"
+          assert s.count(existing)==1,'Expected BEA hook missing or ambiguous'
+          if addition not in s:s=s.replace(existing,existing+'\n        '+addition)
+          p.write_text(s)
+          p=Path('warehouse/snapshot.py');s=p.read_text()
+          existing="    'us_state_bea': ('us_state_bea', 'us_state_bea_panel.csv', 5000),"
+          addition="    'us_state_tax': ('us_state_tax', 'us_state_tax_panel.csv', 5000),"
+          assert s.count(existing)==1,'Expected BEA warehouse family missing or ambiguous'
+          if addition not in s:s=s.replace(existing,existing+'\n'+addition)
+          p.write_text(s)
+          print('Connected Census tax collector using existing Python entry points, without modifying workflows.')
+          PY_INTEGRATE_TAX
+          python -m py_compile open_data/imf_oecd.py warehouse/snapshot.py
+          python -m unittest discover -s tests -p 'test_snapshot.py' -v
+          python -m unittest discover -s tests -p 'test_us_state_tax.py' -v
+      - name: Retain source-validated pilot and full historical extracts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: census-state-tax-history-validated-${{ github.run_number }}
+          path: |
+            data/us_state_tax_pilot/run_report.json
+            data/us_state_tax_pilot/processed/us_state_tax_panel.csv
+            data/us_state_tax/run_report.json
+            data/us_state_tax/processed/us_state_tax_panel.csv
+          retention-days: 90
+          if-no-files-found: warn
+      - name: Commit importer and integration only after full live validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add open_data/us_state_tax.py tests/test_us_state_tax.py docs/us_state_tax_research_plan.md open_data/imf_oecd.py warehouse/snapshot.py
+          if ! git diff --cached --quiet; then
+            git commit -m 'Add audited 1951-2025 Census state-government tax collection importer'
+            git push origin HEAD:main
+          else
+            echo 'Validated importer and integration already up to date'
+          fi
