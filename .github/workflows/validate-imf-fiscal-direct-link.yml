@@ -1,0 +1,137 @@
+name: Validate IMF fiscal shock data from author-linked ZIP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download author-linked 2024 IMF supplement directly and audit safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p fiscal_shock_direct_audit
+          cat > /tmp/audit_2024_imf_direct.py <<'PYCODE'
+          import datetime as dt
+          import hashlib
+          import io
+          import json
+          from pathlib import Path
+          import urllib.error
+          import urllib.request
+          import zipfile
+          import xml.etree.ElementTree as ET
+
+          ROOT = Path('fiscal_shock_direct_audit')
+          ROOT.mkdir(exist_ok=True)
+          # Exact data href published on co-author Cian Allen's research page.
+          # The second path is an alternative IMF CDN layout; NOT independently verified.
+          URLS = [
+              'https://www.imf.org/-/media/files/publications/wp/2024/datasets/wp24210.zip',
+              'https://www.imf.org/-/media/website/publications/wp/2024/datasets/wp24210.zip',
+          ]
+          REPORT = {
+              'dataset': 'Adler, Allen, Ganelli and Leigh (2024), IMF WP 24/210',
+              'source_author_page': 'https://www.cianallen.org/research',
+              'publication_url': 'https://www.imf.org/en/publications/wp/issues/2024/09/27/an-updated-action-based-dataset-of-fiscal-consolidation-554986',
+              'citation_doi': '10.5089/9798400289811.001',
+              'source_link_note': 'First URL is exact public data link on coauthor research page; second is an unverified host-path fallback',
+              'status': 'NOT_VALIDATED',
+              'integrated_into_warehouse': False,
+              'research_ready': False,
+              'checked_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
+              'candidate_checks': [],
+              'caveats': [
+                  'Fiscal-consolidation motives are coded by historical narrative identification, not randomized shocks.',
+                  'Tax measures and spending measures must be separate; dates are implementation years.',
+                  'Only source ZIP provenance and structural audit; do not assume observations or definitions.',
+                  'No raw IMF supplement is published into GitHub artifacts pending redistribution review.',
+              ],
+          }
+          def inspect_zip(raw):
+              with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                  infos=z.infolist()
+                  if len(infos)>300:
+                      raise ValueError('Unexpected archive member count')
+                  if sum(i.file_size for i in infos)>600_000_000:
+                      raise ValueError('Archive expands beyond size limit')
+                  docs=[]
+                  for info in infos:
+                      p=info.filename
+                      if '..' in Path(p).parts or p.startswith('/'):
+                          raise ValueError('Unsafe archive path')
+                      entry={'path':p[:280], 'size_bytes':info.file_size}
+                      lo=p.lower()
+                      if lo.endswith(('.xlsx','.xlsm')) and info.file_size<32_000_000:
+                          with z.open(info) as stream:
+                              b=stream.read(32_000_001)
+                          if len(b)>32_000_000:raise ValueError('Workbook exceeds inspection limit')
+                          with zipfile.ZipFile(io.BytesIO(b)) as book:
+                              if 'xl/workbook.xml' in book.namelist():
+                                  root=ET.fromstring(book.read('xl/workbook.xml'))
+                                  ns={'x':'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+                                  entry['workbook_sheets']=[e.get('name','') for e in root.findall('.//x:sheets/x:sheet',ns)][:40]
+                      elif lo.endswith(('.csv','.txt','.tsv','.md','.do','.r','.py')) and info.file_size<2_000_000:
+                          with z.open(info) as stream:
+                              entry['preview_first_lines']=stream.read(1600).decode('utf-8-sig','replace').splitlines()[:4]
+                      docs.append(entry)
+                  return docs
+          for url in URLS:
+              check={'url':url}
+              try:
+                  req=urllib.request.Request(url,headers={
+                      'User-Agent':'Mozilla/5.0 (compatible; public economics source audit)',
+                      'Accept':'application/zip,application/octet-stream,*/*',
+                  })
+                  with urllib.request.urlopen(req,timeout=55) as response:
+                      dest=response.geturl()
+                      if not dest.startswith('https://www.imf.org/'):
+                          raise ValueError('Non-IMF destination is not permitted: '+dest[:160])
+                      mime=response.headers.get('Content-Type','')
+                      raw=response.read(90_000_001)
+                  check.update({'http_status':200,'final_url':dest,'mime_type':mime,'bytes':len(raw),
+                                'sha256':hashlib.sha256(raw).hexdigest()})
+                  if len(raw)>90_000_000:
+                      raise ValueError('Source exceeds 90MB limit')
+                  if not zipfile.is_zipfile(io.BytesIO(raw)):
+                      raise ValueError('Response is not a ZIP archive')
+                  docs=inspect_zip(raw)
+                  if not docs:raise ValueError('ZIP has no files')
+                  REPORT.update({'status':'ZIP_RETRIEVED_SCHEMA_REVIEW_PENDING',
+                                 'download_url':dest,'zip_sha256':check['sha256'],
+                                 'zip_bytes':len(raw),'members':docs,'total_members':len(docs)})
+                  check['result']='ZIP_METADATA_VALIDATED'
+                  REPORT['candidate_checks'].append(check)
+                  break
+              except urllib.error.HTTPError as exc:
+                  check.update({'http_status':exc.code,'error':f'HTTP {exc.code}: {exc.reason}'})
+              except Exception as exc:
+                  check['error']=f'{type(exc).__name__}: {str(exc)[:240]}'
+              REPORT['candidate_checks'].append(check)
+          if REPORT['status']!='ZIP_RETRIEVED_SCHEMA_REVIEW_PENDING':
+              REPORT['status']='IMF_DATA_LINK_UNAVAILABLE'
+          (ROOT/'report.json').write_text(json.dumps(REPORT,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+          print(json.dumps({'status':REPORT['status'],
+                'candidate_checks':REPORT['candidate_checks'],
+                'zip_members':REPORT.get('members',[])},indent=2,ensure_ascii=False))
+          if REPORT['status']!='ZIP_RETRIEVED_SCHEMA_REVIEW_PENDING':
+              raise SystemExit('Both IMF download URLs were inaccessible; see audit artifact')
+          PYCODE
+          python /tmp/audit_2024_imf_direct.py
+      - name: Save source evidence and download diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: imf-fiscal-direct-source-audit-${{ github.run_number }}
+          path: fiscal_shock_direct_audit/report.json
+          retention-days: 90
+          if-no-files-found: error
