@@ -1,0 +1,170 @@
+name: Install IMF unfiltered-indicator source extension (API fix)
+'on':
+  workflow_dispatch: {}
+permissions:
+  contents: write
+concurrency:
+  group: imf-extension-install
+  cancel-in-progress: false
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+    - name: Checkout main
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Write per-indicator downloader and source tests
+      shell: bash
+      run: "set -euo pipefail\nmkdir -p open_data tests\ncat > open_data/imf_extension.py <<'PY_IMF'\n\"\"\"IMF DataMapper v2 indicator-at-a-time extension.\n\nProvider currently ignores country/period filters. Fetch full indicator once,\nthen select countries and time bounds locally, retaining the provider-native\nunits, vintages and projection metadata. No causal interpretation is asserted.\n\"\"\"\nfrom __future__ import annotations\nimport argparse\nimport csv\nimport datetime as dt\nimport hashlib\nimport json\nimport math\nfrom pathlib import Path\nimport re\nimport time\nimport urllib.error\nimport urllib.request\n\nBASE = 'https://www.imf.org/external/datamapper/api/v2'\nINDICATORS = ('NGDPD','NGDPDPC','PPPGDP','PPPPC','LP','BCA_NGDPD',\n              'PCPIEPCH','prim_exp','ie','pb','d','rgc','rltir')\nPILOT_INDICATORS = ('NGDPD','NGDPDPC','prim_exp')\nPILOT_COUNTRIES = ('USA','FRA','DEU','KEN','GHA')\nPANEL_COLUMNS = ('provider','country_iso3','year','period','series','value',\n                 'unit','frequency','disaggregation','obs_status','source_url','retrieved_utc')\n\n\ndef get_json_bytes(url, *, fetcher=None, max_bytes=5_000_000, attempts=4):\n    if not url.startswith(BASE+'/') or '?' in url:\n        raise ValueError('Only canonical, unfiltered IMF DataMapper v2 URLs allowed')\n    if fetcher is not None:\n        raw=fetcher(url)\n        if not raw or len(raw)>max_bytes:raise ValueError('Invalid bounded response size')\n        json.loads(raw)\n        return raw\n    request=urllib.request.Request(url,headers={\n        'User-Agent':'GlobalEconomicPolicyTool/1.0 (public academic policy research)',\n        'Accept':'application/json,text/csv,*/*','Accept-Encoding':'identity'})\n    last=None\n    for attempt in range(attempts):\n        try:\n            with urllib.request.urlopen(request,timeout=65) as response:\n                if response.geturl().split('/')[2].lower()!='www.imf.org':\n                    raise ValueError('IMF endpoint redirected to another host')\n                raw=response.read(max_bytes+1)\n                if not raw or len(raw)>max_bytes:raise ValueError('Empty/oversized IMF response')\n                data=json.loads(raw)\n                if not isinstance(data,dict):raise ValueError('IMF JSON top level not object')\n                return raw\n        except urllib.error.HTTPError as err:\n            if err.code not in (429,500,502,503,504): raise\n            last=err\n        except (urllib.error.URLError,TimeoutError,ValueError,UnicodeDecodeError,json.JSONDecodeError) as err:\n            last=err\n        if attempt+1<attempts:time.sleep(min(2**attempt,8))\n    raise ValueError('IMF endpoint failed after retries: '+type(last).__name__+': '+str(last)[:100])\n\n\ndef parse_full_indicator(raw, indicator, metadata, allowed, start, end, *, when):\n    \"\"\"Ignore API request filters, which IMF diagnostics showed are not honored.\"\"\"\n    payload=json.loads(raw)\n    v=payload.get('values') if isinstance(payload,dict) else None\n    series=v.get(indicator) if isinstance(v,dict) else None\n    if not isinstance(series,dict) or not series:\n        raise ValueError('Missing or empty full indicator: '+indicator)\n    projected=metadata.get('projection-year')\n    try:projected=int(projected) if projected is not None else None\n    except (TypeError,ValueError):projected=None\n    rows=[];countries_seen=set();keys=set();extraneous=0\n    for geo,years in series.items():\n        if geo not in allowed or not re.fullmatch(r'[A-Z]{3}',geo):\n            extraneous+=1;continue\n        if not isinstance(years,dict):raise ValueError('Unexpected series for '+geo)\n        for year_string, val in years.items():\n            try:year=int(year_string)\n            except (TypeError,ValueError):raise ValueError('Bad source year for '+geo)\n            if not start<=year<=end:continue\n            if val is None or val=='':continue\n            try:value=float(val)\n            except (TypeError,ValueError) as e:raise ValueError('Non-numeric source value') from e\n            if not math.isfinite(value):raise ValueError('Nonfinite source value')\n            key=(geo,year)\n            if key in keys:raise ValueError('Repeated source observation')\n            keys.add(key);countries_seen.add(geo)\n            disagg={'source_indicator_code':indicator,\n              'imf_dataset':metadata.get('dataset'),\n              'indicator_label':metadata.get('label'),\n              'source_vintage':metadata.get('source'),\n              'projection_year_metadata':projected,\n              'retrieval_filter':'full_indicator_download_then_local_filter',\n              'country_code_from_imf_catalog':True}\n            status=('projection' if projected is not None and year>=projected\n                else 'pre_projection_year' if projected is not None\n                else 'projection_status_not_in_metadata')\n            rows.append(dict(provider='IMF DataMapper v2 extension',country_iso3=geo,\n                year=year,period=str(year),series='IMF_DATAMAPPER.'+indicator,\n                value=value,unit=metadata.get('unit') or 'source_defined_unit_unverified',\n                frequency='annual',disaggregation=json.dumps(disagg,sort_keys=True),\n                obs_status=status,source_url=BASE+'/'+indicator,retrieved_utc=when))\n    return rows, {'geographies_in_full_response':len(series),\n                  'geographies_outside_admitted_country_catalog':extraneous,\n                  'admitted_geographies_with_observations':len(countries_seen)}\n\n\ndef collect(out='data/imf_extension',mode='pilot',*, fetcher=None,throttle=.35):\n    out=Path(out);out.mkdir(parents=True,exist_ok=True)\n    checkpoints=out/'checkpoints';checkpoints.mkdir(exist_ok=True)\n    when=dt.datetime.now(dt.timezone.utc).isoformat()\n    report={'source':'IMF DataMapper v2 source-separated extension',\n        'status':'NOT_VALIDATED','mode':mode,'retrieved_utc':when,'research_ready':False,\n        'errors':[],'conflicts':[],'method':'One whole indicator per request; local country/year selection',\n        'limitations':['IMF API ignores country and year filters in documented October 2026 tests.',\n           'Economic indicators are not exogenous shocks or causal estimates.',\n           'Geographic codes come from IMF catalog and can include non-sovereign aggregates.',\n           'IMF forecasts and provider units are not harmonized across sources.']}\n    try:\n        if mode not in ('pilot','full'):raise ValueError('Mode must be pilot or full')\n        codes=PILOT_INDICATORS if mode=='pilot' else INDICATORS\n        start,end=(2017,2026) if mode=='pilot' else (1960,2026)\n        metadata_bytes=get_json_bytes(BASE+'/indicators',fetcher=fetcher)\n        countries_bytes=get_json_bytes(BASE+'/countries',fetcher=fetcher)\n        meta=json.loads(metadata_bytes).get('indicators')\n        catalog=json.loads(countries_bytes).get('countries')\n        if not isinstance(meta,dict) or not isinstance(catalog,dict) or len(catalog)<150:\n            raise ValueError('IMF indicator/country metadata missing or too sparse')\n        if any(code not in meta for code in codes):\n            raise ValueError('Missing official IMF indicators: '+repr(sorted(set(codes)-set(meta))))\n        country_codes=set(PILOT_COUNTRIES if mode=='pilot' else catalog)\n        if any(code not in catalog for code in country_codes):\n            raise ValueError('Required pilot country is not in official country catalog')\n        meta_hash=hashlib.sha256(metadata_bytes).hexdigest()\n        cat_hash=hashlib.sha256(countries_bytes).hexdigest()\n        rows=[];all_ids=set();indicators={};hashes=[];cache_reuse=0\n        for code in codes:\n            url=BASE+'/'+code\n            # Strict vintage-keyed cache prevents cross-edition mixing.\n            key=hashlib.sha256((url+'|'+meta_hash+'|'+cat_hash).encode()).hexdigest()\n            target=checkpoints/(key+'.json')\n            if target.is_file():\n                raw=target.read_bytes();cache_reuse+=1\n                if not raw:raise ValueError('Empty cached source')\n            else:raw=get_json_bytes(url,fetcher=fetcher)\n            selected,details=parse_full_indicator(raw,code,meta[code],country_codes,start,end,when=when)\n            if not selected:raise ValueError('No admitted source observations: '+code)\n            if not target.is_file():target.write_bytes(raw)\n            for row in selected:\n                unique=(row['country_iso3'],row['year'],row['series'])\n                if unique in all_ids:raise ValueError('Duplicate source observation')\n                all_ids.add(unique)\n            rows.extend(selected)\n            indicators[code]=len(selected)\n            hashes.append(dict(indicator=code,request_url=url,\n               raw_sha256=hashlib.sha256(raw).hexdigest(),\n               source_bytes=len(raw),included_rows=len(selected),**details))\n            if throttle and fetcher is None:time.sleep(throttle)\n        rows.sort(key=lambda r:(r['country_iso3'],r['year'],r['series']))\n        countries=len({x['country_iso3'] for x in rows})\n        if mode=='pilot':\n            if countries<5 or len(rows)<45:raise ValueError('Pilot coverage unexpectedly sparse')\n        elif countries<100 or len(rows)<10_000:\n            raise ValueError('Full source coverage unexpectedly sparse')\n        processed=out/'processed';processed.mkdir(exist_ok=True)\n        panel=processed/'imf_extension_panel.csv'\n        with panel.open('w',newline='',encoding='utf-8') as f:\n            w=csv.DictWriter(f,fieldnames=PANEL_COLUMNS);w.writeheader();w.writerows(rows)\n        report.update({'status':'VALIDATED_MACRO_DATA_NOT_CAUSAL_POLICY_SHOCKS',\n           'observations':len(rows),'country_count':countries,\n           'indicator_count':len(indicators),'indicator_rows':indicators,\n           'earliest_year':min(r['year'] for r in rows),\n           'latest_year':max(r['year']\
+        \ for r in rows),\n           'source_requests':len(codes)+2,'reused_checkpoints':cache_reuse,\n           'indicator_source_checksums':hashes,\n           'indicator_metadata_sha256':meta_hash,\n           'country_metadata_sha256':cat_hash,\n           'panel_sha256':hashlib.sha256(panel.read_bytes()).hexdigest()})\n    except Exception as e:\n        report['status']='VALIDATION_FAILED'\n        report['errors'].append({'type':type(e).__name__,'message':str(e)[:400]})\n    (out/'run_report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\\n',encoding='utf-8')\n    print(json.dumps({k:report.get(k) for k in ('status','observations','country_count',\n          'indicator_count','indicator_rows','source_requests','reused_checkpoints','errors')},indent=2))\n    return report\n\nif __name__=='__main__':\n    p=argparse.ArgumentParser(description=__doc__)\n    p.add_argument('--mode',choices=('pilot','full'),default='pilot')\n    p.add_argument('--out',default='data/imf_extension')\n    p.add_argument('--throttle',type=float,default=.35)\n    a=p.parse_args()\n    report=collect(a.out,a.mode,throttle=a.throttle)\n    if report['errors']:raise SystemExit('IMF extension invalid; see run_report.json')\nPY_IMF\ncat > tests/test_imf_extension.py <<'PY_IMF_TEST'\nimport json\nimport tempfile\nimport unittest\nfrom pathlib import Path\nfrom open_data.imf_extension import collect,parse_full_indicator,get_json_bytes,BASE,INDICATORS\n\nclass IMFExtensionTests(unittest.TestCase):\n    def test_all_codes_distinct_and_new(self):\n        self.assertEqual(len(INDICATORS),13)\n        self.assertEqual(len(set(INDICATORS)),13)\n        self.assertNotIn('NGDP_RPCH',INDICATORS)\n    def test_local_filter_ignores_server_filters(self):\n        raw=json.dumps({'values':{'NGDPD':{'USA':{'2019':0,'2020':10,'2027':800},\n             'FRA':{'2020':22},'DEU':{'2020':33},'XXX':{'2020':44}}}}).encode()\n        rows,details=parse_full_indicator(raw,'NGDPD',\n            {'projection-year':2020,'unit':'Billions of U.S. dollars'},\n            {'USA','FRA','DEU'},2020,2020,when='test')\n        self.assertEqual(len(rows),3)\n        self.assertEqual({r['country_iso3'] for r in rows},{'USA','FRA','DEU'})\n        self.assertEqual(next(r for r in rows if r['country_iso3']=='USA')['obs_status'],'projection')\n        self.assertEqual(details['geographies_outside_admitted_country_catalog'],1)\n        self.assertNotIn('2027',{str(r['year']) for r in rows})\n    def test_missing_metadata_projection_unknown(self):\n        raw=b'{\"values\":{\"pb\":{\"USA\":{\"2000\":-3}}}}'\n        rows,_=parse_full_indicator(raw,'pb',{}, {'USA'},2000,2000,when='test')\n        self.assertEqual(rows[0]['obs_status'],'projection_status_not_in_metadata')\n        self.assertEqual(rows[0]['unit'],'source_defined_unit_unverified')\n    def test_no_cross_origin(self):\n        with self.assertRaises(ValueError):\n            get_json_bytes('https://other.example/bad',fetcher=lambda _:b'{}')\n    def test_empty_series_rejected(self):\n        with self.assertRaises(ValueError):\n            parse_full_indicator(b'{\"values\":{\"NGDPD\":{}}}','NGDPD',{}, {'USA'},2000,2000,when='test')\n    def test_full_pilot_validated(self):\n        codes=('USA','FRA','DEU','KEN','GHA')\n        meta={x:{'unit':'unit','projection-year':2026,'dataset':'WEO'}\n              for x in ('NGDPD','NGDPDPC','prim_exp')}\n        countries={x:x for x in list(codes)+[f'X{i:03d}' for i in range(160)]}\n        def mocked(url):\n            if url.endswith('/indicators'):return json.dumps({'indicators':meta}).encode()\n            if url.endswith('/countries'):return json.dumps({'countries':countries}).encode()\n            code=url.rsplit('/',1)[1]\n            data={x:{str(y):float(y) for y in range(2017,2027)} for x in codes}\n            data['ARG']={'2000':999,'2020':50}\n            return json.dumps({'values':{code:data}}).encode()\n        with tempfile.TemporaryDirectory() as d:\n            r=collect(d,'pilot',fetcher=mocked,throttle=0)\n            self.assertEqual(r['status'],'VALIDATED_MACRO_DATA_NOT_CAUSAL_POLICY_SHOCKS')\n            self.assertEqual(r['observations'],150)\n            self.assertEqual(r['country_count'],5)\n            self.assertEqual(r['source_requests'],5)\n            self.assertFalse(r['research_ready'])\n            self.assertTrue((Path(d)/'processed'/'imf_extension_panel.csv').is_file())\n            rerun=collect(d,'pilot',fetcher=mocked,throttle=0)\n            self.assertEqual(rerun['reused_checkpoints'],3)\n\nif __name__=='__main__':unittest.main()\nPY_IMF_TEST\npython -m py_compile open_data/imf_extension.py tests/test_imf_extension.py\n"
+    - name: Test local filtering and warehouse invariants
+      shell: bash
+      run: 'set -euo pipefail
+
+        python -m unittest discover -s tests -p ''test_imf_extension.py'' -v
+
+        python -m unittest discover -s tests -p ''test_snapshot.py'' -v
+
+        '
+    - name: Download validated IMF source pilot (three indicators)
+      shell: bash
+      run: python open_data/imf_extension.py --mode pilot --out data/imf_extension_pilot --throttle 0.4
+    - name: Verify pilot provenance and coverage
+      shell: bash
+      run: 'set -euo pipefail
+
+        python - <<''PY_AUDIT''
+
+        import csv,hashlib,json
+
+        from pathlib import Path
+
+        p=Path(''data/imf_extension_pilot/processed/imf_extension_panel.csv'')
+
+        r=json.loads(Path(''data/imf_extension_pilot/run_report.json'').read_text())
+
+        assert r[''status'']==''VALIDATED_MACRO_DATA_NOT_CAUSAL_POLICY_SHOCKS''
+
+        assert not r[''research_ready''] and not r[''errors''] and not r[''conflicts'']
+
+        assert r[''country_count'']==5 and r[''indicator_count'']==3
+
+        assert r[''observations'']>=45
+
+        with p.open(newline='''',encoding=''utf-8'') as f:rows=list(csv.DictReader(f))
+
+        assert len(rows)==r[''observations'']
+
+        assert hashlib.sha256(p.read_bytes()).hexdigest()==r[''panel_sha256'']
+
+        assert all(x[''series''].startswith(''IMF_DATAMAPPER.'') for x in rows)
+
+        assert all(x[''obs_status''] in (''pre_projection_year'',''projection'',''projection_status_not_in_metadata'') for x in rows)
+
+        assert r[''source_requests'']==5
+
+        print(''Source verified: observations'',len(rows),''countries'',r[''country_count''],''indicators'',r[''indicator_rows''])
+
+        PY_AUDIT
+
+        '
+    - name: Integrate new warehouse family after complete validation
+      shell: bash
+      run: 'set -euo pipefail
+
+        python - <<''PY_PATCH''
+
+        from pathlib import Path
+
+        main=Path(''open_data/imf_oecd.py'')
+
+        s=main.read_text(encoding=''utf-8'')
+
+        anchor="        subprocess.run([sys.executable, str(Path(__file__).with_name(''bocconi_fiscal_plans.py''))], check=True)"
+
+        assert s.count(anchor)==1, ''Bocconi hook changed; refusing automatic patch''
+
+        assert ''imf_extension.py'' not in s, ''Already installed IMF extension''
+
+        s=s.replace(anchor, anchor+"\n        subprocess.run([sys.executable, str(Path(__file__).with_name(''imf_extension.py'')), ''--mode'', ''full''], check=True)",1)
+
+        main.write_text(s,encoding=''utf-8'')
+
+        snapshot=Path(''warehouse/snapshot.py'')
+
+        s=snapshot.read_text(encoding=''utf-8'')
+
+        anchor="    ''bocconi_fiscal'': (''bocconi_fiscal'', ''bocconi_fiscal_panel.csv'', 1000),"
+
+        assert s.count(anchor)==1, ''Warehouse family map changed; refusing automatic patch''
+
+        assert "''imf_extension'':" not in s, ''Already installed IMF extension family''
+
+        s=s.replace(anchor, anchor+"\n    ''imf_extension'': (''imf_extension'', ''imf_extension_panel.csv'', 10000),",1)
+
+        snapshot.write_text(s,encoding=''utf-8'')
+
+        for path in (main,snapshot):compile(path.read_text(encoding=''utf-8''),str(path),''exec'')
+
+        print(''Added validated IMF extension collector and source-separated snapshot family'')
+
+        PY_PATCH
+
+        python -m unittest discover -s tests -p ''test_imf_extension.py'' -v
+
+        python -m unittest discover -s tests -p ''test_snapshot.py'' -v
+
+        python - <<''PY_AUDIT''
+
+        from pathlib import Path
+
+        main=Path(''open_data/imf_oecd.py'').read_text()
+
+        snapshot=Path(''warehouse/snapshot.py'').read_text()
+
+        assert ''bocconi_fiscal_plans.py'' in main
+
+        assert ''imf_extension.py'' in main
+
+        assert ''imf_extension_panel.csv'' in snapshot
+
+        assert ''historical_turnover_panel.csv'' in snapshot
+
+        assert ''omitted_optional_families'' in snapshot
+
+        print(''Existing collector hooks and omission metadata preserved'')
+
+        PY_AUDIT
+
+        git diff --check
+
+        '
+    - name: Preserve live pilot source audit
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: imf-extension-pilot-${{ github.run_number }}
+        path: data/imf_extension_pilot/run_report.json
+        retention-days: 90
+        if-no-files-found: warn
+    - name: Commit validated importer to main
+      shell: bash
+      run: 'set -euo pipefail
+
+        git config user.name ''github-actions[bot]''
+
+        git config user.email ''41898282+github-actions[bot]@users.noreply.github.com''
+
+        git add open_data/imf_extension.py tests/test_imf_extension.py open_data/imf_oecd.py warehouse/snapshot.py
+
+        git diff --cached --check
+
+        git commit -m ''Add per-indicator IMF DataMapper source extension with local filtering''
+
+        git push origin HEAD:main
+
+        '
