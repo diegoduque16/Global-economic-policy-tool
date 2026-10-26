@@ -1,0 +1,55 @@
+name: Fix historical Census tax ingestion (signed adjustments)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Patch existing installer and regression test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/install-us-state-tax-history-v1.yml')
+          s = p.read_text(encoding='utf-8')
+          old = "if not math.isfinite(x) or x<0: raise ValueError('Invalid nonnegative tax receipt')"
+          new = "if not math.isfinite(x): raise ValueError('Nonfinite tax receipt')"
+          test_anchor = "self.assertEqual(parse_number('0'),0)"
+          test_addition = "self.assertEqual(parse_number('-12.5'),-12.5)"
+          if old in s:
+              assert s.count(old) == 1, 'Unexpected occurrence count'
+              s = s.replace(old, new)
+          else:
+              assert new in s, 'Expected parser code not found; refusing to edit'
+          if test_addition not in s:
+              assert s.count(test_anchor) == 1, 'Expected test location not found'
+              s = s.replace(test_anchor, test_anchor + '\n                  ' + test_addition)
+          p.write_text(s, encoding='utf-8')
+          assert old not in s and new in s and test_addition in s
+          print('Patched Census tax importer to preserve signed finite source values.')
+          PY
+          git diff --check
+      - name: Commit fix to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/install-us-state-tax-history-v1.yml
+          if git diff --cached --quiet; then
+            echo 'Fix already applied.'
+          else
+            git commit -m 'Accept negative tax adjustments in Census historical importer'
+            git push origin HEAD:main
+          fi
