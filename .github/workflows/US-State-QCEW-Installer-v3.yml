@@ -1,0 +1,149 @@
+name: Install U.S. state QCEW industry panel v3 (no workflow edits)
+'on':
+  workflow_dispatch: null
+permissions:
+  contents: write
+concurrency:
+  group: install-us-state-qcew-v3
+  cancel-in-progress: false
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+    - name: Checkout main
+      uses: actions/checkout@v4
+      with:
+        ref: main
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Write corrected QCEW state collector, tests and research plan
+      shell: bash
+      run: "set -euo pipefail\nmkdir -p open_data tests docs\ncat > open_data/us_state_qcew.py <<'PY_COLLECTOR'\n\"\"\"Official BLS QCEW state annual area-slice panel; outcomes, not policy shocks.\n\nRetains all-ownership statewide industry total and private-ownership NAICS sectors.\nNever sums overlapping industry groups or silently imputes suppressed measures.\n\"\"\"\nfrom __future__ import annotations\nimport argparse\nimport csv\nimport datetime as dt\nimport hashlib\nimport io\nimport json\nimport math\nfrom pathlib import Path\nimport re\nimport time\nimport urllib.error\nimport urllib.parse\nimport urllib.request\n\nBASE='https://data.bls.gov/cew/data/api'\nSTATES={\n'AL':'01','AK':'02','AZ':'04','AR':'05','CA':'06','CO':'08','CT':'09','DE':'10','DC':'11','FL':'12','GA':'13',\n'HI':'15','ID':'16','IL':'17','IN':'18','IA':'19','KS':'20','KY':'21','LA':'22','ME':'23','MD':'24','MA':'25',\n'MI':'26','MN':'27','MS':'28','MO':'29','MT':'30','NE':'31','NV':'32','NH':'33','NJ':'34','NM':'35','NY':'36',\n\
+        'NC':'37','ND':'38','OH':'39','OK':'40','OR':'41','PA':'42','RI':'44','SC':'45','SD':'46','TN':'47','TX':'48',\n'UT':'49','VT':'50','VA':'51','WA':'53','WV':'54','WI':'55','WY':'56'}\nassert len(STATES)==51\nPILOT_STATES=('CA','CT','FL','NY','TX')\nSECTORS=frozenset(('11','21','22','23','31-33','42','44-45','48-49','51','52','53','54','55','56','61','62','71','72','81','99'))\nMEASURES={'annual_avg_emplvl':'covered_jobs_annual_monthly_average',\n 'annual_avg_estabs':'establishments_annual_average',\n 'total_annual_wages':'nominal_usd_annual_total',\n 'annual_avg_wkly_wage':'nominal_usd_per_week',\n 'avg_annual_pay':'nominal_usd_per_year'}\nCOLUMNS=('provider','country_iso3','year','period','series','value','unit','frequency','disaggregation','obs_status','source_url','retrieved_utc')\nREQUIRED={'area_fips','year','qtr','own_code','industry_code','disclosure_code','size_code',*MEASURES}\n\ndef source_url(year,abbr):\n    if abbr not in STATES or not 2021<=int(year)<=2025:raise ValueError('Unsupported\
+        \ BLS area slice')\n    return f'{BASE}/{int(year)}/a/area/{STATES[abbr]}000.csv'\n\ndef fetch(url,attempts=4,max_bytes=15_000_000):\n    if not re.fullmatch(r'https://data\\.bls\\.gov/cew/data/api/20\\d\\d/a/area/\\d{5}\\.csv',url):\n        raise ValueError('Unexpected BLS source URL')\n    request=urllib.request.Request(url,headers={\n        'User-Agent':'GlobalEconomicPolicyTool/1.0 (public research)',\n        'Accept':'text/csv,text/plain,*/*','Accept-Encoding':'identity'})\n    for attempt in range(attempts):\n        try:\n            with urllib.request.urlopen(request,timeout=55) as response:\n                host=(urllib.parse.urlsplit(response.geturl()).hostname or '').lower()\n                if host not in ('data.bls.gov','www.bls.gov'):raise ValueError('Unexpected source redirect')\n                raw=response.read(max_bytes+1)\n                if not raw or len(raw)>max_bytes:raise ValueError('Empty/oversized BLS CSV')\n                if raw.lstrip()[:30].lower().startswith((b'<html',b'<!doctype')):raise\
+        \ ValueError('HTML, not source CSV')\n                if b'annual_avg_emplvl' not in raw[:3500].lower():raise ValueError('Missing source header')\n                return raw\n        except urllib.error.HTTPError as err:\n            if err.code not in (429,500,502,503,504) or attempt+1==attempts:raise\n        except (urllib.error.URLError,TimeoutError):\n            if attempt+1==attempts:raise\n        time.sleep(min(2**attempt,10))\n    raise RuntimeError('BLS fetch exhausted')\n\ndef number(raw):\n    value=str(raw if raw is not None else '').strip().replace(',','')\n    if value.upper() in ('','N','-','NA','(D)','D','S','—'):return None\n    try: v=float(value)\n    except (ValueError,TypeError) as e:raise ValueError('Invalid BLS numeric measurement') from e\n    if not math.isfinite(v) or v<0:raise ValueError('Nonfinite/negative BLS numeric measurement')\n    return v\n\ndef parse_slice(raw,year,state,when):\n    url=source_url(year,state); fips=STATES[state]+'000';year=int(year)\n\
+        \    data=csv.DictReader(io.StringIO(raw.decode('utf-8-sig')))\n    missing=REQUIRED-set(data.fieldnames or [])\n    if missing:raise ValueError('QCEW annual-area schema mismatch: '+repr(sorted(missing)))\n    rows=[];seen=set();baseline=False;suppressed=0;private_sectors=set()\n    for line in data:\n        if line['area_fips'].strip()!=fips or int(line['year'])!=year or line['qtr'].strip().upper()!='A':\n            raise ValueError('Wrong source geography/year/period')\n        if (line['size_code'] or '').strip() not in ('','0'):continue\n        own=str(line['own_code']).strip();industry=(line['industry_code'] or '').strip()\n        keep=(own=='0' and industry=='10') or (own=='5' and industry in SECTORS)\n        if not keep:continue\n        key=(own,industry)\n        if key in seen:raise ValueError('Duplicate ownership-industry source record')\n        seen.add(key)\n        disc=(line.get('disclosure_code') or '').strip().upper()\n        if disc not in ('','N'):raise\
+        \ ValueError('Unexpected QCEW disclosure status')\n        if disc=='N':suppressed+=len(MEASURES);continue\n        dim={'state_abbr':state,'state_fips':STATES[state],\n          'state_qcew_area_fips':fips,'industry_code':industry,\n          'ownership_code':own,'ownership_scope':'all_ownerships' if own=='0' else 'private_only',\n          'industry_scope':'all_industries' if own=='0' else 'naics_sector',\n          'source_table':'QCEW_annual_state_area_slice'}\n        found=0\n        for m,unit in MEASURES.items():\n            val=number(line.get(m))\n            if val is None:suppressed+=1;continue\n            found+=1\n            rows.append({'provider':'BLS QCEW','country_iso3':'USA','year':year,'period':str(year),\n              'series':'BLS_QCEW.'+m,'value':val,'unit':unit,'frequency':'annual',\n              'disaggregation':json.dumps(dim,sort_keys=True),'obs_status':'published',\n              'source_url':url,'retrieved_utc':when})\n            if own=='0' and\
+        \ industry=='10' and m=='annual_avg_emplvl' and val>0:baseline=True\n        if own=='5' and found:private_sectors.add(industry)\n    if not baseline:raise ValueError('Missing positive statewide all-ownership employment baseline')\n    if len(private_sectors)<3:raise ValueError('State industry coverage unexpectedly sparse; refusing aggregate-only panel')\n    return rows,{'included_source_categories':len(seen),'private_sectors':len(private_sectors),\n                 'missing_or_suppressed_values':suppressed}\n\ndef collect(out='data/us_state_qcew',mode='pilot',get=fetch,throttle=.1):\n    out=Path(out);out.mkdir(parents=True,exist_ok=True)\n    report={'source':'BLS QCEW annual area slices with all-owner total and private NAICS sectors',\n      'mode':mode,'status':'NOT_VALIDATED','errors':[],'conflicts':[],\n      'research_ready':False,'causal_inference_ready':False,\n      'limitations':['All-ownership total and private industry sectors overlap; never sum these.',\n        'State\
+        \ industry data here is private-sector ownership only, not all ownerships.',\n        'Suppressed/missing values excluded rather than zero-imputed.',\n        'Nominal wages and NAICS industry revisions require handling for causal designs.',\n        'These are employment outcomes, not exogenous fiscal-policy shocks.']}\n    requests=[];rows=[];seen=set();when=dt.datetime.now(dt.timezone.utc).isoformat()\n    try:\n        if mode not in ('pilot','full'):raise ValueError('Invalid mode')\n        states=PILOT_STATES if mode=='pilot' else tuple(STATES)\n        years=(2024,) if mode=='pilot' else tuple(range(2021,2026))\n        for year in years:\n            for state in states:\n                url=source_url(year,state)\n                raw=get(url)\n                parsed,stats=parse_slice(raw,year,state,when)\n                for rec in parsed:\n                    d=json.loads(rec['disaggregation'])\n                    unique=(year,state,d['ownership_code'],d['industry_code'],rec['series'])\n\
+        \                    if unique in seen:raise ValueError('Duplicate annual ownership/industry/measure key')\n                    seen.add(unique)\n                rows.extend(parsed)\n                requests.append({'state':state,'year':year,'url':url,'bytes':len(raw),\n                  'sha256':hashlib.sha256(raw).hexdigest(),'rows':len(parsed),**stats})\n                if get is fetch and throttle:time.sleep(throttle)\n        expected={(s,y) for s in states for y in years}\n        pairs={(json.loads(x['disaggregation'])['state_abbr'],x['year']) for x in rows}\n        if pairs!=expected:raise ValueError('Incomplete U.S. state-year coverage')\n        if len(rows)<(75 if mode=='pilot' else 5000):raise ValueError('State-industry panel unexpectedly sparse')\n        dest=out/'processed'/'us_state_qcew_panel.csv';dest.parent.mkdir(parents=True,exist_ok=True)\n        with dest.open('w',newline='',encoding='utf-8') as f:\n            w=csv.DictWriter(f,fieldnames=COLUMNS,lineterminator=chr(10));w.writeheader();w.writerows(rows)\n\
+        \        report.update({'status':'VALIDATED_DESCRIPTIVE_STATE_LABOR_DATA',\n          'observations':len(rows),'state_count':len(states),'state_year_count':len(pairs),\n          'years':list(years),'source_requests':len(requests),'series_count':len(MEASURES),\n          'private_sector_details':True,\n          'panel_sha256':hashlib.sha256(dest.read_bytes()).hexdigest(),\n          'source_manifest':requests})\n    except Exception as exc:\n        report['status']='SOURCE_FAILED_VALIDATION'\n        report['errors'].append({'type':type(exc).__name__,'message':str(exc)[:350],\n           'successful_source_requests':len(requests)})\n    (out/'run_report.json').write_text(json.dumps(report,indent=2)+'\\n',encoding='utf-8')\n    print(json.dumps({k:report.get(k) for k in ('status','observations','state_count',\n      'state_year_count','source_requests','errors')},indent=2))\n    return report\n\nif __name__=='__main__':\n    p=argparse.ArgumentParser(description=__doc__)\n    p.add_argument('--mode',choices=('pilot','full'),default='pilot')\n\
+        \    p.add_argument('--out',default='data/us_state_qcew')\n    a=p.parse_args();result=collect(a.out,a.mode)\n    if result['errors']:raise SystemExit('QCEW collector failed validation')\nPY_COLLECTOR\ncat > tests/test_us_state_qcew.py <<'PY_TEST'\nimport csv,io,json,tempfile,unittest\nfrom pathlib import Path\nfrom open_data.us_state_qcew import STATES,PILOT_STATES,MEASURES,parse_slice,source_url,collect,number\nclass StateQCEWTests(unittest.TestCase):\n    def mock(self,abbr,year=2024,include_private=True):\n        base={'area_fips':STATES[abbr]+'000','year':str(year),'qtr':'A',\n              'size_code':'0','disclosure_code':''}\n        rows=[]\n        cats=[('0','10')]+([('5',c) for c in ('51','54','62','23')] if include_private else [])\n        for own,industry in cats:\n            rows.append({**base,'own_code':own,'industry_code':industry,\n                'annual_avg_emplvl':'10000','annual_avg_estabs':'100',\n                'total_annual_wages':'1000000','annual_avg_wkly_wage':'1000','avg_annual_pay':'52000'})\n\
+        \        f=io.StringIO();w=csv.DictWriter(f,fieldnames=list(rows[0]),lineterminator=chr(10));w.writeheader();w.writerows(rows)\n        return f.getvalue().encode()\n    def test_fifty_states_and_dc(self):\n        self.assertEqual(len(STATES),51);self.assertEqual(STATES['CT'],'09')\n    def test_source_url_rejects_invalid(self):\n        self.assertEqual(source_url(2024,'CT'),'https://data.bls.gov/cew/data/api/2024/a/area/09000.csv')\n        with self.assertRaises(ValueError):source_url(2020,'CT')\n    def test_disaggregation_preserves_owner_and_sector(self):\n        rows,stats=parse_slice(self.mock('CT'),2024,'CT','test')\n        self.assertEqual(len(rows),25);self.assertEqual(stats['private_sectors'],4)\n        dims=[json.loads(x['disaggregation']) for x in rows]\n        self.assertIn(('5','51'),{(d['ownership_code'],d['industry_code']) for d in dims})\n        self.assertIn(('0','10'),{(d['ownership_code'],d['industry_code']) for d in dims})\n    def test_reject_aggregate_only_and_missing_handling(self):\n\
+        \        with self.assertRaises(ValueError):parse_slice(self.mock('CT',include_private=False),2024,'CT','test')\n        self.assertIsNone(number('N'));self.assertIsNone(number(''));self.assertEqual(number('0'),0)\n    def test_live_pilot_logic_via_mock(self):\n        def get(url):\n            fips=url.rsplit('/',1)[1][:2];abbr=next(k for k,v in STATES.items() if v==fips)\n            return self.mock(abbr)\n        with tempfile.TemporaryDirectory() as d:\n            r=collect(d,'pilot',get=get,throttle=0)\n            self.assertFalse(r['errors']);self.assertEqual(r['observations'],125)\n            self.assertEqual(r['state_count'],5);self.assertTrue(r['private_sector_details'])\n            panel=Path(d)/'processed'/'us_state_qcew_panel.csv'\n            self.assertTrue(panel.is_file())\n            with panel.open() as stream:self.assertEqual(sum(1 for _ in stream)-1,125)\nif __name__=='__main__':unittest.main()\nPY_TEST\ncat > docs/us_state_policy_research_plan.md <<'PLAN_DOC'\n\
+        # U.S. state-level economic-policy research expansion\n\nThe BLS QCEW state annual panel covers 51 jurisdictions (50 states plus the District of Columbia) and the most recent five full years (2021–2025), subject to source access and complete-pilot checks.\n\nThe all-ownership total (`own_code=0`, `industry_code=10`) captures annual covered employment, wages and establishments; industry-sector records use `own_code=5` **private-sector-only** NAICS sector categories. Do **not** sum the all-owner total with private sectors or treat the latter as all-owner industry totals. All measured counts and pay values are source-native and nominal; missing and suppressed values are not zeros. Industry code and NAICS vintage changes must be accounted for before time-series causal comparisons.\n\nThe collector is activated by the existing `open_data/imf_oecd.py --scope full` hook, rather than modifying an Actions workflow file that the GitHub token is not authorized to edit. It is a *source-separated,\
+        \ descriptive outcome family* in `warehouse/snapshot.py`, not evidence of tax/spending policy shocks.\n\nNext steps: BEA state GDP and real income, Census state and local government finance, BLS LAUS unemployment, broader QCEW annual historical bulk back to 1975, documented state tax-rate and spending law changes, occupation-level AI exposure, and a dated cross-state policy-event registry. All require provider-specific units, revision histories, jurisdiction harmonization and analysis of confounders.\nPLAN_DOC\npython -m py_compile open_data/us_state_qcew.py tests/test_us_state_qcew.py\npython -m unittest discover -s tests -p 'test_us_state_qcew.py' -v\npython -m unittest discover -s tests -p 'test_snapshot.py' -v\n"
+    - name: Try real BLS 2024 QCEW industry pilot for five states
+      run: 'set -euo pipefail
+
+        python open_data/us_state_qcew.py --mode pilot --out data/us_state_qcew_pilot
+
+        python - <<''PY_VERIFY''
+
+        from pathlib import Path
+
+        import json,csv,hashlib
+
+        r=json.loads(Path(''data/us_state_qcew_pilot/run_report.json'').read_text())
+
+        p=Path(''data/us_state_qcew_pilot/processed/us_state_qcew_panel.csv'')
+
+        assert r[''status'']==''VALIDATED_DESCRIPTIVE_STATE_LABOR_DATA'' and not r[''errors'']
+
+        assert r[''observations'']>=75 and r[''state_count'']==5 and r[''state_year_count'']==5
+
+        assert len(r[''source_manifest''])==5 and all(x[''private_sectors'']>=3 for x in r[''source_manifest''])
+
+        assert hashlib.sha256(p.read_bytes()).hexdigest()==r[''panel_sha256'']
+
+        with p.open() as f:rows=list(csv.DictReader(f))
+
+        assert len(rows)==r[''observations'']
+
+        assert {''0'',''5''}=={json.loads(x[''disaggregation''])[''ownership_code''] for x in rows}
+
+        print(''VALIDATED state QCEW sector pilot: observations'',len(rows),''private sector counts'',[(x[''state''],x[''private_sectors'']) for x in r[''source_manifest'']])
+
+        PY_VERIFY
+
+        '
+    - name: Integrate without modifying GitHub workflow files
+      run: 'set -euo pipefail
+
+        python - <<''PY_PATCH''
+
+        from pathlib import Path
+
+        collector=Path(''open_data/imf_oecd.py'');s=collector.read_text(encoding=''utf-8'')
+
+        anchor="        subprocess.run([sys.executable, str(Path(__file__).with_name(''imf_extension.py'')), ''--mode'', ''full''], check=True)"
+
+        assert s.count(anchor)==1, ''Expected full-collection hook moved; no modification made''
+
+        assert ''us_state_qcew.py'' not in s, ''QCEW hook already exists''
+
+        s=s.replace(anchor,anchor+"\n        subprocess.run([sys.executable, str(Path(__file__).with_name(''us_state_qcew.py'')), ''--mode'', ''full''], check=True)",1)
+
+        compile(s,str(collector),''exec'');collector.write_text(s,encoding=''utf-8'')
+
+        snap=Path(''warehouse/snapshot.py'');source=snap.read_text(encoding=''utf-8'')
+
+        old="    ''imf_extension'': (''imf_extension'', ''imf_extension_panel.csv'', 10000),"
+
+        assert source.count(old)==1 and "''us_state_qcew'':" not in source, ''Warehouse family already present or anchor moved''
+
+        source=source.replace(old,old+"\n    ''us_state_qcew'': (''us_state_qcew'', ''us_state_qcew_panel.csv'', 5000),",1)
+
+        compile(source,str(snap),''exec'');snap.write_text(source,encoding=''utf-8'')
+
+        assert Path(''.github/workflows/economic-warehouse.yml'').exists()
+
+        print(''Added QCEW call via existing full-mode Python hook, and new warehouse family. No GitHub workflows modified.'')
+
+        PY_PATCH
+
+        python -m unittest discover -s tests -p ''test_us_state_qcew.py'' -v
+
+        python -m unittest discover -s tests -p ''test_snapshot.py'' -v
+
+        git diff --check
+
+        git diff --name-only | tee /tmp/qcew_changed_files.txt
+
+        ! grep ''^.github/workflows/'' /tmp/qcew_changed_files.txt
+
+        '
+    - name: Preserve live pilot audit
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: us-state-qcew-industry-pilot-${{ github.run_number }}
+        path: 'data/us_state_qcew_pilot/run_report.json
+
+          data/us_state_qcew_pilot/processed/us_state_qcew_panel.csv'
+        retention-days: 90
+        if-no-files-found: warn
+    - name: Commit validated Python-only collector and warehouse integration
+      shell: bash
+      run: 'set -euo pipefail
+
+        git config user.name ''github-actions[bot]''
+
+        git config user.email ''41898282+github-actions[bot]@users.noreply.github.com''
+
+        git add open_data/us_state_qcew.py tests/test_us_state_qcew.py docs/us_state_policy_research_plan.md open_data/imf_oecd.py warehouse/snapshot.py
+
+        git diff --cached --check
+
+        if git diff --cached --quiet;then echo ''Already installed'';exit 0;fi
+
+        if git diff --cached --name-only | grep -q ''^.github/workflows/'';then echo ''Refusing workflow updates'';exit 1;fi
+
+        git commit -m ''Add BLS QCEW state-level private industry outcomes without workflow edits''
+
+        git push origin HEAD:main
+
+        '
