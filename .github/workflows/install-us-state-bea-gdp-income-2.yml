@@ -106,7 +106,7 @@ jobs:
               """Select precisely one all-areas summary table; no guessing between vintages."""
               with zipfile.ZipFile(io.BytesIO(archive)) as z:
                   choices = [info for info in z.infolist()
-                             if not info.is_dir() and re.search(rf'^{re.escape(table)}.*ALL_AREAS.*\.csv$',
+                             if not info.is_dir() and re.search(rf'^{re.escape(table)}.__ALL_AREAS.*\.csv$',
                                                Path(info.filename).name, re.I)]
                   if len(choices)!=1:
                       raise ValueError(f'Expected one {table} ALL_AREAS file, found {len(choices)}: '
