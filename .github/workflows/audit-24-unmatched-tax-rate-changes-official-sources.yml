@@ -1,0 +1,311 @@
+name: Review 24 ITEP tax-rate changes against primary state sources
+'on':
+  workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: GitHub run with the verified 127-case 2019-2025 secondary-source review
+        required: true
+        default: '40442611848'
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: economic-primary-state-tax-timing-review
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verified 24-case official-source review collector
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p analysis
+          cat > analysis/official_state_tax_timing_review.py <<'PY_OFFICIAL_SRC_END'
+          """Evidence-only audit of 24 ITEP year-end changes missing secondary 2019-25 article context.
+
+          Official government URLs provide a documented rate-history/timing starting point.
+          This DOES NOT infer law enactment, treatment-year validity or exogeneity automatically.
+          """
+          from __future__ import annotations
+          import argparse,csv,datetime as dt,hashlib,html,io,json,re,urllib.request,urllib.parse,collections,zipfile
+          from pathlib import Path
+          from concurrent.futures import ThreadPoolExecutor,as_completed
+
+          EXPECTED_2019_2025=127
+          EXPECTED_BASELINE_CHANGES=1543
+          EXPECTED_UNMATCHED=24
+          ALLOWED_HOSTS={
+           'content.leg.colorado.gov','tax.colorado.gov','floridarevenue.com',
+           'tax.idaho.gov','www.in.gov','revenue.ky.gov','budget.digital.mass.gov',
+           'services.marylandcomptroller.gov','www.tax.nd.gov','www.revenue.nh.gov',
+           'www.nj.gov','www.tax.newmexico.gov','tax.newmexico.gov','tax.ohio.gov','www.dor.sc.gov','dor.sc.gov','tax.utah.gov','www.floridarevenue.com','revenue.nh.gov','in.gov','nj.gov','www.revenue.ky.gov'
+          }
+          def digest(data): return hashlib.sha256(data).hexdigest()
+          def key(r):return (r['state_abbr'],int(r['year']),r['tax_type'])
+
+          def find_baseline(base):
+              candidates=[p for p in base.rglob('coverage_manifest.json') if (p.parent/'itep_2019_2025_secondary_evidence_review.csv').is_file()]
+              if len(candidates)!=1:raise ValueError(f'Expected exactly one original source audit; got {len(candidates)}')
+              report_path=candidates[0]
+              d=json.loads(report_path.read_text(encoding='utf-8'))
+              path=report_path.parent/'itep_2019_2025_secondary_evidence_review.csv'
+              if digest(path.read_bytes())!=d['file_sha256']['itep_2019_2025_secondary_evidence_review.csv']:
+                  raise ValueError('Previous source index is not SHA256 authentic')
+              with path.open(newline='',encoding='utf-8') as f:rows=list(csv.DictReader(f))
+              if len(rows)!=EXPECTED_2019_2025 or d['baseline_rate_changes_full_history']!=EXPECTED_BASELINE_CHANGES:
+                  raise ValueError('Original source audit changed unexpectedly')
+              missing=[r for r in rows if r['context_sources_found']=='0']
+              if len(missing)!=EXPECTED_UNMATCHED or len({key(r) for r in missing})!=EXPECTED_UNMATCHED:
+                  raise ValueError('Original missing-context queue has changed')
+              return d,rows,missing
+
+          def load_reference(path,missing):
+              with path.open(newline='',encoding='utf-8') as f:ref=list(csv.DictReader(f))
+              if len(ref)!=EXPECTED_UNMATCHED or {key(x) for x in ref}!={key(x) for x in missing}:
+                  raise ValueError('Official document index has incomplete/unexpected keys')
+              lookup={key(x):x for x in missing}
+              for row in ref:
+                  old=lookup[key(row)]
+                  for field in ('previous_year_end_rate_pp','current_year_end_rate_pp','delta_percentage_points'):
+                      if abs(float(row[field])-float(old[field]))>1e-8:
+                          raise ValueError(f'{key(row)} mutated source rate field {field}')
+                  h=urllib.parse.urlparse(row['official_source_url'])
+                  if h.scheme!='https' or h.hostname not in ALLOWED_HOSTS:
+                      raise ValueError('Unknown non-government evidence URL '+row['official_source_url'])
+                  if row['is_exogenous_policy_shock']!='False' or row['requires_bill_level_verification']!='True':
+                      raise ValueError('Unreviewed link falsely labeled causal/verified')
+              return ref
+
+          def fetch(url):
+              try:
+                  req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (EconomicPolicySourceAudit/1.0; data-quality research)','Accept':'text/html,application/pdf'})
+                  with urllib.request.urlopen(req,timeout=50) as response:
+                      final=urllib.parse.urlparse(response.geturl())
+                      if final.scheme!='https' or final.hostname not in ALLOWED_HOSTS:
+                          raise ValueError('Unexpected redirect outside official domain')
+                      content_type=response.headers.get('Content-Type','').lower()
+                      blob=response.read(25_000_001)
+                  if len(blob)>25_000_000:raise ValueError('Official document exceeds 25 MB audit limit')
+                  is_pdf=blob.startswith(b'%PDF-')
+                  is_html=(b'<html' in blob[:5000].lower() or b'<!doctype' in blob[:5000].lower())
+                  if not is_pdf and not is_html:raise ValueError('Unexpected official document format')
+                  return {'source_url':url,'retrieval_status':'retrieved','source_sha256':digest(blob),
+                          'document_format':'pdf' if is_pdf else 'html', 'size_bytes':len(blob),
+                          'http_content_type':content_type,'error':'',
+                          'text_sample_checks_only':None if is_pdf else html.unescape(re.sub('<[^>]+>',' ',blob.decode('utf-8','replace')))}
+              except Exception as e:
+                  return {'source_url':url,'retrieval_status':'unavailable_or_changed','source_sha256':'',
+                          'document_format':'','size_bytes':0,'http_content_type':'','error':f'{type(e).__name__}: {str(e)}'[:300],
+                          'text_sample_checks_only':None}
+
+          def write_csv(path,rows,fields):
+              with path.open('w',newline='',encoding='utf-8') as f:
+                  w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(rows)
+
+          def run(baseline,reference,out,fetcher=fetch):
+              d,allrows,missing=find_baseline(baseline)
+              refs=load_reference(reference,missing)
+              docs={}
+              with ThreadPoolExecutor(max_workers=5) as executor:
+                  futures={executor.submit(fetcher,url):url for url in sorted({r['official_source_url'] for r in refs})}
+                  for future in as_completed(futures):docs[futures[future]]=future.result()
+              records=[]
+              for r in refs:
+                  url=r['official_source_url'];info=docs[url]
+                  x=dict(r)
+                  x['official_page_retrieved']=str(info['retrieval_status']=='retrieved')
+                  x['official_page_sha256']=info['source_sha256']
+                  x['document_format']=info['document_format']
+                  x['rate_text_detection']='NOT_TESTED_PDF' if info['document_format']=='pdf' else 'RATE_TOKENS_PRESENT_NOT_PROOF' if (info['text_sample_checks_only'] and all(re.search(r'(?<![\d.])'+re.escape(r[k])+r'\s*%',info['text_sample_checks_only']) for k in ('previous_year_end_rate_pp','current_year_end_rate_pp'))) else 'UNVERIFIED'
+                  x['evidence_link_status']='official_document_retrieved_requires_human_verification' if info['retrieval_status']=='retrieved' else 'official_document_unavailable_requires_recheck'
+                  x['year_alignment_conflict_review_required']=str('disagreement' in r['time_anchor_kind'])
+                  records.append(x)
+              out.mkdir(parents=True,exist_ok=True)
+              evidence=out/'24_unmatched_rate_changes_government_evidence_review.csv'
+              write_csv(evidence,records,list(records[0]))
+              sources=out/'official_source_retrieval_audit.csv'
+              retrieval=[{k:v for k,v in docs[u].items() if k!='text_sample_checks_only'} for u in sorted(docs)]
+              write_csv(sources,retrieval,list(retrieval[0]))
+              report={'analysis_timestamp_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
+                      'analysis_type':'OFFICIAL_SOURCES_FOR_REVIEW_NOT_VERIFIED_CAUSAL_TREATMENTS',
+                      'previous_audit_2019_2025_rate_changes':len(allrows),
+                      'previous_missing_context_cases':len(missing),
+                      'unique_states':len({r['state_abbr'] for r in missing}),
+                      'government_urls_reviewed':len(docs),
+                      'government_urls_retrieved':sum(v['retrieval_status']=='retrieved' for v in docs.values()),
+                      'cases_with_government_docs_retrieved':sum(r['official_page_retrieved']=='True' for r in records),
+                      'cases_flagged_possible_ITEP_year_alignment_conflict':sum(r['year_alignment_conflict_review_required']=='True' for r in records),
+                      'cases_confirmed_as_identified_exogenous_tax_shocks':0,
+                      'legal_effective_date_quality':'A source annotation is not a primary-law identification or verified implementation date',
+                      'baseline_manifest_sha256':digest(json.dumps(d,sort_keys=True).encode()),
+                      'official_review_reference_sha256':digest(reference.read_bytes()),
+                      'outputs_sha256':{p.name:digest(p.read_bytes()) for p in (evidence,sources)},
+                      'warnings':['Some official sources give taxable year, not statute effective date.',
+                                  'A historical year-end rate change is not necessarily an enacted law in that same year.',
+                                  'Kentucky 2019, New Jersey 2019, Idaho PIT 2022 and Ohio PIT 2022 have timing/vintage questions.',
+                                  'PDF source content is not automatically extracted or interpreted.',
+                                  'URL retrieval does not establish a substantive legal or causal match.',
+                                  'This standalone evidence audit never changes the research warehouse.']}
+              (out/'manifest.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+              print(json.dumps({k:report[k] for k in ('previous_missing_context_cases','unique_states','government_urls_reviewed','government_urls_retrieved','cases_with_government_docs_retrieved','cases_flagged_possible_ITEP_year_alignment_conflict')},indent=2))
+              if report['government_urls_retrieved']<8:
+                  raise ValueError('Insufficient official-document retrieval to claim a complete source check; audit retained')
+              return report
+
+          def selftest(baseline,reference):
+              import tempfile
+              d,allrows,missing=find_baseline(baseline)
+              assert len(allrows)==127 and len(missing)==24
+              refs=load_reference(reference,missing)
+              assert len(refs)==24
+              def demo(url): return {'source_url':url,'retrieval_status':'retrieved','source_sha256':digest(url.encode()),
+                      'document_format':'pdf','size_bytes':1000,'http_content_type':'application/pdf','error':'','text_sample_checks_only':None}
+              with tempfile.TemporaryDirectory() as temp:
+                  report=run(baseline,reference,Path(temp)/'out',fetcher=demo)
+                  assert report['cases_with_government_docs_retrieved']==24
+                  assert report['cases_flagged_possible_ITEP_year_alignment_conflict']==4
+              print('PASS official 24-case list, strict source-authenticity and noncausal audit tests')
+
+          if __name__=='__main__':
+              p=argparse.ArgumentParser();p.add_argument('--baseline',type=Path);p.add_argument('--reference',type=Path);p.add_argument('--out',type=Path);p.add_argument('--self-test',action='store_true')
+              args=p.parse_args()
+              if args.self_test:
+                  if not args.baseline or not args.reference:p.error('Self-test requires --baseline and --reference')
+                  selftest(args.baseline,args.reference)
+              else:
+                  if not all((args.baseline,args.reference,args.out)):p.error('Requires --baseline --reference --out')
+                  run(args.baseline,args.reference,args.out)
+          PY_OFFICIAL_SRC_END
+          cat > analysis/official_state_tax_reference_24.csv <<'CSV_OFFICIAL_SRC_END'
+          state_abbr,year,tax_type,previous_year_end_rate_pp,current_year_end_rate_pp,delta_percentage_points,official_publisher,official_source_url,law_or_measure_context,official_policy_time_anchor,time_anchor_kind,official_source_assessment,requires_bill_level_verification,is_exogenous_policy_shock,status
+          CO,2020,cit,4.63,4.55,-0.08,Colorado legislature,https://content.leg.colorado.gov/sites/default/files/2020_fiscal_impact_statements_for_web.pdf,Proposition 116,2020,tax_year,Official legislature statement describes 4.63 to 4.55 for tax year 2020; law enacted by ballot measure Nov 2020.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          CO,2020,pit,4.63,4.55,-0.08,Colorado Department of Revenue,https://tax.colorado.gov/individual-income-tax-FAQ,Proposition 116,2020,tax_year,Official guidance explicitly describes 2020 proposition rate of 4.55.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          FL,2019,cit,5.5,4.458,-1.042,Florida Department of Revenue,https://floridarevenue.com/taxes/taxesfees/Pages/corporate.aspx,Fla. Stat. s. 220.1105,2019-01-01,tax_period_start,Official rate 4.458 applies to tax years beginning 2019 and 2020; not an independent exogenous event.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          FL,2021,cit,4.458,3.535,-0.923,Florida Department of Revenue,https://floridarevenue.com/taxes/taxesfees/Pages/corporate.aspx,Fla. Stat. s. 220.1105,2021-01-01,tax_period_start,Official rate 3.535 applies to tax years beginning in 2021.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          ID,2021,cit,6.925,6.5,-0.425,Idaho State Tax Commission,https://tax.idaho.gov/taxes/income-tax/business-income/online-guide/,,2021,tax_year,Official business tax history 6.925 in 2020 and 6.5 in 2021.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          ID,2022,cit,6.5,6,-0.5,Idaho State Tax Commission,https://tax.idaho.gov/taxes/income-tax/business-income/online-guide/,,2022,tax_year,Official business tax history 6.5 in 2021 and 6.0 in 2022.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          ID,2025,cit,5.695,5.3,-0.395,Idaho State Tax Commission,https://tax.idaho.gov/taxes/income-tax/business-income/online-guide/,,2025,tax_year,Official business tax history 5.695 in 2024 and 5.3 in 2025.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          ID,2022,pit,6.925,6.5,-0.425,Idaho State Tax Commission,https://tax.idaho.gov/taxes/income-tax/individual-income/individual-income-tax-rate-schedule/,,2021,tax_year_source_disagreement,ITEP 2022 row compares 6.925 to 6.5; official individual rate is already 6.5 in 2021 and 6.0 in 2022; reconcile definition/vintage.,True,False,YEAR_ALIGNMENT_CONFLICT_REQUIRES_RECONCILIATION
+          ID,2025,pit,5.695,5.3,-0.395,Idaho State Tax Commission,https://tax.idaho.gov/taxes/income-tax/individual-income/individual-income-tax-rate-schedule/,,2025,tax_year,Official top individual rates 5.695 in 2024 and 5.3 in 2025.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          IN,2019,cit,5.75,5.5,-0.25,Indiana Department of Revenue,https://www.in.gov/dor/resources/tax-rates-and-reports/rates-fees-and-penalties/corporate-sales-tax-history/,IC 6-3-2-1(c),2019-07-01,rate_effective_date,Official corporate rate history steps from 5.75 to 5.5 July 1 2019.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          IN,2021,cit,5.25,4.9,-0.35,Indiana Department of Revenue,https://www.in.gov/dor/resources/tax-rates-and-reports/rates-fees-and-penalties/corporate-sales-tax-history/,IC 6-3-2-1(c),2021-07-01,rate_effective_date,Official corporate rate history steps from 5.25 to 4.9 July 1 2021.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          KY,2019,pit,6,5,-1,Kentucky Department of Revenue,https://revenue.ky.gov/News/PublishingImages/Pages/DOR-Outreach-and-Education/2018%20KY%20Income%20Tax%20Changes-13NOV18.pdf,HB 487 (2018),2018-01-01,rate_effective_date_source_disagreement,ITEP year-end comparison flags 2019; official KY 2018 law presentation says flat 5 percent applies Jan 1 2018.,True,False,YEAR_ALIGNMENT_CONFLICT_REQUIRES_RECONCILIATION
+          MA,2019,pit,5.1,5.05,-0.05,Commonwealth of Massachusetts official budget,https://budget.digital.mass.gov/govbudget/fy26/tax-expenditure-budget/personal-income-tax/introduction,,2019,tax_year,State budget rate history: 2018 5.10 percent; 2019 5.05 percent.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          MD,2025,pit,5.75,6.5,0.75,Maryland Comptroller,https://services.marylandcomptroller.gov/taxes/en/maryland-income-tax-rates-and-brackets?id=kb_article_view&sysparm_article=KB0010014,,2025,tax_year,Official 2025 tax bracket reference has new top 6.5 percent; verify any implementation timing separately.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          ND,2025,pit,2.9,2.5,-0.4,North Dakota Office of State Tax Commissioner,https://www.tax.nd.gov/individual-income-tax,,2025,tax_year,Official 2025 top marginal rate 2.5 percent; enactment date not established.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          NH,2022,cit,7.7,7.6,-0.1,New Hampshire Department of Revenue Administration,https://www.revenue.nh.gov/resource-center/frequently-asked-questions/business-profits-tax,,2022-12-31,tax_period_ending,Official business profits rate is 7.6 for taxable periods ending 2022.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          NJ,2019,pit,8.97,10.75,1.78,New Jersey Division of Taxation,https://www.nj.gov/treasury/taxation/grossincometax.shtml,P.L. 2018 c. 45,2018-01-01,tax_year_source_disagreement,"Official state says increase to 10.75 for tax year 2018, legislation signed July 1 2018, retroactive to start of 2018; ITEP flags 2019.",True,False,YEAR_ALIGNMENT_CONFLICT_REQUIRES_RECONCILIATION
+          NM,2022,sales,5.125,5,-0.125,New Mexico Taxation and Revenue,https://www.tax.newmexico.gov/wp-content/uploads/2023/06/July-1-tax-changes.pdf,HB 163 (2022),2022-07-01,rate_effective_date,Official department explains first gross receipts tax reduction by 0.125 pp on July 1 2022.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          NM,2023,sales,5,4.875,-0.125,New Mexico Taxation and Revenue,https://www.tax.newmexico.gov/wp-content/uploads/2023/06/July-1-tax-changes.pdf,HB 163 (2022),2023-07-01,rate_effective_date,Official department announces second gross receipts tax reduction by 0.125 pp July 1 2023.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          OH,2022,pit,4.797,3.99,-0.807,Ohio Department of Taxation,https://tax.ohio.gov/individual/resources/annual-tax-rates,,2021,tax_year_source_disagreement,ITEP 2022 comparison shows 4.797 to 3.990 but official rate chart shows 3.990 already in 2021 and 2022; reconcile data vintage/definition.,True,False,YEAR_ALIGNMENT_CONFLICT_REQUIRES_RECONCILIATION
+          SC,2022,pit,7,6.5,-0.5,South Carolina Department of Revenue,https://www.dor.sc.gov/index.php/administrative-legislative-regulations-tax-legislative-update-2023,SB 1087; Act 228 of 2022,2022,tax_year,Official state describes top rate 6.5 in tax year 2022; law effective June 17 2022.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          SC,2023,pit,6.5,6.4,-0.1,South Carolina Department of Revenue,https://www.dor.sc.gov/index.php/administrative-legislative-regulations-tax-legislative-update-2023,SB 1087; Act 228 of 2022,2023,tax_year,"Official state describes top rate 6.4 in tax year 2023, under contingent phased reductions.",True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          UT,2022,cit,4.95,4.85,-0.10,Utah State Tax Commission,https://tax.utah.gov/train/webinars/2023-01-19-presentation.pdf,SB 59 (2022),2022-01-01,tax_period_start,Official State Tax Commission says corporate rate reduced 4.95 to 4.85 for tax years beginning Jan 1 2022.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          UT,2022,pit,4.95,4.85,-0.10,Utah State Tax Commission,https://tax.utah.gov/train/webinars/2023-01-19-presentation.pdf,SB 59 (2022),2022-01-01,tax_period_start,Official State Tax Commission says individual rate reduced 4.95 to 4.85 for tax years beginning Jan 1 2022.,True,False,OFFICIAL_RATE_CONTEXT_FOUND_LEGAL_TIMING_NOT_FULLY_VERIFIED
+          CSV_OFFICIAL_SRC_END
+          python -m py_compile analysis/official_state_tax_timing_review.py
+      - name: Validate original published audit and download canonical source index
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BASELINE_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Invalid prior run id'; exit 1; }
+          path=$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq .path)
+          branch=$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq .head_branch)
+          test "$path" = '.github/workflows/add-2019-2025-state-tax-source-evidence-v3.yml'
+          test "$branch" = main
+          mkdir -p downloads/baseline
+          gh run download "$BASELINE_RUN_ID" --repo "$GH_REPO" --pattern 'state-tax-2019-2025-source-index-*' --dir downloads/baseline
+      - name: Test all 24 keys and SHA256 baseline against actual previous output
+        shell: bash
+        run: |
+          set -euo pipefail
+          python analysis/official_state_tax_timing_review.py --self-test \
+            --baseline downloads/baseline \
+            --reference analysis/official_state_tax_reference_24.csv
+      - name: Retrieve and audit 16 candidate state government documents
+        shell: bash
+        run: |
+          set -euo pipefail
+          python analysis/official_state_tax_timing_review.py \
+            --baseline downloads/baseline \
+            --reference analysis/official_state_tax_reference_24.csv \
+            --out official_tax_timing_review
+      - name: Keep official source-retrieval audit even if source websites fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-state-tax-review-source-audit-${{ github.run_number }}
+          path: |
+            official_tax_timing_review/
+            analysis/official_state_tax_reference_24.csv
+            analysis/official_state_tax_timing_review.py
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Verify zero causal claims and archive with checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json,csv
+          r=json.loads(Path('official_tax_timing_review/manifest.json').read_text())
+          assert r['previous_missing_context_cases']==24
+          assert r['unique_states']==14
+          assert r['cases_flagged_possible_ITEP_year_alignment_conflict']==4
+          assert r['cases_confirmed_as_identified_exogenous_tax_shocks']==0
+          with Path('official_tax_timing_review/24_unmatched_rate_changes_government_evidence_review.csv').open(newline='') as f:
+              cases=list(csv.DictReader(f))
+          assert len(cases)==24 and all(x['is_exogenous_policy_shock']=='False' for x in cases)
+          print('PASS: original 24 records retained, four year discrepancies, zero unsupported causal claims')
+          PY
+          ID="official-tax-timing-review-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+          echo "REVIEW_ID=$ID" >> "$GITHUB_ENV"
+          mkdir -p audit_archive
+          tar -czf "audit_archive/$ID.tar.gz" official_tax_timing_review analysis/official_state_tax_reference_24.csv analysis/official_state_tax_timing_review.py
+          (cd audit_archive && sha256sum "$ID.tar.gz" > "$ID.tar.gz.sha256")
+          (cd audit_archive && sha256sum -c "$ID.tar.gz.sha256")
+      - name: Save versioned review archive in GitHub artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-state-tax-timing-review-${{ github.run_number }}
+          path: audit_archive/
+          retention-days: 90
+      - name: Back up official-source audit to private OneDrive and verify checksum
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64'; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          mkdir -p "$RUNNER_TEMP/rclone"
+          chmod 700 "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+          archive="audit_archive/${REVIEW_ID}.tar.gz"
+          target="$ONEDRIVE_TARGET/snapshots/analysis/${REVIEW_ID}.tar.gz"
+          rclone copyto "$archive" "$target" --retries 3 --low-level-retries 10
+          rclone copyto "$target" "$RUNNER_TEMP/official-tax-audit-verify.tar.gz" --retries 3
+          cmp "$archive" "$RUNNER_TEMP/official-tax-audit-verify.tar.gz"
+          rclone copyto "audit_archive/${REVIEW_ID}.tar.gz.sha256" "${target}.sha256"
+          rclone copyto official_tax_timing_review/manifest.json "$ONEDRIVE_TARGET/snapshots/analysis/${REVIEW_ID}.manifest.json"
+          echo "OneDrive verified: $target SHA256=$(sha256sum "$archive" | awk '{print $1}')"
+      - name: Delete temporary OneDrive access credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
