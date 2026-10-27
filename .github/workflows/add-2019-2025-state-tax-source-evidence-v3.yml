@@ -1,0 +1,450 @@
+name: Audit 2019-2025 tax source article mentions (prose and tables)
+'on':
+  workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: Completed timing-audit run containing the 1543 verified ITEP year-end rate changes
+        required: true
+        type: string
+        default: '40440686774'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: economic-tax-policy-2019-2025-source-audit-v3
+  cancel-in-progress: false
+jobs:
+  source_index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install HTML source parser
+        run: python -m pip install --disable-pip-version-check beautifulsoup4==4.14.2
+      - name: Install source-audited secondary state tax evidence indexer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p analysis
+          cat > analysis/state_tax_evidence_2019_2025.py <<'SOURCE_COLLECTOR_END'
+          """2019–2025 state tax policy timing SOURCE-INDEX, not a legislative fact table.
+          
+          Each state/year entry represents a mention within a linked public article. It
+          never confers a verified enactment date, rate-change date, or exogenous shock.
+          NCSL 2019–2025 complete tax-actions database is hosted in Power BI; the public
+          landing page is indexed but no unverified PowerBI API/extract is attempted.
+          """
+          from __future__ import annotations
+          import argparse, collections, csv, datetime as dt, hashlib, io, json, re, time
+          from pathlib import Path
+          from urllib.parse import urlparse
+          from urllib.request import urlopen, Request
+          from bs4 import BeautifulSoup
+          
+          SOURCE_URLS = {
+            2019:'https://taxfoundation.org/data/all/state/state-tax-changes-january-2019/',
+            2020:'https://taxfoundation.org/research/all/state/2020-state-tax-changes-january-1/',
+            2021:'https://taxfoundation.org/research/all/state/2021-state-tax-changes/',
+            2022:'https://taxfoundation.org/research/all/state/2022-state-tax-changes/',
+            2023:'https://taxfoundation.org/research/all/state/2023-state-tax-changes/',
+            2024:'https://taxfoundation.org/research/all/state/2024-state-tax-changes/',
+            2025:'https://taxfoundation.org/research/all/state/2025-state-tax-changes/',
+          }
+          NCSL_MAIN='https://www.ncsl.org/fiscal/state-tax-actions-database'
+          NCSL_2024='https://www.ncsl.org/fiscal/state-tax-actions-2024'
+          STATE_STR='AL Alabama|AK Alaska|AZ Arizona|AR Arkansas|CA California|CO Colorado|CT Connecticut|DE Delaware|FL Florida|GA Georgia|HI Hawaii|ID Idaho|IL Illinois|IN Indiana|IA Iowa|KS Kansas|KY Kentucky|LA Louisiana|ME Maine|MD Maryland|MA Massachusetts|MI Michigan|MN Minnesota|MS Mississippi|MO Missouri|MT Montana|NE Nebraska|NV Nevada|NH New Hampshire|NJ New Jersey|NM New Mexico|NY New York|NC North Carolina|ND North Dakota|OH Ohio|OK Oklahoma|OR Oregon|PA Pennsylvania|RI Rhode Island|SC South Carolina|SD South Dakota|TN Tennessee|TX Texas|UT Utah|VT Vermont|VA Virginia|WA Washington|WV West Virginia|WI Wisconsin|WY Wyoming|DC District of Columbia'
+          STATES=dict(x.split(' ',1)[::-1] for x in STATE_STR.split('|'))
+          STATE_NAMES=sorted(STATES,key=len,reverse=True)
+          BILL_RE=re.compile(r'\b(?:H\.?B\.?|S\.?B\.?|L\.?B\.?|A\.?B\.?|S\.?F\.?|H\.?F\.?)\s*\d{1,5}(?:-[A-Z0-9]+)?\b',re.I)
+          YEAR_RANGE=set(range(2019,2026))
+          
+          
+          def sha256(blob:bytes)->str:return hashlib.sha256(blob).hexdigest()
+          def clean(s):return ' '.join(str(s or '').split())
+          
+          def fetch(url:str, retries=2)->bytes:
+              allowed={'www.ncsl.org','ncsl.org','taxfoundation.org','www.taxfoundation.org'}
+              if urlparse(url).hostname not in allowed: raise ValueError('Unapproved source host')
+              for i in range(retries):
+                  try:
+                      req=Request(url,headers={'User-Agent':'Mozilla/5.0 (compatible; EconomicPolicyResearchIndexer/1.0; scholarly source audit)','Accept':'text/html'})
+                      with urlopen(req,timeout=60) as response:
+                          if urlparse(response.geturl()).hostname not in allowed:raise ValueError('Unexpected redirect host')
+                          blob=response.read(8_000_001)
+                      if len(blob)<1000 or len(blob)>8_000_000 or b'<html' not in blob[:10000].lower():
+                          raise ValueError('Unexpected HTML response')
+                      return blob
+                  except Exception:
+                      if i+1==retries:raise
+                      time.sleep(3)
+          
+          
+          def heading_state(title):
+              t=clean(title).replace('\xa0',' ')
+              for name in STATE_NAMES:
+                  # Specific headline: 'Virginia Tax Changes Effective January 1, 2025'.
+                  if re.match(r'^'+re.escape(name)+r'(?:\b|\s|:|\s*[—-])',t,re.I):
+                      return STATES[name]
+              return None
+          
+          
+          def parse_section_index(blob:bytes, year:int,source_url:str, source_name='Tax Foundation'):
+              """Extract labelled article *context*, never assert a specific law matches a rate.
+          
+              Real Tax Foundation articles frequently list states in prose and rate tables
+              under generic headings ('Summary of Changes'), not state-named headings.
+              The previous heading-only extractor silently found zero such records.
+              """
+              soup=BeautifulSoup(blob,'html.parser')
+              containers=soup.find_all(['article','main'])
+              article=max(containers,key=lambda c:len(c.find_all(['p','table']))) if containers else soup
+              # Index source mentions only. Do not infer whether mentioned changes occurred
+              # during the same year, changed the top marginal rate, or were enacted.
+              matches={}
+              active_heading=None
+              tax_context=re.compile(r'\b(?:tax|taxes|rate|rates|income|sales|excise|revenue|deduction|exempt|bracket|levy|surcharge)\b|%',re.I)
+              from bs4.element import Tag
+              for el in article.find_all(['h2','h3','h4','h5','p','li','tr']):
+                  # Ignore navigation elements, embedded headlines and footer summaries.
+                  if el.find_parent(['nav','footer','aside','header']):continue
+                  # Avoid double-counting a list item whose text is itself a nested table row.
+                  txt=clean(el.get_text(' ',strip=True))
+                  if not (16 <= len(txt) <= 4500):continue
+                  explicit=heading_state(txt) if el.name.startswith('h') else None
+                  if el.name.startswith('h'):active_heading=explicit
+                  # Tax-relevant prose or explicit state-named section, no general menus.
+                  if not explicit and not tax_context.search(txt) and not (active_heading and BILL_RE.search(txt)):continue
+                  if el.name=='tr':
+                      cells=el.find_all(['th','td'],recursive=False)
+                      if not cells:continue
+                      # Table state name must be the leading column; do not parse unstructured
+                      # cross-tab references as state rows.
+                      first=clean(cells[0].get_text(' ',strip=True)).rstrip('*')
+                      full=next((STATES[n] for n in STATE_NAMES if first.lower()==n.lower()),None)
+                      codes=[full] if full else []
+                      method='tax_rate_table_state_row'
+                  else:
+                      codes=[STATES[n] for n in STATE_NAMES if re.search(r'(?<![A-Za-z])'+re.escape(n)+r'(?![A-Za-z])',txt,re.I)]
+                      if explicit and explicit not in codes:codes.append(explicit)
+                      if not codes and active_heading and BILL_RE.search(txt):codes=[active_heading]
+                      method='explicit_state_heading' if explicit else 'tax_context_article_prose_mention'
+                  for st in sorted(set(codes)):
+                      row=matches.setdefault(st,{'state_abbr':st,'year':year,'provider':source_name,
+                          'source_url':source_url,'source_sha256':sha256(blob),'heading':'',
+                          'article_section_count':0,'bill_identifiers_context_only':'',
+                          'government_links_unverified':'','reference_date_context_only':'',
+                          'status':'ARTICLE_MENTION_ONLY_NOT_VERIFIED_LEGISLATIVE_EVENT',
+                          'exact_law_effective_date_verified':False,'rate_change_match_verified':False,
+                          'causal_shock_verified':False,'extraction_method':'',
+                          'article_state_mentions':0})
+                      row['article_state_mentions']+=1
+                      row['article_section_count']+=int(el.name in ('p','li','tr'))
+                      if explicit and not row['heading']:row['heading']=txt[:180]
+                      current=set(filter(None,row['extraction_method'].split('; ')))
+                      current.add(method)
+                      row['extraction_method']='; '.join(sorted(current))
+                      if el.name in ('p','li','tr'):
+                          new={re.sub(r'\s+','',m.upper().replace('.','')) for m in BILL_RE.findall(txt)}
+                          old=set(filter(None,row['bill_identifiers_context_only'].split('; ')))
+                          row['bill_identifiers_context_only']='; '.join(sorted(old|new)[:35])
+                          # Links are pointers to possible source material, not verification.
+                          links=set(filter(None,row['government_links_unverified'].split('; ')))
+                          for link in el.find_all('a',href=True):
+                              url=link['href'];host=urlparse(url).hostname or ''
+                              if host.endswith(('.gov','.us')):links.add(url)
+                          row['government_links_unverified']='; '.join(sorted(links)[:12])
+              return list(matches.values())
+          
+          def parse_existing_review_queue(path):
+              with open(path,encoding='utf-8-sig',newline='') as f:rows=list(csv.DictReader(f))
+              needed={'state_abbr','year','tax_type'}
+              if not rows or not needed.issubset(rows[0]):raise ValueError('Missing known audited rate-change fields')
+              if len(rows)!=1543:raise ValueError(f'Expected 1543 audited ITEP rate changes; found {len(rows)}')
+              if len(set((r['state_abbr'],r['year'],r['tax_type']) for r in rows))!=len(rows):
+                  raise ValueError('Duplicate rate changes in trusted prior review')
+              return rows
+          
+          
+          def write_csv(path,rows,fields):
+              path.parent.mkdir(parents=True,exist_ok=True)
+              with path.open('w',newline='',encoding='utf-8') as f:
+                  writer=csv.DictWriter(f,fieldnames=fields,extrasaction='ignore');writer.writeheader();writer.writerows(rows)
+          
+          
+          def build(queue:Path,out:Path, fetcher=fetch, require_live=False):
+              out.mkdir(parents=True,exist_ok=True)
+              input_rows=parse_existing_review_queue(queue)
+              sources=[]; states=[]; warnings=[]
+              for year,url in SOURCE_URLS.items():
+                  try:
+                      blob=fetcher(url); year_rows=parse_section_index(blob,year,url)
+                      if not year_rows:warnings.append(f'{year}: article read but zero jurisdiction headings detected')
+                      sources.append({'year':year,'source':'Tax Foundation','url':url,'retrieved':True,
+                                      'sha256':sha256(blob),'jurisdiction_sections':len(year_rows)})
+                      states.extend(year_rows)
+                  except Exception as e:
+                      sources.append({'year':year,'source':'Tax Foundation','url':url,'retrieved':False,
+                                      'error':type(e).__name__+': '+str(e)[:180],'jurisdiction_sections':0})
+                      warnings.append(f'{year}: source fetch failed; not interpreted as no tax changes')
+              # Separate NCSL index: PowerBI isn't a downloadable source table from this page.
+              try:
+                  blob=fetcher(NCSL_MAIN)
+                  text=clean(BeautifulSoup(blob,'html.parser').get_text(' ',strip=True)).lower()
+                  if '2019' not in text or '2025' not in text or 'state tax actions' not in text:
+                      raise ValueError('NCSL year coverage labels not detected')
+                  ncsl={'source_url':NCSL_MAIN,'source_sha256':sha256(blob),'source_page_verified':True,
+                        'years_listed':list(range(2019,2026)),'records_exported':False,
+                        'status':'OFFICIAL_POWERBI_DASHBOARD_RECORDS_NOT_YET_EXPORTED_OR_VERIFIED'}
+              except Exception as e:
+                  ncsl={'source_url':NCSL_MAIN,'source_page_verified':False,
+                        'status':'OFFICIAL_POWERBI_SOURCE_NOT_RETRIEVED','error':str(e)[:200]}
+                  warnings.append('NCSL official dashboard page could not be independently verified')
+              try:
+                  blob=fetcher(NCSL_2024)
+                  nrows=parse_section_index(blob,2024,NCSL_2024,'NCSL analytical report')
+                  states.extend(nrows)
+                  sources.append({'year':2024,'source':'NCSL analytical report','url':NCSL_2024,'retrieved':True,
+                                  'sha256':sha256(blob),'jurisdiction_sections':len(nrows)})
+              except Exception as e:
+                  sources.append({'year':2024,'source':'NCSL analytical report','url':NCSL_2024,'retrieved':False,'error':str(e)[:180]})
+                  warnings.append('NCSL 2024 analytical article inaccessible; official PowerBI remains separate')
+          
+              # Dedup state/article sections; no evidence that they denote individual changes.
+              kept={}
+              for row in states:
+                  key=(row['provider'],row['source_url'],row['state_abbr'],row['year'])
+                  current=kept.get(key)
+                  if current is None or len(row['bill_identifiers_context_only'])>len(current['bill_identifiers_context_only']):kept[key]=row
+              states=sorted(kept.values(),key=lambda x:(x['year'],x['state_abbr'],x['provider']))
+              index={(r['state_abbr'],str(r['year'])):[] for r in states}
+              for r in states:index[(r['state_abbr'],str(r['year']))].append(r)
+              review=[]
+              for r in input_rows:
+                  if int(r['year']) not in YEAR_RANGE: continue
+                  refs=index.get((r['state_abbr'],r['year']),[])
+                  tax_refs=[x['source_url'] for x in refs if x['provider']=='Tax Foundation']
+                  ncsl_refs=[x['source_url'] for x in refs if x['provider']=='NCSL analytical report']
+                  review.append({**r,'taxfoundation_article_state_year_context':' | '.join(sorted(set(tax_refs))),
+                                 'ncsl_narrative_state_year_context':' | '.join(sorted(set(ncsl_refs))),
+                                 'context_sources_found':len(refs),
+                                 'status':'ARTICLE_STATE_MENTION_ONLY_UNVERIFIED_CHANGE' if refs else 'NO_ARTICLE_STATE_MENTION_NOT_NO_POLICY',
+                                 'verified_statutory_effective_date':'','verified_statute_identifier':'',
+                                 'is_confirmed_legislative_rate_change':False,'is_exogenous_policy_shock':False})
+              if len(review)!=len({(r['state_abbr'],r['year'],r['tax_type']) for r in review}):raise ValueError('Lost rate-change identity')
+              if require_live and sum(s.get('retrieved',False) for s in sources)<5:
+                  raise ValueError('Insufficient successful public source retrieval; will not publish inferred coverage')
+              if require_live and len(states)<10:
+                  raise ValueError(f'Only {len(states)} distinct article-state context records; stop rather than treating an empty index as success')
+              if any(r.get('is_confirmed_legislative_rate_change') for r in review):raise ValueError('Unreviewed legislative claims')
+              write_csv(out/'published_state_year_context_2019_2025.csv',states,
+                        ['state_abbr','year','provider','source_url','source_sha256','heading','article_section_count',
+                         'bill_identifiers_context_only','government_links_unverified','reference_date_context_only',
+                         'status','exact_law_effective_date_verified','rate_change_match_verified','causal_shock_verified','extraction_method','article_state_mentions'])
+              if review:
+                  write_csv(out/'itep_2019_2025_secondary_evidence_review.csv',review,list(review[0]))
+              manifest={'run_timestamp_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
+                        'analysis_type':'PUBLIC_SECONDARY_EVIDENCE_INDEX_NOT_PRIMARY_STATUTE_OR_NCSL_RECORDS',
+                        'baseline_rate_changes_full_history':len(input_rows),
+                        'itep_rate_changes_2019_2025':len(review),
+                        'published_state_year_context_rows':len(states),
+                        'review_rows_with_any_secondary_context':sum(int(r['context_sources_found'])>0 for r in review),
+                        'confirmed_law_effective_date_matches':0,
+                        'confirmed_exogenous_tax_shocks':0,
+                        'sources':sources,'ncsl_2019_2025':ncsl,'warnings':warnings,
+                        'file_sha256':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in out.glob('*.csv')},
+                        'limitations':[
+                          'The NCSL 2019–2025 database is an interactive public Power BI report. Its underlying rows were not extracted or reproduced.',
+                          'Tax Foundation articles are editorial summaries, not exhaustive NCSL legislative action records.',
+                          'Article state/year mentions are not evidence that a specific ITEP top-rate difference was enacted by a particular bill.',
+                          'A January 1 report headline does not prove every contained change had that legal effective date.',
+                          'References to government-hosted URLs or bill numbers are unverified candidates for manual legislative review.',
+                          'No rate change is classified as a causal or exogenous policy shock.',
+                          'Tax rate series and source warehouse are not modified by this audit.'
+                        ]}
+              (out/'coverage_manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
+              print(json.dumps({k:manifest[k] for k in ('baseline_rate_changes_full_history','itep_rate_changes_2019_2025','published_state_year_context_rows','review_rows_with_any_secondary_context','confirmed_law_effective_date_matches','confirmed_exogenous_tax_shocks')},indent=2))
+              return manifest
+          
+          
+          def selftest():
+              from tempfile import TemporaryDirectory
+              s=b'''<!DOCTYPE html><html><body><main><h1>State Tax Changes 2025</h1><h2>Alabama Tax Changes Effective January 1, 2025</h2><p>Under HB 22, new measures took effect.</p><h2>Alaska Tax Changes Effective January 1, 2025</h2><p>SB 8 adjusted taxes.</p><h2>Conclusion</h2><p>End.</p></main></body></html>'''
+              r=parse_section_index(s,2025,'https://taxfoundation.org/research/all/state/2025-state-tax-changes/')
+              assert len(r)==2,(len(r),r)
+              assert r[0]['state_abbr']=='AL' and 'HB22' in r[0]['bill_identifiers_context_only']
+              assert r[0]['exact_law_effective_date_verified'] is False
+              assert r[1]['state_abbr']=='AK' and 'SB8' in r[1]['bill_identifiers_context_only']
+              realistic=b'''<!DOCTYPE html><html><body><main><h1>State Tax Changes Taking Effect 2025</h1><h3>Summary of Changes</h3><p>Indiana, Iowa, and Louisiana will cut individual income tax rates in 2025.</p><table><tr><th>State</th><th>2024</th><th>2025</th></tr><tr><td>Nebraska</td><td>5.84%</td><td>5.20%</td></tr><tr><td>North Carolina</td><td>4.50%</td><td>4.25%</td></tr></table><p>Taxes remain a topic across the US.</p></main></body></html>'''
+              actual=parse_section_index(realistic,2025,'https://taxfoundation.org/research/all/state/2025-state-tax-changes/')
+              assert {'IN','IA','LA','NE','NC'}.issubset({x['state_abbr'] for x in actual}),actual
+              assert all(x['status']=='ARTICLE_MENTION_ONLY_NOT_VERIFIED_LEGISLATIVE_EVENT' for x in actual)
+              assert all(x['exact_law_effective_date_verified'] is False for x in actual)
+              assert any('tax_rate_table_state_row' in x['extraction_method'] for x in actual)
+              with TemporaryDirectory() as d:
+                  p=Path(d)/'queue.csv'
+                  # Small test for parsing identity (full baseline checks only live).
+                  with p.open('w',newline='') as f:
+                      w=csv.DictWriter(f,fieldnames=['state_abbr','year','tax_type']);w.writeheader();w.writerow({'state_abbr':'AL','year':2025,'tax_type':'pit'})
+                  try:parse_existing_review_queue(p)
+                  except ValueError:pass
+                  else:raise AssertionError('Baseline row floor bypassed')
+              print('PASS: source year/state parser and verified audit floors')
+          
+          if __name__=='__main__':
+              parser=argparse.ArgumentParser();parser.add_argument('--queue',type=Path)
+              parser.add_argument('--out',type=Path,default=Path('state_tax_evidence_2019_2025'))
+              parser.add_argument('--self-test',action='store_true')
+              args=parser.parse_args()
+              if args.self_test:selftest()
+              else:
+                  if args.queue is None:parser.error('--queue is required')
+                  build(args.queue,args.out,require_live=True)
+          SOURCE_COLLECTOR_END
+          python -m py_compile analysis/state_tax_evidence_2019_2025.py
+      - name: Verify local state-year indexing safeguards
+        run: python analysis/state_tax_evidence_2019_2025.py --self-test
+      - name: Verify completed baseline tax timing audit and download results
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BASELINE_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Invalid baseline run id'; exit 1; }
+          conclusion=$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.conclusion')
+          name=$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.name')
+          test "$conclusion" = success
+          test "$name" = 'Audit ITEP tax-rate changes against NCSL policy effective dates'
+          mkdir -p downloads/baseline
+          gh run download "$BASELINE_RUN_ID" --repo "$GH_REPO" --pattern 'tax-rate-timing-audit-*' --dir downloads/baseline
+      - name: Validate full 1543-entry source queue and certified checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import csv,json,hashlib
+          import tarfile,shutil
+          root=Path('downloads/baseline')
+          # gh run download --pattern nests single-artifact contents inside
+          # a directory named after the artifact. Locate precisely one pair.
+          candidates=[p for p in root.rglob('year_end_rate_changes.csv')
+                      if (p.parent/'linkage_audit.json').is_file()]
+          assert len(candidates)==1, f'Expected one downloaded audit CSV/report pair, got: {candidates}'
+          extracted_queue=candidates[0]
+          extracted_report=extracted_queue.parent/'linkage_audit.json'
+          # The earlier GitHub Action publishes both the standalone CSV and an
+          # SHA256-digested archive; independently verify both representations.
+          archives=list(root.rglob('tax-rate-timing-audit-*.tar.gz'))
+          assert len(archives)==1, f'Expected one versioned baseline archive, got: {archives}'
+          archive=archives[0]
+          checksum=archive.with_name(archive.name+'.sha256')
+          assert checksum.is_file(), f'Missing baseline archive SHA256: {checksum}'
+          archived_digest=hashlib.sha256(archive.read_bytes()).hexdigest()
+          expected_checksum=checksum.read_text().split()[0]
+          assert archived_digest==expected_checksum, 'Baseline archive SHA256 mismatch'
+          with tarfile.open(archive,'r:gz') as tar:
+              for filename,path in [('year_end_rate_changes.csv',extracted_queue),
+                                    ('linkage_audit.json',extracted_report)]:
+                  members=[m for m in tar.getmembers() if m.isfile() and Path(m.name).name==filename]
+                  assert len(members)==1, f'Expected one archived {filename}'
+                  archived=tar.extractfile(members[0]).read()
+                  assert archived==path.read_bytes(), f'Downloaded {filename} differs from SHA256-verified archive'
+          canonical=Path('downloads/baseline/tax_linkage_output')
+          canonical.mkdir(parents=True,exist_ok=True)
+          queue=canonical/'year_end_rate_changes.csv'
+          report=canonical/'linkage_audit.json'
+          if extracted_queue!=queue: shutil.copy2(extracted_queue,queue)
+          if extracted_report!=report: shutil.copy2(extracted_report,report)
+          d=json.loads(report.read_text())
+          digest=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+          assert digest(queue)==d['year_end_rate_changes.csv_sha256'], 'Archived queue checksum changed'
+          assert int(d['year_end_rate_changes'])==1543, 'Expected 1543 certified rate changes'
+          assert d['verified_exogenous_policy_shocks']==0, 'Prior source incorrectly labeled causal'
+          with queue.open(newline='') as f:rows=list(csv.DictReader(f))
+          assert len(rows)==1543
+          print('PASS: independently SHA256-verified all 1,543 ITEP year-end changes')
+          PY
+      - name: Inspect NCSL 2019-2025 source coverage and gather secondary tax-law context
+        shell: bash
+        run: |
+          set -euo pipefail
+          python analysis/state_tax_evidence_2019_2025.py \
+            --queue downloads/baseline/tax_linkage_output/year_end_rate_changes.csv \
+            --out state_tax_evidence_2019_2025
+      - name: Keep publisher/year coverage audit even when source retrieval fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: state-tax-2019-2025-source-index-${{ github.run_number }}
+          path: |
+            state_tax_evidence_2019_2025/
+            analysis/state_tax_evidence_2019_2025.py
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Enforce that candidates are never classified as statute or causal truth
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          d=json.loads(Path('state_tax_evidence_2019_2025/coverage_manifest.json').read_text())
+          assert d['baseline_rate_changes_full_history']==1543
+          assert d['confirmed_law_effective_date_matches']==0
+          assert d['confirmed_exogenous_tax_shocks']==0
+          assert d['ncsl_2019_2025']['records_exported'] is False if 'records_exported' in d['ncsl_2019_2025'] else True
+          with open('state_tax_evidence_2019_2025/itep_2019_2025_secondary_evidence_review.csv',newline='') as f:
+              rows=list(csv.DictReader(f))
+          assert len(rows)==d['itep_rate_changes_2019_2025'] and len(rows)>0
+          assert all(r['is_confirmed_legislative_rate_change']=='False' and r['is_exogenous_policy_shock']=='False' for r in rows)
+          print('PASS: no invented enactment dates, no unreviewed confirmed links, no causal shocks')
+          PY
+      - name: Produce versioned index archive and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="state-tax-policy-evidence-2019-2025-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+          echo "INDEX_ID=$NAME" >> "$GITHUB_ENV"
+          mkdir -p audit_archive
+          tar -czf "audit_archive/$NAME.tar.gz" state_tax_evidence_2019_2025 analysis/state_tax_evidence_2019_2025.py
+          (cd audit_archive && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+          (cd audit_archive && sha256sum -c "$NAME.tar.gz.sha256")
+      - name: Retain zipped audit archive in GitHub Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: tax-policy-evidence-2019-2025-${{ github.run_number }}
+          path: audit_archive/
+          retention-days: 90
+      - name: Back up verified audit to existing OneDrive research folder
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64 GitHub Actions secret'; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          mkdir -p "$RUNNER_TEMP/rclone"
+          chmod 700 "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+          archive="audit_archive/${INDEX_ID}.tar.gz"
+          target="$ONEDRIVE_TARGET/snapshots/analysis/${INDEX_ID}.tar.gz"
+          rclone copyto "$archive" "$target" --retries 3 --low-level-retries 10
+          rclone copyto "$target" "$RUNNER_TEMP/tax-index-verify.tar.gz" --retries 3
+          cmp "$archive" "$RUNNER_TEMP/tax-index-verify.tar.gz"
+          rclone copyto "audit_archive/${INDEX_ID}.tar.gz.sha256" "${target}.sha256"
+          rclone copyto "state_tax_evidence_2019_2025/coverage_manifest.json" "$ONEDRIVE_TARGET/snapshots/analysis/${INDEX_ID}.coverage_manifest.json"
+          echo "OneDrive verified: $target SHA256=$(sha256sum "$archive" | awk '{print $1}')"
+      - name: Delete temporary OneDrive credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
