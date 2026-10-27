@@ -26,6 +26,7 @@ FAMILIES = {
 }
 
 OPTIONAL_FAMILIES = {
+    'census_bds': ('census_bds', 'census_bds_panel.csv', 100000),
     'tariff_shocks': ('tariff', 'tariff_shocks_panel.csv', 185),
     'cait_ai_claims': ('cait', 'cait_panel.csv', 1872),
     'eurostat_ai': ('eurostat_ai', 'eurostat_ai_panel.csv', 50),
