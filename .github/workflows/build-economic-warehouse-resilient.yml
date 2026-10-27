@@ -1,0 +1,248 @@
+name: Build economic warehouse with source checkpoints
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resilient-economic-warehouse
+  cancel-in-progress: false
+
+jobs:
+  wdi:
+    name: Download, retry and checkpoint WDI
+    runs-on: ubuntu-latest
+    timeout-minutes: 160
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download WDI with strict retry and count checks
+        run: |
+          python - <<'PY'
+          import csv
+          import json
+          import shutil
+          import time
+          from collections import defaultdict
+          from pathlib import Path
+          from open_data import ingest
+
+          out = Path('data/wdi')
+          config = json.loads(Path('open_data/wdi_indicators.json').read_text(encoding='utf-8'))
+          indicators = list(dict.fromkeys(i for group in config.values() for i in group))
+          print(f'Collecting {len(indicators)} official WDI indicators', flush=True)
+          report = ingest.run(out, 'all', 1960, 2026, indicators)
+          failures = {str(e['indicator']): str(e['error']) for e in report['errors']}
+          print(f'Initial WDI: {report["observations"]} rows; {len(failures)} incomplete indicators', flush=True)
+
+          # Retry only failed WDI indicators. Never relabel an incomplete API fetch as complete.
+          if failures:
+              panel = out/'processed'/'wdi_panel.csv'
+              with panel.open(newline='', encoding='utf-8') as f:
+                  old = list(csv.DictReader(f))
+              successful = {}
+              fixes = {}
+              retry_log = []
+              for indicator in sorted(failures):
+                  for attempt in range(1, 5):
+                      temporary = Path('_wdi_retries') / indicator / f'try{attempt}'
+                      print(f'Retrying WDI {indicator}, attempt {attempt}/4', flush=True)
+                      def guarded_fetch(url):
+                          return ingest.fetch_json(url, timeout=55, retries=3)
+                      got = ingest.run(temporary, 'all', 1960, 2026, [indicator], fetch=guarded_fetch)
+                      if got['errors'] or got['conflicts'] or not got['observations']:
+                          msg = str(got['errors'] or got['conflicts'] or 'no observations')
+                          retry_log.append({'indicator': indicator, 'attempt': attempt, 'status': 'failed', 'reason': msg})
+                          print(f'Retry incomplete: {msg[:250]}', flush=True)
+                          time.sleep(min(attempt * 8, 30))
+                          continue
+                      with (temporary/'processed'/'wdi_panel.csv').open(newline='', encoding='utf-8') as f:
+                          rows = list(csv.DictReader(f))
+                      assert rows and all(r['indicator'] == indicator for r in rows)
+                      successful[indicator] = rows
+                      fixes[indicator] = got
+                      for f in (temporary/'raw').glob('*.json'):
+                          dest = out/'raw'/f.name
+                          if not dest.exists():
+                              shutil.copy2(f, dest)
+                      retry_log.append({'indicator': indicator, 'attempt': attempt, 'status': 'recovered', 'observations': len(rows)})
+                      break
+              unresolved = sorted(set(failures) - set(successful))
+              report['wdi_retrieval_retries'] = retry_log
+              report['original_wdi_failures'] = failures
+              if unresolved:
+                  report['errors'] = [{'indicator': k, 'error': failures[k], 'retry_exhausted': True} for k in unresolved]
+                  (out/'run_report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+                  raise RuntimeError(f'World Bank API never returned complete data for: {unresolved}; warehouse was not built')
+
+              # Replace partial original data for recovered indicators atomically in memory.
+              records = [r for r in old if r['indicator'] not in successful]
+              for name, rows in successful.items():
+                  records.extend(rows)
+              keys = [(r['country_iso3'], r['year'], r['indicator']) for r in records]
+              if len(keys) != len(set(keys)):
+                  raise RuntimeError('Duplicate WDI rows after retry; refusing to publish')
+              fields = ['country_iso3','year','indicator','value','unit','source',
+                        'source_url','downloaded_at_utc','obs_status','decimal']
+              with panel.open('w', newline='', encoding='utf-8') as f:
+                  w = csv.DictWriter(f, fieldnames=fields)
+                  w.writeheader()
+                  w.writerows(sorted(records, key=lambda x: (x['country_iso3'],x['indicator'],int(x['year']))))
+              report['errors'] = []
+              report['manifest'] = [m for m in report['manifest'] if m['indicator'] not in successful]
+              for name, got in fixes.items():
+                  report['manifest'].extend(got['manifest'])
+              report['raw_pages'] = len(report['manifest'])
+              report['observations'] = len(records)
+              (out/'run_report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+
+          assert not report['errors'] and not report['conflicts'], (report['errors'], report['conflicts'])
+          assert report['observations'] >= 100000, f'Unexpectedly small WDI panel: {report["observations"]}'
+          assert report['indicator_count'] == len(indicators)
+          with (out/'processed'/'wdi_panel.csv').open(newline='', encoding='utf-8') as f:
+              rows = list(csv.DictReader(f))
+          assert len(rows) == report['observations']
+          counts = defaultdict(int)
+          for row in rows: counts[row['indicator']] += 1
+          absent = [i for i in indicators if not counts[i]]
+          if absent: raise RuntimeError(f'WDI indicators with zero available observations: {absent}')
+          print(f'Validated complete WDI: {len(rows)} records, {len(indicators)} indicators', flush=True)
+          PY
+      - name: Stage WDI checkpoint
+        run: |
+          mkdir -p checkpoints/data/wdi/processed
+          cp data/wdi/processed/wdi_panel.csv checkpoints/data/wdi/processed/
+          cp data/wdi/run_report.json checkpoints/data/wdi/
+      - name: Keep validated WDI checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: wdi-checkpoint-${{ github.run_number }}
+          path: checkpoints/data/
+          retention-days: 90
+          if-no-files-found: error
+
+  sources:
+    name: Collect and checkpoint other source families
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Collect US and Europe, historical, IMF/OECD, labor and AI
+        run: |
+          set -euo pipefail
+          python open_data/us_europe.py --scope full --sources all --out data/us_europe
+          python open_data/historical_maddison.py --start 1 --end 1959 --out data/historical
+          python open_data/imf_oecd.py --scope full --source both --out data/imf_oecd
+          python open_data/labor_markets.py --scope full --source all --out data/labor
+          python open_data/eurostat_ai.py
+          python -m pip install --disable-pip-version-check openpyxl==3.1.5
+          python open_data/tariff_cait_panels.py
+      - name: Strictly validate all source reports and row counts
+        run: |
+          python - <<'PY'
+          import csv
+          import json
+          from pathlib import Path
+          checks = {
+           'us_europe': ('us_europe_panel.csv', 5000),
+           'historical': ('historical_panel.csv', 10000),
+           'imf_oecd': ('imf_oecd_panel.csv', 10000),
+           'labor': ('labor_panel.csv', 10000),
+           'eurostat_ai': ('eurostat_ai_panel.csv', 50),
+           'tariff': ('tariff_shocks_panel.csv', 185),
+           'cait': ('cait_panel.csv', 1872),
+          }
+          for family, (file, minimum) in checks.items():
+           root = Path('data') / family
+           report=json.loads((root/'run_report.json').read_text(encoding='utf-8'))
+           assert not report.get('errors') and not report.get('conflicts'), (family, report.get('errors'), report.get('conflicts'))
+           with (root/'processed'/file).open(encoding='utf-8-sig', newline='') as f:
+            number = sum(1 for _ in csv.DictReader(f))
+           assert number == int(report['observations']), (family, number, report['observations'])
+           assert number >= minimum, (family, number, minimum)
+           print(f'{family}: {number:,} verified source-native rows', flush=True)
+          PY
+      - name: Stage source checkpoints (without raw restricted payloads)
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          import json
+          families = ['us_europe','historical','imf_oecd','labor','eurostat_ai','tariff','cait']
+          for family in families:
+           src = Path('data') / family
+           dst = Path('checkpoints/data') / family
+           (dst/'processed').mkdir(parents=True,exist_ok=True)
+           shutil.copy2(src/'run_report.json',dst/'run_report.json')
+           for csv in (src/'processed').glob('*.csv'):
+            shutil.copy2(csv,dst/'processed'/csv.name)
+          print('Created restartable, processed-source checkpoint for',', '.join(families))
+          PY
+      - name: Keep validated non-WDI checkpoints
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-checkpoint-${{ github.run_number }}
+          path: checkpoints/data/
+          retention-days: 90
+          if-no-files-found: error
+
+  warehouse:
+    name: Build validated SQLite warehouse
+    needs: [wdi, sources]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download validated WDI checkpoint
+        uses: actions/download-artifact@v4
+        with:
+          name: wdi-checkpoint-${{ github.run_number }}
+          path: data/
+      - name: Download validated other-source checkpoints
+        uses: actions/download-artifact@v4
+        with:
+          name: source-checkpoint-${{ github.run_number }}
+          path: data/
+      - name: Test warehouse builder
+        run: python -m unittest discover -s tests -p 'test_snapshot.py' -v
+      - name: Create audited source-separated warehouse
+        run: |
+          set -euo pipefail
+          ID="economic-validated-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+          echo "SNAPSHOT_ID=$ID" >> "$GITHUB_ENV"
+          python warehouse/snapshot.py --data data --out warehouse_output --snapshot-id "$ID"
+      - name: Verify manifest includes both new datasets
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          p=Path('warehouse_output')/os.environ['SNAPSHOT_ID']/'manifest.json'
+          d=json.loads(p.read_text(encoding='utf-8'))
+          families=d['source_families']
+          assert families['tariff_shocks']['rows']==185
+          assert families['cait_ai_claims']['rows']>=1872
+          assert families['wdi']['rows']>=100000
+          assert not d['is_definition_harmonized']
+          assert not d['is_causal_inference_ready']
+          print(json.dumps({'snapshot':d['snapshot_id'],'observations':d['total_source_observations'],'families':families},indent=2))
+          PY
+      - name: Keep validated warehouse snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-validated-warehouse-${{ github.run_number }}
+          path: |
+            warehouse_output/*.tar.gz
+            warehouse_output/*/manifest.json
+          retention-days: 90
+          if-no-files-found: error
