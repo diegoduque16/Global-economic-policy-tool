@@ -1,0 +1,374 @@
+name: "Expand high-priority economic sources (wave 1: Treasury + Census BFS)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: "Verified 24-family 2,780,117-observation warehouse run ID"
+        required: true
+        default: "40439631125"
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: economic-source-expansion-wave1
+  cancel-in-progress: false
+
+jobs:
+  expand:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
+      ONEDRIVE_TARGET: "onedrive:Diego/economic research database"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate current source catalog and rebuild its derived registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/build_source_registry.py
+          python - <<'PY'
+          import csv,json
+          with open('open_data/expanded_source_catalog.csv',encoding='utf-8-sig',newline='') as f:
+              rows=list(csv.DictReader(f))
+          p0=sum(x['priority']=='P0' for x in rows)
+          assert len(rows)>=124 and p0>=69,(len(rows),p0)
+          summary=json.load(open('research/source_registry/registry_summary.json'))
+          assert summary['source_count']==len(rows) and summary['by_priority']['P0']==p0
+          print(f'Catalog current: {len(rows)} sources, {p0} P0 (NOT the stale 124/69 registry)')
+          PY
+      - name: Validate the certified 24-family baseline and download once
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BASELINE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
+          conclusion=$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.conclusion')
+          actual=$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.name')
+          branch=$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.head_branch')
+          test "$conclusion" = success
+          test "$actual" = 'Add ITEP historical tax rates with verified GST sheet mapping'
+          test "$branch" = main
+          mkdir -p baseline
+          gh run download "$BASELINE_RUN_ID" --repo "$GH_REPO" --pattern 'economic-with-itep-tax-rates-*' --dir baseline
+          find baseline -name '*.tar.gz' -type f -print
+          test "$(find baseline -name '*.tar.gz' -type f | wc -l)" = 1
+          archive=$(find baseline -name '*.tar.gz' -type f)
+          printf '%s\n' "$archive" > /tmp/economic-source-wave1-baseline-path
+      - name: Install audited first-wave collector (embedded; no external code fetch)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p analysis
+          cat > analysis/source_wave1.py <<'WAVE1_COLLECTOR_PYTHON'
+          """First data-collection wave from the current economic source catalog.
+
+          Audits a verified 24-family warehouse baseline; fetches two new federal P0
+          sources into SOURCE-NATIVE staging. Does not claim research readiness or
+          rewrite the original warehouse. Standard library only.
+          """
+          from __future__ import annotations
+          import argparse, csv, datetime as dt, hashlib, io, json, os, re, tarfile, time
+          from pathlib import Path
+          from urllib.parse import urlencode, urlparse
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError, URLError
+
+          BASELINE_OBS=2780117
+          BASELINE_FAMILIES=24
+          TREASURY='https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/mts/mts_table_1'
+          CENSUS='https://www.census.gov/econ/bfs/csv/bfs_monthly.csv'
+          MAP={
+           'World Bank World Development Indicators (32 selected)':['wdi'],
+           'IMF World Economic Outlook (WEO)':['imf_oecd'],
+           'IMF Government Finance Statistics (GFS)':['imf_gfs'],
+           'FRED 13 selected U.S. series':['us_europe'],
+           'BLS Current Employment Statistics (CES)':['labor'],
+           'BLS Current Population Survey (CPS)':['labor'],
+           'BLS Quarterly Census of Employment and Wages (QCEW)':['us_state_qcew','us_state_qcew_historical'],
+           'BLS Job Openings and Labor Turnover Survey (JOLTS)':['bls_jolts'],
+           'BLS Business Employment Dynamics (BED)':['bls_bed'],
+           'Census Business Dynamics Statistics':['census_bds'],
+           'ILOSTAT employment/working time/earnings':['labor'],
+           'Eurostat selected annual GDP and unemployment':['us_europe'],
+           'Eurostat EU Labour Force Survey aggregates':['labor'],
+           'Eurostat enterprise AI adoption isoc_eb_ai':['eurostat_ai'],
+           'OECD Revenue Statistics':['imf_oecd'],
+           'OECD Corporate Tax Statistics':['oecd_cit'],
+           'Maddison Project via Our World in Data':['historical'],
+          }
+          STAGING={ 'U.S. Treasury FiscalData':'us_treasury_mts',
+                    'Census Business Formation Statistics':'census_bfs_monthly'}
+
+
+          def hash_bytes(b):return hashlib.sha256(b).hexdigest()
+          def jsondump(path,obj):path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(obj,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+          def audit_archive(path):
+              with tarfile.open(path,'r:gz') as t:
+                  m=[x for x in t.getmembers() if x.isfile() and x.name.endswith('/manifest.json') and x.name.count('/')==1]
+                  if len(m)!=1:raise ValueError('Expected exactly one root warehouse manifest')
+                  doc=json.load(t.extractfile(m[0]))
+                  total=int(doc['total_source_observations']); fam=doc['source_families']; file_list=doc['files']
+                  if total!=BASELINE_OBS or len(fam)!=BASELINE_FAMILIES:
+                      raise ValueError(f'Wrong warehouse: total={total}; families={len(fam)}')
+                  if sum(int(x['rows']) for x in fam.values())!=total:raise ValueError('Manifest counts inconsistent')
+                  entries={x.name for x in t.getmembers() if x.isfile()}
+                  root=m[0].name.split('/')[0]
+                  for rec in file_list:
+                      p=rec['path'];s=rec['sha256']
+                      if not re.fullmatch(r'[a-f0-9]{64}',s) or root+'/'+p not in entries:
+                          raise ValueError('Manifest inventory references missing/invalid file '+p)
+                  return {'source_run_id':os.environ.get('BASELINE_RUN_ID',''),
+                          'snapshot_id':doc['snapshot_id'],'source_family_count':len(fam),
+                          'observations':total,'manifest_sha256':hash_bytes(t.extractfile(m[0]).read()),
+                          'families':{k:int(v['rows']) for k,v in fam.items()},
+                          'file_inventory_entries':len(file_list),
+                          'verification_level':'manifest counts and archive member existence, not independent decompressed source-file hash validation'}
+
+          def read_catalog(path):
+              with path.open(encoding='utf-8-sig',newline='') as f:rows=list(csv.DictReader(f))
+              req={'theme','dataset','priority','access_mode','current_status','official_source_url'}
+              if not rows or not req.issubset(rows[0]):raise ValueError('Source catalog missing fields')
+              names=set()
+              for r in rows:
+                  key=r['dataset'].casefold().strip()
+                  if not key or key in names or r['priority'] not in {'P0','P1','P2'}:raise ValueError('Bad catalog row or duplicate')
+                  names.add(key)
+              return rows
+
+          def get_bytes(url,*,accept,tries=3,max_bytes=35_000_000,timeout=70):
+              host=urlparse(url).hostname
+              if host not in {'api.fiscaldata.treasury.gov','www.census.gov'}:raise ValueError('Unexpected fetch host '+str(host))
+              for attempt in range(tries):
+                  try:
+                      req=Request(url,headers={'Accept':accept,'User-Agent':'EconomicPolicyResearch/1.0 (public-data scientific audit)'})
+                      with urlopen(req,timeout=timeout) as res:
+                          if urlparse(res.geturl()).hostname != host:raise ValueError('Cross-host source redirect')
+                          data=res.read(max_bytes+1)
+                          if len(data)>max_bytes or len(data)<40:raise ValueError('Data size outside allowed range')
+                          return data
+                  except (OSError,TimeoutError,URLError,HTTPError) as exc:
+                      if attempt+1==tries:raise RuntimeError(f'{host}: {type(exc).__name__}: {str(exc)[:160]}') from exc
+                      time.sleep((attempt+1)*3)
+
+
+          def treasury_collect(folder, fetch=get_bytes):
+              folder.mkdir(parents=True,exist_ok=True)
+              rows=[];raw_pages=[];seen=set();meta=None
+              for page in range(1,13):
+                  url=TREASURY+'?'+urlencode({'page[number]':page,'page[size]':10000,'sort':'record_date'})
+                  blob=fetch(url,accept='application/json',max_bytes=35_000_000)
+                  try:d=json.loads(blob)
+                  except ValueError:raise ValueError('Treasury API did not return JSON')
+                  chunk=d.get('data');metadata=d.get('meta',{})
+                  if not isinstance(chunk,list) or not isinstance(metadata,dict):raise ValueError('Treasury API changed shape')
+                  if page==1:meta=metadata
+                  if not chunk:break
+                  if not all(isinstance(x,dict) and re.fullmatch(r'\d{4}-\d{2}-\d{2}',str(x.get('record_date',''))) for x in chunk):
+                      raise ValueError('Treasury record dates invalid')
+                  for x in chunk:
+                      token=json.dumps(x,sort_keys=True)
+                      if token in seen:raise ValueError('Duplicate Treasury API entry')
+                      seen.add(token)
+                  rows.extend(chunk)
+                  raw_pages.append({'page':page,'records':len(chunk),'url':url,'sha256':hash_bytes(blob)})
+                  if len(chunk)<10000:break
+              else:raise ValueError('Treasury page limit hit; incomplete source')
+              if len(rows)<100 or len(raw_pages)<1:raise ValueError('Treasury source unexpectedly small')
+              fields=sorted({k for row in rows for k in row.keys()})
+              if not any('amt' in x.lower() for x in fields):raise ValueError('Treasury monetary fields missing')
+              dest=folder/'treasury_mts_table1_native.csv'
+              with dest.open('w',encoding='utf-8',newline='') as f:
+                  w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(rows)
+              return {'source':'U.S. Treasury FiscalData','id':'us_treasury_mts','status':'STAGED_SOURCE_NATIVE_NOT_WAREHOUSE_INTEGRATED',
+                      'url':TREASURY,'rows':len(rows),'sha256':hash_bytes(dest.read_bytes()),'fields':fields,
+                      'first_record_date':min(x['record_date'] for x in rows),'last_record_date':max(x['record_date'] for x in rows),
+                      'api_metadata':meta,'pages':raw_pages,'data_file':dest.name}
+
+          def census_collect(folder,fetch=get_bytes):
+              folder.mkdir(parents=True,exist_ok=True)
+              blob=fetch(CENSUS,accept='text/csv,text/plain',max_bytes=35_000_000)
+              if b'<html' in blob[:250].lower():raise ValueError('Census source is HTML, not the published CSV')
+              # BFS is a long source-native table; no assumptions about geography, SA or units.
+              try:
+                  with io.StringIO(blob.decode('utf-8-sig')) as src:
+                      reader=csv.DictReader(src)
+                      hdr=reader.fieldnames
+                      if not hdr or len(hdr)<4 or len(set(hdr))!=len(hdr):raise ValueError('Invalid BFS header')
+                      n=0;preview=[];nonempty=0
+                      for row in reader:
+                          n+=1
+                          if n<=4:preview.append(row)
+                          nonempty+=int(any((v or '').strip() for v in row.values() if isinstance(v,str)))
+              except UnicodeDecodeError as e:raise ValueError('BFS source not UTF-8') from e
+              if n<500 or nonempty<500:raise ValueError('BFS rows below 500; possible source change')
+              dest=folder/'census_bfs_monthly_native.csv';dest.write_bytes(blob)
+              return {'source':'Census Business Formation Statistics','id':'census_bfs_monthly',
+                      'status':'STAGED_SOURCE_NATIVE_NOT_WAREHOUSE_INTEGRATED','url':CENSUS,
+                      'rows':n,'sha256':hash_bytes(blob),'fields':hdr,'sample_rows':preview,'data_file':dest.name}
+
+          def make_inventory(catalog,baseline,fetch_reports,out):
+              fam=set(baseline['families']);staged={x['source'] for x in fetch_reports if x['status'].startswith('STAGED_')}
+              allrows=[];p0=[]
+              for r in catalog:
+                  nm=r['dataset'];mf=MAP.get(nm,[]);present=[x for x in mf if x in fam]
+                  status='PARTIAL_PROVIDER_OVERLAP_SCOPE_UNVERIFIED' if present else 'NO_CONFIRMED_WAREHOUSE_MAPPING'
+                  if nm in staged:status='NEW_SOURCE_STAGED_NOT_IN_WAREHOUSE'
+                  # Catalog's historical LIVE label cannot override measured evidence.
+                  obs=sum(baseline['families'][x] for x in present)
+                  row={'dataset':nm,'theme':r['theme'],'priority':r['priority'],'catalog_status':r['current_status'],
+                       'audit_status':status,'warehouse_family_refs':'|'.join(present),
+                       'provider_family_obs_NOT_DATASET_COUNT':obs,'source_url':r['official_source_url']}
+                  allrows.append(row)
+                  if r['priority']=='P0':p0.append(row)
+              for name,data in [('all_source_coverage.csv',allrows),('p0_source_priority_queue.csv',p0)]:
+                  with (out/name).open('w',encoding='utf-8',newline='') as f:
+                      w=csv.DictWriter(f,fieldnames=list(data[0]));w.writeheader();w.writerows(data)
+              return {'catalog_entries_current':len(catalog),'p0_current':len(p0),
+                  'catalog_p1':sum(r['priority']=='P1' for r in catalog),'catalog_p2':sum(r['priority']=='P2' for r in catalog),
+                  'families_in_verified_warehouse':len(fam),'warehouse_observations_unchanged':baseline['observations'],
+                  'p0_with_some_mapped_provider_overlap':sum(r['warehouse_family_refs']!='' for r in p0),
+                  'p0_with_no_confirmed_mapping':sum(r['warehouse_family_refs']=='' for r in p0),
+                  'new_p0_source_native_staged':len(staged),'staged_sources':sorted(staged),
+                  'caution':'An observation family can overlap multiple catalog entries; overlap is not complete ingestion or research-ready verification. Counts in overlapping families MUST NOT be summed. Source-native staging is not database integration.'}
+
+          def run(catalog_path,archive,out):
+              out.mkdir(parents=True,exist_ok=True)
+              cat=read_catalog(catalog_path)
+              baseline=audit_archive(archive)
+              source_reports=[];failures=[]
+              for nm,fn in [('U.S. Treasury FiscalData',treasury_collect),('Census Business Formation Statistics',census_collect)]:
+                  try:
+                      result=fn(out/'source_native')
+                      source_reports.append(result)
+                      print('STAGED',nm,result['rows'],flush=True)
+                  except Exception as e:
+                      failures.append({'source':nm,'status':'FAILED_NOT_COLLECTED','error':str(e)[:260]})
+                      print('SOURCE FAILED',nm,str(e)[:200],flush=True)
+              summary=make_inventory(cat,baseline,source_reports,out)
+              jsondump(out/'baseline_manifest_audit.json',baseline)
+              jsondump(out/'source_native_fetch_audit.json',{'retrievals':source_reports,'failures':failures,'no_source_marked_research_ready':True})
+              jsondump(out/'source_coverage_summary.json',summary)
+              print(json.dumps(summary,indent=2),flush=True)
+              if not source_reports:raise ValueError('Both pilot public sources failed; no collection achievement claimed')
+              return summary
+
+          def selftest():
+              from tempfile import TemporaryDirectory
+              with TemporaryDirectory() as tmp:
+                  root=Path(tmp)
+                  d=root/'f';d.mkdir()
+                  fake=[{'record_date':'2025-01-31','current_month_receipts_amt':'123','classification_desc':str(i)} for i in range(100)]
+                  def faket(url,**kw):return json.dumps({'data':fake,'meta':{'count':100}}).encode()
+                  # duplicate detection across rows is intentional: use unique descriptions above.
+                  report=treasury_collect(d,fetch=faket)
+                  assert report['rows']==100
+                  fakecsv='time,geo,series,value\n'+''.join(f'2024-{i%12+1:02d},US,BA,{i}\n' for i in range(510))
+                  report=census_collect(d,fetch=lambda url,**kw:fakecsv.encode())
+                  assert report['rows']==510
+                  cat=[{'dataset':'U.S. Treasury FiscalData','theme':'Tax','priority':'P0','current_status':'NOT INGESTED','official_source_url':TREASURY},
+                       {'dataset':'Census Business Formation Statistics','theme':'Labor','priority':'P0','current_status':'NOT INGESTED','official_source_url':CENSUS}]
+                  report=make_inventory(cat,{'families':{'wdi':10},'observations':10},[{'source':'U.S. Treasury FiscalData','status':'STAGED_SOURCE_NATIVE_NOT_WAREHOUSE_INTEGRATED'}],root)
+                  assert report['p0_current']==2 and report['new_p0_source_native_staged']==1
+              print('PASS offline tests: source schemas, staging, validation, catalog counting')
+
+          if __name__=='__main__':
+              a=argparse.ArgumentParser();a.add_argument('--catalog',type=Path,default=Path('open_data/expanded_source_catalog.csv'))
+              a.add_argument('--baseline',type=Path);a.add_argument('--out',type=Path,default=Path('source_wave1_results'))
+              a.add_argument('--self-test',action='store_true');p=a.parse_args()
+              if p.self_test:selftest()
+              else:
+                  if not p.baseline:a.error('--baseline is required')
+                  run(p.catalog,p.baseline,p.out)
+          WAVE1_COLLECTOR_PYTHON
+          python -m py_compile analysis/source_wave1.py
+      - name: Run local contract and safety tests
+        run: python analysis/source_wave1.py --self-test
+      - name: Collect Treasury MTS and Census BFS while auditing all catalog priorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python analysis/source_wave1.py --catalog open_data/expanded_source_catalog.csv \
+            --baseline "$(cat /tmp/economic-source-wave1-baseline-path)" --out source_wave1_results
+      - name: Publish coverage and source-native collection files even on partial failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: high-priority-economic-source-wave1-${{ github.run_number }}
+          path: |
+            source_wave1_results/
+            analysis/source_wave1.py
+            research/source_registry/registry_summary.json
+          retention-days: 90
+          if-no-files-found: warn
+      - name: Verify all captured source-native checksums and count safeguards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,csv,hashlib,pathlib
+          p=pathlib.Path('source_wave1_results')
+          d=json.loads((p/'source_native_fetch_audit.json').read_text())
+          s=json.loads((p/'source_coverage_summary.json').read_text())
+          assert s['catalog_entries_current']>=124 and s['p0_current']>=69
+          assert s['warehouse_observations_unchanged']==2780117
+          assert s['families_in_verified_warehouse']==24
+          assert all(x['status']=='STAGED_SOURCE_NATIVE_NOT_WAREHOUSE_INTEGRATED' for x in d['retrievals'])
+          assert len(d['retrievals'])>0
+          for x in d['retrievals']:
+              f=p/'source_native'/x['data_file']
+              assert f.is_file() and hashlib.sha256(f.read_bytes()).hexdigest()==x['sha256']
+          with (p/'all_source_coverage.csv').open(newline='') as f:assert sum(1 for x in csv.DictReader(f))==s['catalog_entries_current']
+          with (p/'p0_source_priority_queue.csv').open(newline='') as f:assert sum(1 for x in csv.DictReader(f))==s['p0_current']
+          print('Verified source-native files and dynamic P0 catalog coverage')
+          PY
+      - name: Package a versioned research audit with checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="source-expansion-wave1-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"
+          echo "PACK_NAME=$NAME" >> "$GITHUB_ENV"
+          mkdir -p audit_archive
+          tar -czf "audit_archive/$NAME.tar.gz" source_wave1_results analysis/source_wave1.py
+          (cd audit_archive && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+          (cd audit_archive && sha256sum -c "$NAME.tar.gz.sha256")
+      - name: Save versioned archive in GitHub artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-source-expansion-wave1-archive-${{ github.run_number }}
+          path: audit_archive/
+          retention-days: 90
+      - name: Back up research archive to OneDrive and verify downloaded bytes
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing OneDrive secret RCLONE_CONFIG_B64'; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          mkdir -p "$RUNNER_TEMP/rclone"
+          chmod 700 "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+          local_file="audit_archive/${PACK_NAME}.tar.gz"
+          remote_file="$ONEDRIVE_TARGET/snapshots/analysis/${PACK_NAME}.tar.gz"
+          rclone copyto "$local_file" "$remote_file" --retries 3 --low-level-retries 8
+          rclone copyto "$remote_file" "$RUNNER_TEMP/verified-source-wave1.tar.gz" --retries 3
+          cmp "$local_file" "$RUNNER_TEMP/verified-source-wave1.tar.gz"
+          rclone copyto "${local_file}.sha256" "${remote_file}.sha256"
+          echo "OneDrive backup verified: $remote_file SHA256=$(sha256sum "$local_file" | awk '{print $1}')"
+      - name: Remove transient OneDrive configuration
+        if: always()
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
