@@ -1,0 +1,61 @@
+name: Expand economic sources (batch collector)
+on:
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: 'Comma-separated subset or blank for all supported collectors'
+        required: false
+        default: ''
+  schedule:
+    - cron: '15 5 1 * *'
+permissions:
+  contents: read
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile collector
+        run: python -m py_compile analysis/batch_source_collector.py
+      - name: Stage source-native data and write full audit
+        env:
+          SOURCES: ${{ inputs.sources }}
+        run: python analysis/batch_source_collector.py --sources "$SOURCES" --require-all
+      - name: Publish audit and source-native artifacts even on partial failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-batch-${{ github.run_id }}
+          path: batch_source_results/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Check output hashes
+        run: |
+          python - <<'PY'
+          import json,hashlib,pathlib
+          root=pathlib.Path('batch_source_results')
+          audit=json.loads((root/'audit.json').read_text())
+          for entry in audit['successful']:
+              f=root/entry['file']
+              assert f.is_file()
+              assert hashlib.sha256(f.read_bytes()).hexdigest()==entry['sha256']
+          assert audit['successful']
+          print('Verified',len(audit['successful']),'source-native snapshots')
+          PY
+      - name: Bundle archive and checksum
+        run: |
+          tar -czf economic-batch-${{ github.run_id }}.tar.gz batch_source_results
+          sha256sum economic-batch-${{ github.run_id }}.tar.gz > economic-batch-${{ github.run_id }}.tar.gz.sha256
+          sha256sum -c economic-batch-${{ github.run_id }}.tar.gz.sha256
+      - name: Preserve archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-batch-archive-${{ github.run_id }}
+          path: |
+            economic-batch-${{ github.run_id }}.tar.gz
+            economic-batch-${{ github.run_id }}.tar.gz.sha256
+          retention-days: 90
