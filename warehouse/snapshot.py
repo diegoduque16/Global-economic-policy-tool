@@ -26,6 +26,7 @@ FAMILIES = {
 }
 
 OPTIONAL_FAMILIES = {
+    'state_tax_policy_actions': ('state_tax_policy_actions', 'state_tax_policy_actions_panel.csv', 200),
     'census_bds': ('census_bds', 'census_bds_panel.csv', 100000),
     'tariff_shocks': ('tariff', 'tariff_shocks_panel.csv', 185),
     'cait_ai_claims': ('cait', 'cait_panel.csv', 1872),
