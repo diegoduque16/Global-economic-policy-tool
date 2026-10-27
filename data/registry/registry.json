@@ -3658,38 +3658,7 @@
     "research_ready": false
   },
   {
-    "source_id": "src-119-historical-v-dem",
-    "domain": "Historical series",
-    "dataset": "Historical V-Dem",
-    "measures": "Institutions, democratic practices, development",
-    "coverage_as_catalogued": "Historical polities from 1789",
-    "priority": "P1",
-    "access_method_as_catalogued": "Public release",
-    "source_url": "https://v-dem.net/about/historical-v-dem/",
-    "catalog_status_original": "CATALOGUED",
-    "normalized_status": "catalogued_only",
-    "validation_state": "NOT_INDEPENDENTLY_VERIFIED",
-    "fetch_attempted_by_registry_builder": false,
-    "catalog_notes": "Requires historic political entity crosswalks",
-    "required_gates": [
-      "verify_official_definition",
-      "verify_terms_and_redistribution",
-      "document_download_method",
-      "record_version_and_retrieval_time",
-      "capture_checksum",
-      "validate_units_frequency_geography_and_missingness",
-      "preserve_original_raw_file",
-      "confirm_observation_count"
-    ],
-    "connector_implementation": null,
-    "last_successful_fetch_utc": null,
-    "license_verified": false,
-    "data_snapshot_sha256": null,
-    "record_count_verified": null,
-    "research_ready": false
-  },
-  {
-    "source_id": "src-120-clio-infra-datasets",
+    "source_id": "src-119-clio-infra-datasets",
     "domain": "Historical series",
     "dataset": "Clio-Infra datasets",
     "measures": "Historical well-being, wages, education, demography",
@@ -3720,7 +3689,7 @@
     "research_ready": false
   },
   {
-    "source_id": "src-121-alfred-fred-historical-release-vintages",
+    "source_id": "src-120-alfred-fred-historical-release-vintages",
     "domain": "Data engineering",
     "dataset": "ALFRED/FRED historical release vintages",
     "measures": "Real-time observations, later revisions",
@@ -3751,7 +3720,7 @@
     "research_ready": false
   },
   {
-    "source_id": "src-122-iso-3166-owid-geopolitical-country-crosswalk",
+    "source_id": "src-121-iso-3166-owid-geopolitical-country-crosswalk",
     "domain": "Data engineering",
     "dataset": "ISO 3166 / OWID geopolitical country crosswalk",
     "measures": "Changing country names, split/merge boundaries",
@@ -3782,7 +3751,7 @@
     "research_ready": false
   },
   {
-    "source_id": "src-123-nber-us-business-cycle-chronology",
+    "source_id": "src-122-nber-us-business-cycle-chronology",
     "domain": "Data engineering",
     "dataset": "NBER US Business Cycle Chronology",
     "measures": "US dated recessions/expansions",
@@ -3813,7 +3782,7 @@
     "research_ready": false
   },
   {
-    "source_id": "src-124-sdmx-data-structure-definitions-and-time-vintages",
+    "source_id": "src-123-sdmx-data-structure-definitions-and-time-vintages",
     "domain": "Data engineering",
     "dataset": "SDMX data structure definitions and time vintages",
     "measures": "Indicator concepts, revisions, flags and unit mappings",
@@ -3826,6 +3795,68 @@
     "validation_state": "NOT_INDEPENDENTLY_VERIFIED",
     "fetch_attempted_by_registry_builder": false,
     "catalog_notes": "Data dictionary, comparable units, real-time source snapshots",
+    "required_gates": [
+      "verify_official_definition",
+      "verify_terms_and_redistribution",
+      "document_download_method",
+      "record_version_and_retrieval_time",
+      "capture_checksum",
+      "validate_units_frequency_geography_and_missingness",
+      "preserve_original_raw_file",
+      "confirm_observation_count"
+    ],
+    "connector_implementation": null,
+    "last_successful_fetch_utc": null,
+    "license_verified": false,
+    "data_snapshot_sha256": null,
+    "record_count_verified": null,
+    "research_ready": false
+  },
+  {
+    "source_id": "src-124-den-besten-et-al-2026-narrative-us-tariff-shocks",
+    "domain": "Causal policy events",
+    "dataset": "Den Besten et al 2026 narrative US tariff shocks",
+    "measures": "Yearly distributed narrative tariff-policy instrument",
+    "coverage_as_catalogued": "USA 1840-2024",
+    "priority": "P0",
+    "access_method_as_catalogued": "Author-hosted public Excel (CC BY 4.0)",
+    "source_url": "https://github.com/dkaenzig/narrative-tariff-shocks",
+    "catalog_status_original": "NOT INGESTED",
+    "normalized_status": "not_ingested",
+    "validation_state": "NOT_INDEPENDENTLY_VERIFIED",
+    "fetch_attempted_by_registry_builder": false,
+    "catalog_notes": "Source-native instrument; verify paper interpretation and sign before causal research",
+    "required_gates": [
+      "verify_official_definition",
+      "verify_terms_and_redistribution",
+      "document_download_method",
+      "record_version_and_retrieval_time",
+      "capture_checksum",
+      "validate_units_frequency_geography_and_missingness",
+      "preserve_original_raw_file",
+      "confirm_observation_count"
+    ],
+    "connector_implementation": null,
+    "last_successful_fetch_utc": null,
+    "license_verified": false,
+    "data_snapshot_sha256": null,
+    "record_count_verified": null,
+    "research_ready": false
+  },
+  {
+    "source_id": "src-125-california-ai-exposure-and-ui-claims-tracker",
+    "domain": "AI, productivity & innovation",
+    "dataset": "California AI Exposure and UI Claims Tracker",
+    "measures": "Initial claims and AI exposure share and score by source-defined exposure measure",
+    "coverage_as_catalogued": "California monthly 2017-present",
+    "priority": "P0",
+    "access_method_as_catalogued": "Public research Excel (terms review)",
+    "source_url": "https://edd.ca.gov/aitracker",
+    "catalog_status_original": "NOT INGESTED",
+    "normalized_status": "not_ingested",
+    "validation_state": "NOT_INDEPENDENTLY_VERIFIED",
+    "fetch_attempted_by_registry_builder": false,
+    "catalog_notes": "Exposure is not causal displacement; California claims are not all layoffs; avoid double-counting measures",
     "required_gates": [
       "verify_official_definition",
       "verify_terms_and_redistribution",
