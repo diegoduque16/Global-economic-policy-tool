@@ -1,0 +1,353 @@
+name: Add state tax policy locations and effective dates to full warehouse
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: 'Validated Census BDS expanded warehouse run (22 sources)'
+        required: true
+        default: '40436196939'
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: state-tax-policy-actions-extension
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python and source parser dependency
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install documented official-source parser
+        run: |
+          python -m pip install --disable-pip-version-check beautifulsoup4==4.14.2
+          mkdir -p open_data
+          cat > open_data/state_tax_policy_actions.py <<'PY'
+          """Research-grade ingestion of NCSL 2015-2018 historical State Tax Actions.
+
+          Capture jurisdiction and effective date as stated, without claiming treatment
+          exogeneity, reducing tax changes to tax-rate deltas, or inventing enactment dates.
+          """
+          from __future__ import annotations
+          import argparse, collections, csv, datetime as dt, hashlib, json, re, time
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError, URLError
+          from bs4 import BeautifulSoup
+
+          SOURCE='https://www.ncsl.org/fiscal/state-tax-actions-database'
+          STATES=dict(x.split('|') for x in '''Alabama|AL;Alaska|AK;Arizona|AZ;Arkansas|AR;California|CA;Colorado|CO;Connecticut|CT;Delaware|DE;District of Columbia|DC;Florida|FL;Georgia|GA;Hawaii|HI;Idaho|ID;Illinois|IL;Indiana|IN;Iowa|IA;Kansas|KS;Kentucky|KY;Louisiana|LA;Maine|ME;Maryland|MD;Massachusetts|MA;Michigan|MI;Minnesota|MN;Mississippi|MS;Missouri|MO;Montana|MT;Nebraska|NE;Nevada|NV;New Hampshire|NH;New Jersey|NJ;New Mexico|NM;New York|NY;North Carolina|NC;North Dakota|ND;Ohio|OH;Oklahoma|OK;Oregon|OR;Pennsylvania|PA;Rhode Island|RI;South Carolina|SC;South Dakota|SD;Tennessee|TN;Texas|TX;Utah|UT;Vermont|VT;Virginia|VA;Washington|WA;West Virginia|WV;Wisconsin|WI;Wyoming|WY'''.split(';'))
+          CSV_FIELDS=['provider','country_iso3','year','period','series','value','unit','frequency','disaggregation','obs_status','source_url']
+          DATE_RE=re.compile(r'(?<!\d)(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{2,4})(?!\d)')
+          MONTHS={name.lower():index for index,name in enumerate('January February March April May June July August September October November December'.split(),1)}
+          MONTHS.update({name[:3].lower():n for name,n in MONTHS.items()})
+          MONTH_RE=re.compile(r'(?i)\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+(\d{1,2})(?:st|nd|rd|th)?[,]?\s+(\d{4})\b')
+          MONTHS['sept']=9
+
+          def parse_date(raw):
+              """Return exact ISO date only if there is exactly one explicit complete date."""
+              dates=set()
+              for m,d,y in DATE_RE.findall(raw):
+                  year=int(y);year=2000+year if len(y)==2 and year<40 else (1900+year if len(y)==2 else year)
+                  try: dates.add(dt.date(year,int(m),int(d)).isoformat())
+                  except ValueError: return None
+              for m,d,y in MONTH_RE.findall(raw):
+                  try: dates.add(dt.date(int(y),MONTHS[m.lower()[:3]],int(d)).isoformat())
+                  except ValueError: return None
+              if len(dates)!=1:return None
+              return next(iter(dates))
+
+          def clean(s):return re.sub(r'\s+',' ',s).strip()
+
+          def parse_html(blob):
+              soup=BeautifulSoup(blob,'html.parser')
+              current_year=None; panel=[];undated=[];skipped=collections.Counter(); year_table_count=collections.Counter(); states=set(); seen=set()
+              for elem in soup.find_all(['h2','h3','h4','h5','table']):
+                  if elem.name!='table':
+                      heading=clean(elem.get_text(' ',strip=True))
+                      if heading in {'2015','2016','2017','2018'}:current_year=int(heading)
+                      elif re.fullmatch(r'20\d\d',heading):current_year=None
+                      continue
+                  if current_year is None:continue
+                  trs=elem.find_all('tr')
+                  if not trs:continue
+                  columns=[clean(c.get_text(' ',strip=True)) for c in trs[0].find_all(['th','td'])]
+                  if len(columns)<6 or 'description' not in ' '.join(columns).lower() or not any('effective date' in c.lower() for c in columns):continue
+                  year_table_count[current_year]+=1
+                  for index,tr in enumerate(trs[1:],start=2):
+                      cells=[clean(c.get_text(' ',strip=True)) for c in tr.find_all(['th','td'],recursive=False)]
+                      if len(cells)<6:skipped['wrong_cell_count']+=1;continue
+                      state,description,tax_type,rawdate,fy1,fy2=cells[:6]
+                      if state not in STATES:
+                          skipped['unknown_or_blank_jurisdiction']+=1;continue
+                      if not description or not tax_type:
+                          skipped['blank_description_or_type']+=1;continue
+                      # Fiscal and regulatory non-tax entries in NCSL's combined action table
+                      # must not be mislabeled as tax-policy observations.
+                      if tax_type.casefold().strip() not in {
+                          'personal income','corporate income','sales','sales and use',
+                          'property','tobacco','motor fuel','alcohol','alcoholic beverages',
+                          'excise','estate','severance','gasoline','cigarette','cigarette and tobacco'
+                      }:
+                          skipped['outside_explicit_tax_categories']+=1;continue
+                      exact=parse_date(rawdate)
+                      raw={'state':state,'state_abbr':STATES[state],'action_report_year':current_year,
+                           'description':description,'tax_type_original':tax_type,
+                           'effective_date_original':rawdate,'effective_date_iso':exact,
+                           'fiscal_period_1':columns[4],'fiscal_impact_1_original':fy1,
+                           'fiscal_period_2':columns[5],'fiscal_impact_2_original':fy2,
+                           'date_is_retroactive':bool(re.search(r'\bretroactive\b',rawdate,re.I)),
+                           'is_enactment_date_known':False,'causal_policy_shock_identified':False,
+                           'source_row':index,'source_report_section':current_year}
+                      key=hashlib.sha256(json.dumps(raw,sort_keys=True).encode()).hexdigest()[:24]
+                      raw['source_record_id']=key
+                      if key in seen: raise ValueError(f'Unexpected duplicate source record: {key}')
+                      seen.add(key)
+                      states.add(STATES[state])
+                      if exact is None:
+                          undated.append(raw);continue
+                      yr=int(exact[:4]);series='NCSL.STATE_TAX_ACTION.'+re.sub(r'[^A-Z0-9]+','_',tax_type.upper()).strip('_')
+                      panel.append({'provider':'National Conference of State Legislatures',
+                          'country_iso3':'USA','year':yr,'period':exact,'series':series,
+                          'value':1,'unit':'documented_action_count','frequency':'irregular_exact_effective_date',
+                          'disaggregation':json.dumps(raw,ensure_ascii=False,sort_keys=True),
+                          'obs_status':'officially_reported_effective_date_not_causal_shock',
+                          'source_url':SOURCE})
+              if len(year_table_count)<4:
+                  raise ValueError(f'NCSL historical table coverage incomplete: {dict(year_table_count)}')
+              if len(panel)<200 or len(states)<35:
+                  raise ValueError(f'Unexpectedly small NCSL extraction: {len(panel)} dated actions, {len(states)} states')
+              panel.sort(key=lambda r:(r['period'],json.loads(r['disaggregation'])['state_abbr'],r['series'],json.loads(r['disaggregation'])['source_record_id']))
+              return panel,undated,{'reports_included':sorted(year_table_count),'tables_by_report_year':dict(year_table_count),
+                     'dated_actions':len(panel),'undated_or_ambiguous_actions':len(undated),
+                     'jurisdictions_all_rows':len(states),'skipped_rows':dict(skipped),
+                     'effective_date_range':[panel[0]['period'],panel[-1]['period']]}
+
+          def fetch(url=SOURCE):
+              if url!=SOURCE:raise ValueError('Only official source is allowed')
+              for attempt in range(3):
+                  try:
+                      request=Request(url,headers={'User-Agent':'Mozilla/5.0 (compatible; EconomicPolicyResearchBot/1.0; academic research)', 'Accept':'text/html'})
+                      with urlopen(request,timeout=75) as response:
+                          if response.geturl().split('/')[2].lower() not in {'www.ncsl.org','ncsl.org'}:raise ValueError('Source redirected to unexpected host')
+                          body=response.read(15_000_001)
+                      if len(body)>15_000_000 or not body.startswith((b'<!',b'<h',b'\xef\xbb\xbf<')) and b'<html' not in body[:3000].lower():
+                          raise ValueError('Unexpected HTML source response')
+                      return body
+                  except (HTTPError,URLError,TimeoutError):
+                      if attempt==2:raise
+                      time.sleep(5*(attempt+1))
+
+          def run(out='data/state_tax_policy_actions',getter=fetch):
+              out=Path(out);(out/'processed').mkdir(parents=True,exist_ok=True)
+              blob=getter();rows,undated,stats=parse_html(blob)
+              panel=out/'processed'/'state_tax_policy_actions_panel.csv'
+              with panel.open('w',newline='',encoding='utf-8') as f:
+                  writer=csv.DictWriter(f,fieldnames=CSV_FIELDS);writer.writeheader();writer.writerows(rows)
+              audit=out/'undated_actions_audit.json'
+              audit.write_text(json.dumps(undated,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+              report={'source_url':SOURCE,'source_sha256':hashlib.sha256(blob).hexdigest(),
+                  'panel_sha256':hashlib.sha256(panel.read_bytes()).hexdigest(),
+                  'retrieved_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
+                  'observations':len(rows),'errors':[],'conflicts':[],**stats,
+                  'research_ready':False,'is_causal_policy_shock':False,
+                  'definition_harmonized':False,'excludes_interactive_2019_to_2025_data':True,
+                  'limitations':['Source historical page sections cover reported 2015–2018 actions, not full reform universe.',
+                    'Only rows with exactly one explicit source effective date entered SQLite; undated/ambiguous kept in audit.',
+                    'Action report year is not enactment date or effective date.',
+                    'Non-tax fees, healthcare assessments and miscellaneous categories are excluded to avoid misclassification.',
+                    'Multiple state tax actions can describe the same statute; records are not independent treatment shocks.',
+                    '1 observation means one documented source action, not one tax percentage point.',
+                    'Tax changes include credits, exemptions and base changes; do not infer tax change direction.',
+                    'Fiscal estimates remain source-native strings; no fabricated numeric magnitude.',
+                    'Descriptions may contain future phase-ins or non-implemented elements.']}
+              (out/'run_report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+              print(json.dumps({k:v for k,v in report.items() if k!='limitations'},indent=2))
+              return report
+
+          if __name__=='__main__':
+              p=argparse.ArgumentParser();p.add_argument('--out',default='data/state_tax_policy_actions');a=p.parse_args();run(a.out)
+          PY
+          python -m py_compile open_data/state_tax_policy_actions.py
+      - name: Run offline extraction and timing-regression tests
+        run: |
+          python - <<'PY'
+          from open_data.state_tax_policy_actions import STATES,parse_html,parse_date
+          assert parse_date('1/1/2018')=='2018-01-01'
+          assert parse_date('Retroactive to 01/01/15')=='2015-01-01'
+          assert parse_date('Jan. 1, 2018')=='2018-01-01'
+          assert parse_date('7/1/2017 and 1/1/2018') is None
+          assert parse_date('Tax Year 2018') is None
+          head='<tr><th>Juridiction</th><th>Description</th><th>Type</th><th>Effective Date</th><th>Fiscal Year 2019</th><th>Fiscal Year 2020</th></tr>'
+          html=''
+          for year in (2015,2016,2017,2018):
+              rows=''.join(f'<tr><td>{s}</td><td>Documented event {year}</td><td>Sales</td><td>7/1/{year}</td><td>N.A.</td><td>$1.00</td></tr>' for s in STATES)
+              html+=f'<h3>{year}</h3><table>{head}{rows}</table>'
+          rows,undated,stats=parse_html(html.encode())
+          assert len(rows)==4*51,(len(rows),stats)
+          assert len(undated)==0
+          assert stats['jurisdictions_all_rows']==51
+          assert all(x['value']==1 and x['period'].count('-')==2 for x in rows)
+          print('Offline parser, exact-date and coverage tests passed')
+          PY
+      - name: Download official NCSL 2015-2018 documented state tax actions
+        run: |
+          python open_data/state_tax_policy_actions.py --out new_tax_data/state_tax_policy_actions
+      - name: Retrieve the prior BDS-inclusive warehouse snapshot
+        run: |
+          set -euo pipefail
+          [[ "$BASELINE_RUN_ID" =~ ^[0-9]+$ ]]
+          runname=$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.name')
+          test "$runname" = 'Add Census BDS job creation data to full economic warehouse' || { echo "Unexpected source workflow: $runname" >&2; exit 1; }
+          mkdir -p downloads/baseline
+          gh run download "$BASELINE_RUN_ID" --repo "$GH_REPO" --pattern 'economic-with-census-bds-*' --dir downloads/baseline
+          find downloads/baseline -type f -name '*.tar.gz' -print
+      - name: Verify baseline archive and restore all existing source families
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          from warehouse.consolidate import SnapshotArchive,exactly_one_archive
+          from warehouse.snapshot import FAMILIES, OPTIONAL_FAMILIES
+          path=exactly_one_archive(Path('downloads/baseline'))
+          snap=SnapshotArchive(path)
+          try:
+              registry={**FAMILIES,**OPTIONAL_FAMILIES}
+              families=snap.families
+              assert len(families)>=22, 'Source regression: expected 22 families including Census BDS'
+              assert 'census_bds' in families
+              assert 'state_tax_policy_actions' not in families, 'Refusing duplicate addition'
+              assert snap.manifest['total_source_observations']>=1_338_610
+              for family in families:
+                  if family not in registry:raise ValueError(f'Unknown baseline family {family}')
+                  subdir,filename,_=registry[family]
+                  root=Path('merged_data')/subdir
+                  snap.copy_verified(f'sources/{family}/run_report.json',root/'run_report.json')
+                  snap.copy_verified(f'sources/{family}/processed/{filename}',root/'processed'/filename)
+              Path('baseline_summary.json').write_text(json.dumps({
+                  'snapshot_id':snap.manifest['snapshot_id'],
+                  'observations':snap.manifest['total_source_observations'],
+                  'families':families},indent=2)+'\n')
+              print(f"Restored {len(families)} original families and {snap.manifest['total_source_observations']:,} observations")
+          finally:snap.close()
+          PY
+      - name: Register new source while keeping all existing source definitions intact
+        run: |
+          set -euo pipefail
+          cp -R new_tax_data/state_tax_policy_actions merged_data/state_tax_policy_actions
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('warehouse/snapshot.py')
+          content=p.read_text()
+          entry="    'state_tax_policy_actions': ('state_tax_policy_actions', 'state_tax_policy_actions_panel.csv', 200),\n"
+          anchor='OPTIONAL_FAMILIES = {\n'
+          if "'state_tax_policy_actions':" not in content:
+              assert content.count(anchor)==1,'Could not identify source registry'
+              content=content.replace(anchor,anchor+entry,1)
+              p.write_text(content)
+          from warehouse.snapshot import OPTIONAL_FAMILIES
+          assert OPTIONAL_FAMILIES['state_tax_policy_actions']==('state_tax_policy_actions','state_tax_policy_actions_panel.csv',200)
+          PY
+      - name: Build expanded validated policy-events warehouse
+        run: |
+          set -euo pipefail
+          ID="economic-state-tax-actions-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+          echo "SNAPSHOT_ID=$ID" >> "$GITHUB_ENV"
+          python warehouse/snapshot.py --data merged_data --out warehouse_output --snapshot-id "$ID"
+      - name: Enforce full old coverage and exact tax-event increment
+        run: |
+          python - <<'PY'
+          import json,os,sqlite3
+          from pathlib import Path
+          original=json.loads(Path('baseline_summary.json').read_text())
+          source=json.loads(Path('merged_data/state_tax_policy_actions/run_report.json').read_text())
+          base=Path('warehouse_output')/os.environ['SNAPSHOT_ID']
+          manifest=json.loads((base/'manifest.json').read_text())
+          families=manifest['source_families']
+          assert set(families)==set(original['families'])|{'state_tax_policy_actions'}
+          for family,metadata in original['families'].items():
+              assert families[family]['rows']==metadata['rows'],(family,metadata['rows'],families[family]['rows'])
+          assert families['state_tax_policy_actions']['rows']==source['observations']>=200
+          assert manifest['total_source_observations']==original['observations']+source['observations']
+          assert manifest['total_source_observations']>=1_338_810
+          with sqlite3.connect(base/'warehouse.sqlite') as con:
+              assert con.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+              n=con.execute('SELECT count(*) FROM observations').fetchone()[0]
+              assert n==manifest['total_source_observations']
+              assert con.execute("SELECT count(*) FROM observations WHERE family='state_tax_policy_actions'").fetchone()[0]==source['observations']
+          Path('tax_actions_addition_report.json').write_text(json.dumps({
+              'baseline_snapshot':original['snapshot_id'],'baseline_observations':original['observations'],
+              'new_dated_events':source['observations'],'new_undated_audit_records':source['undated_or_ambiguous_actions'],
+              'total_observations':n,'families':len(families),'not_causal_treatments':True,
+              'onedrive_path':os.environ['SNAPSHOT_ID']},indent=2)+'\n')
+          print(f'COMPLETE: {n:,} observations / {len(families)} families; added {source["observations"]:,} state tax events')
+          PY
+      - name: Save validated expanded warehouse and collection audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-with-tax-effective-dates-${{ github.run_number }}
+          path: |
+            warehouse_output/*.tar.gz
+            warehouse_output/*/manifest.json
+            tax_actions_addition_report.json
+            merged_data/state_tax_policy_actions/run_report.json
+            merged_data/state_tax_policy_actions/undated_actions_audit.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Preserve source collector and source-family registration in repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add open_data/state_tax_policy_actions.py warehouse/snapshot.py
+          if ! git diff --cached --quiet; then
+            git commit -m 'Add documented NCSL state tax action effective-date ingestion'
+            git push || echo 'Code push not permitted; workflow retains source collector inline'
+          fi
+      - name: Back up verified snapshot to existing OneDrive research folder
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing existing OneDrive secret RCLONE_CONFIG_B64' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+          archive="warehouse_output/${SNAPSHOT_ID}.tar.gz"
+          target="$ONEDRIVE_TARGET/snapshots/$(basename "$archive")"
+          rclone copyto "$archive" "$target" --retries 3 --low-level-retries 10
+          local_hash=$(sha256sum "$archive" | awk '{print $1}')
+          remote_hash=$(rclone hashsum SHA-256 "$target" 2>/dev/null | awk 'NR==1 {print $1}' || true)
+          if [[ "$remote_hash" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            test "${remote_hash,,}" = "${local_hash,,}"
+          else
+            rclone copyto "$target" "$RUNNER_TEMP/tax-actions-backup-verify.tar.gz"
+            cmp "$archive" "$RUNNER_TEMP/tax-actions-backup-verify.tar.gz"
+          fi
+          printf '%s  %s\n' "$local_hash" "$(basename "$archive")" > "$RUNNER_TEMP/tax-actions.sha256"
+          rclone copyto "$RUNNER_TEMP/tax-actions.sha256" "$target.sha256"
+          rclone copyto "warehouse_output/$SNAPSHOT_ID/manifest.json" "$ONEDRIVE_TARGET/snapshots/$SNAPSHOT_ID.manifest.json"
+          rclone copyto tax_actions_addition_report.json "$ONEDRIVE_TARGET/snapshots/$SNAPSHOT_ID.tax-actions-report.json"
+          echo "Verified private OneDrive copy: $target"
+      - name: Erase temporary OneDrive credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
