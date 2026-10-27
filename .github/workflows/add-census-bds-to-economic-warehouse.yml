@@ -1,0 +1,435 @@
+name: Add Census BDS job creation data to full economic warehouse
+'on':
+  workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: Verified consolidated warehouse run (21 families; OneDrive backup)
+        required: true
+        type: string
+        default: '40435059525'
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: economic-census-bds-source-integration
+  cancel-in-progress: false
+jobs:
+  build_and_backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
+      ONEDRIVE_TARGET: onedrive:Diego/economic research database
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install documented Census BDS collector
+      shell: bash
+      run: |-
+        set -euo pipefail
+        mkdir -p open_data docs
+        cat > open_data/census_bds.py <<'PY'
+        """Census 2023 Business Dynamics Statistics (BDS) release: selected long-form panels.
+
+        Official public-use CSVs (no API token). This is descriptive outcome data,
+        not fiscal policy treatment or causal evidence. Preserve source-native values.
+        """
+        from __future__ import annotations
+        import argparse,csv,datetime as dt,hashlib,io,json,math,time,urllib.request
+        from collections import Counter
+        from pathlib import Path
+
+        BASE='https://www2.census.gov/programs-surveys/bds/tables/time-series/2023/'
+        TABLES={
+         'state':'bds2023_st.csv',
+         'state_firm_age':'bds2023_st_fa.csv',
+         'state_sector':'bds2023_st_sec.csv',
+        }
+        # Exact published measure names, plus source-specific aliases used in legacy bulk CSVs.
+        MEASURES={
+         'emp','firm','estab','estabs','denom',
+         'estabs_entry','estabs_entry_rate','estabs_exit','estabs_exit_rate',
+         'job_creation','job_creation_births','job_creation_continuers',
+         'job_creation_rate','job_creation_rate_births',
+         'job_destruction','job_destruction_deaths','job_destruction_continuers',
+         'job_destruction_rate','job_destruction_rate_deaths',
+         'net_job_creation','net_job_creation_rate',
+         'firmdeath_emp','firmdeath_estabs','firmdeath_firms',
+        }
+        COUNT_METRICS={m for m in MEASURES if not m.endswith('_rate') and '_rate_' not in m and 'rate' not in m}
+        MISSING={'','NA','N/A','NULL','NONE','-','--','*','D','N','S','X','(D)','(N)','(S)','(X)'}
+        FIELDS=['country_iso3','year','period','series','value','unit','provider',
+                'source','source_url','frequency','disaggregation','data_status']
+
+        def retrieve(url,*,fetch=None):
+            if fetch is not None:return fetch(url)
+            if not url.startswith(BASE):raise ValueError('Unexpected BDS URL')
+            error=None
+            for attempt in range(4):
+                try:
+                    req=urllib.request.Request(url,headers={'User-Agent':'EconomicPolicyResearch/1.0','Accept':'text/csv,text/plain,*/*'})
+                    with urllib.request.urlopen(req,timeout=65) as resp:
+                        if resp.geturl()!=url:raise ValueError('Unexpected source redirect')
+                        raw=resp.read(23_000_001)
+                        if len(raw)>23_000_000:raise ValueError('CSV larger than safety limit')
+                        if len(raw)<3_000:raise ValueError('Unexpectedly short BDS file')
+                        return raw
+                except (OSError,TimeoutError) as exc:
+                    error=exc
+                    if attempt<3:time.sleep(3*(attempt+1))
+            raise RuntimeError(f'Census file not retrievable: {error}')
+
+        def clean_column(name):
+            return str(name or '').strip().lower().replace(' ','_').replace('-','_')
+
+        def convert_number(value):
+            s=str(value or '').strip()
+            if s.upper() in MISSING:return None
+            try:v=float(s.replace(',',''))
+            except ValueError:return None
+            return v if math.isfinite(v) else None
+
+        def parse_table(raw,table,url):
+            data=io.StringIO(raw.decode('utf-8-sig'))
+            reader=csv.DictReader(data)
+            if not reader.fieldnames:raise ValueError(f'{table}: empty header')
+            originals=reader.fieldnames
+            columns={clean_column(x):x for x in originals}
+            if len(columns)!=len(originals):raise ValueError(f'{table}: duplicate normalized columns')
+            year_col=next((x for x in ('year','yr') if x in columns),None)
+            state_col=next((x for x in ('st','state','state_fips','fips') if x in columns),None)
+            if not year_col or not state_col:raise ValueError(f'{table}: cannot identify year/state in headers {originals}')
+            # Firm-age and sector fields may be named fage / naics / sector. Keep entire row's dimensions.
+            eligible=[k for k in columns if k in MEASURES]
+            if not {'job_creation','job_destruction'}.issubset(eligible):
+                raise ValueError(f'{table}: missing required job-flow variables; actual headers {originals}')
+            dimcols=[k for k in columns if k not in MEASURES and not k.endswith(('_f','_flag','_flags'))]
+            seen=set();out=[];row_count=0;withheld=Counter();years=set();states=set()
+            for row in reader:
+                row_count+=1
+                year_raw=(row[columns[year_col]] or '').strip()
+                if not year_raw.isdecimal():raise ValueError(f'{table}: invalid year line {row_count+1}: {year_raw}')
+                year=int(year_raw)
+                if not 1978<=year<=2023:raise ValueError(f'{table}: outside 2023-release vintage: {year}')
+                state=str(row[columns[state_col]] or '').strip()
+                if not state:raise ValueError(f'{table}: missing state on line {row_count+1}')
+                years.add(year);states.add(state)
+                dims={k:str(row[columns[k]] or '').strip() for k in dimcols if k!=year_col}
+                dims.update({'table':table,'census_bds_release':'2023','state_id_source_field':state_col})
+                disagg=json.dumps(dims,sort_keys=True,ensure_ascii=False)
+                for metric in eligible:
+                    for ext in ('_f','_flag','_flags'):
+                        flagcol=metric+ext
+                        if flagcol in columns:
+                            flag=str(row[columns[flagcol]] or '').strip().upper()
+                            if flag not in ('','0','NULL','NONE'):
+                                withheld['flagged_'+flag]+=1
+                                break
+                    else:
+                        value=convert_number(row[columns[metric]])
+                        if value is None:
+                            withheld['blank_or_non_numeric']+=1
+                            continue
+                        # Dimension + source measure, NOT aggregate across age/sector panels.
+                        identity=(year,table,metric,disagg)
+                        if identity in seen:raise ValueError(f'{table}: duplicate source dimension/metric at line {row_count+1}')
+                        seen.add(identity)
+                        out.append({'country_iso3':'USA','year':year,'period':str(year),
+                            'series':f'census_bds_{table}_{metric}', 'value':format(value,'.15g'),
+                            'unit':'source_count' if metric in COUNT_METRICS else 'source_defined_rate',
+                            'provider':'US Census Bureau BDS','source':'2023 BDS public-use CSV',
+                            'source_url':url,'frequency':'annual','disaggregation':disagg,
+                            'data_status':'source_native_observed'})
+            if row_count<2_000:raise ValueError(f'{table}: anomalously few rows: {row_count}')
+            if len(states)<50 or len(years)<40 or min(years)!=1978 or max(years)!=2023:
+                raise ValueError(f'{table}: insufficient state/year coverage: states={len(states)}, years={sorted(years)}')
+            if len(out)<10_000:raise ValueError(f'{table}: unexpectedly few valid numeric measures: {len(out)}')
+            return out,{'table':table,'raw_source_rows':row_count,'observations':len(out),
+                        'states':len(states),'first_year':min(years),'last_year':max(years),
+                        'metrics':eligible,'missing_or_flagged':dict(withheld),'columns':originals}
+
+        def run(out,*,fetch=None):
+            out=Path(out);(out/'processed').mkdir(parents=True,exist_ok=True)
+            (out/'raw').mkdir(parents=True,exist_ok=True)
+            stamp=dt.datetime.now(dt.timezone.utc).isoformat()
+            source_details=[];all_rows=[];keyset=set()
+            for table,file in TABLES.items():
+                url=BASE+file
+                raw=retrieve(url,fetch=fetch)
+                if not raw.startswith(b'year,') and not raw.lower().startswith((b'"year"',b'"yr"',b'yr,',b'\xef\xbb\xbfyear,',b'\xef\xbb\xbf"year"')):
+                    # Header ordering is unrestricted, but reject HTML error pages and synthetic CSV-less responses.
+                    if raw[:100].lstrip().lower().startswith((b'<!doctype',b'<html',b'<?xml')):
+                        raise ValueError(f'{url}: received markup instead of public-use CSV')
+                (out/'raw'/file).write_bytes(raw)
+                rows,details=parse_table(raw,table,url)
+                details.update({'url':url,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)})
+                for record in rows:
+                    key=(record['year'],record['series'],record['disaggregation'])
+                    if key in keyset:raise ValueError('Duplicate observations across source tables')
+                    keyset.add(key)
+                source_details.append(details);all_rows.extend(rows)
+                print(f'{table}: {len(rows):,} observations from {details["raw_source_rows"]:,} source rows',flush=True)
+            if len(all_rows)<100_000:raise ValueError(f'BDS combined source unexpectedly small: {len(all_rows)}')
+            panel=out/'processed'/'census_bds_panel.csv'
+            with panel.open('w',newline='',encoding='utf-8') as f:
+                writer=csv.DictWriter(f,fieldnames=FIELDS);writer.writeheader();writer.writerows(all_rows)
+            report={'dataset':'census_bds_2023_public_use','downloaded_at_utc':stamp,
+                    'observations':len(all_rows),'source_tables':source_details,
+                    'source_url':BASE,'release_vintage':2023,'years':'1978-2023',
+                    'errors':[],'conflicts':[],'research_ready':False,'causal_claims_supported':False,
+                    'notes':['Descriptive employment and firm dynamics only; not a fiscal shock.',
+                             'Overlapping state, age, and industry stratifications must not be summed.',
+                             'Suppressed/missing cells were skipped, never converted to numeric zeros.',
+                             'Units preserved as published; rate definitions require codebook checks.',
+                             'No country-year model harmonization or causal identification performed.',
+                             'Original source columns and flags retained as source metadata.']}
+            (out/'run_report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+            return report
+
+        if __name__=='__main__':
+            p=argparse.ArgumentParser();p.add_argument('--out',default='data/census_bds')
+            a=p.parse_args();r=run(a.out);print(json.dumps({'observations':r['observations'],
+                                          'tables':[x['table'] for x in r['source_tables']]},indent=2))
+        PY
+        cat > docs/CENSUS_BDS_INTEGRATION.md <<'DOC'
+        # U.S. Census Business Dynamics Statistics (BDS), 2023 release
+
+        Official, public-use historical data: https://www2.census.gov/programs-surveys/bds/tables/time-series/2023/
+        Release period: 1978–2023. Source files: bds2023_st.csv, bds2023_st_fa.csv, bds2023_st_sec.csv.
+
+        The collector downloads the Census CSV files directly, without an API key; retains each source file's URL,
+        SHA-256, schema and original classifications; preserves state, NAICS and firm-age dimensions; and treats
+        missing/suppressed values as missing rather than zero. The long-form panel is saved as
+        `data/census_bds/processed/census_bds_panel.csv` and validated using `run_report.json`.
+
+        The optional `census_bds` source family in the source-separated SQLite warehouse adds descriptive
+        job creation, destruction, net creation, firm and establishment metrics. Different BDS stratifications
+        overlap and MUST NOT be summed. Firm age, state, and industry are not independent observations.
+        These metrics are not causal policy shocks and cannot by themselves identify job creation
+        attributable to a law, president or political party. Release vintages and suppression rules
+        must be kept distinct from BLS data. Rates remain in source-native units pending verification.
+
+        The installation workflow restores the validated 21-family consolidated snapshot before appending
+        BDS, then rejects reductions in any existing source family. The enlarged database is backed up
+        to the established private OneDrive folder using existing RCLONE_CONFIG_B64 credentials.
+
+        References:
+        - https://www.census.gov/programs-surveys/bds.html
+        - https://www.census.gov/data/developers/data-sets/business-dynamics.html
+        - https://www2.census.gov/programs-surveys/bds/tables/time-series/2023/
+        DOC
+        python -m py_compile open_data/census_bds.py
+    - name: Test source parsing, missing values and geographic coverage offline
+      shell: bash
+      run: |-
+        set -euo pipefail
+        python - <<'PY'
+        import csv,io,sys,tempfile
+        from pathlib import Path
+        from open_data.census_bds import parse_table,run,TABLES,MEASURES
+        # Synthetic mock ONLY, not publishable data; exercises flags, rows, joins and validation.
+        base=[]
+        extra_metrics=sorted(MEASURES-{'job_creation','job_destruction','emp','firm','estabs_entry','estabs_exit','net_job_creation'})
+        for year in range(1978,2024):
+            for st in range(1,52):
+                base.append({'year':str(year),'st':f'{st:02d}','fage':'001', 'sector':'11',
+                  'job_creation':'130','job_creation_f':'','job_destruction':'80',
+                  'emp':'1000','firm':'22','estabs_entry':'20','estabs_exit':'5','net_job_creation':'50'})
+        for r in base:
+            r.update({m:'13' for m in extra_metrics})
+        base[0]['job_creation']='0';base[0]['job_creation_f']='D'
+        fields=list(base[0])
+        def get_mock(url):
+            b=io.StringIO(); w=csv.DictWriter(b,fieldnames=fields);w.writeheader();w.writerows(base)
+            return b.getvalue().encode()
+        rows,rep=parse_table(get_mock(''),'state','https://www2.census.gov/test.csv')
+        assert rep['states']==51 and rep['last_year']==2023 and rep['first_year']==1978
+        assert rep['missing_or_flagged']['flagged_D']==1
+        assert len(rows)==(len(base)*len(MEASURES))-1, len(rows)
+        with tempfile.TemporaryDirectory() as tmp:
+            report=run(Path(tmp)/'census_bds',fetch=get_mock)
+            assert report['observations']>100000
+            assert len(report['source_tables'])==3
+        print('PASS: offline parser, suppression, geographic/time coverage, long-form source reports')
+        PY
+    - name: Collect official Census BDS state, firm-age and industry datasets
+      shell: bash
+      run: 'set -euo pipefail
+
+        python open_data/census_bds.py --out merged_data/census_bds'
+    - name: Validate baseline snapshot run and retrieve snapshot
+      shell: bash
+      run: |-
+        set -euo pipefail
+        [[ "$BASELINE_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Invalid baseline run number' >&2; exit 1; }
+        name=$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.name')
+        conclusion=$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.conclusion')
+        test "$name" = 'Consolidate full economic warehouse and back up to OneDrive' || { echo "Unexpected source workflow: $name" >&2; exit 1; }
+        test "$conclusion" = success || { echo "Snapshot was not validated: $conclusion" >&2; exit 1; }
+        mkdir -p downloads
+        gh run download "$BASELINE_RUN_ID" --repo "$GH_REPO" --pattern 'economic-consolidated-warehouse-*' --dir downloads
+        find downloads -type f -name '*.tar.gz' -print
+    - name: Restore full validated source coverage and verify hashes
+      shell: bash
+      run: |-
+        set -euo pipefail
+        python - <<'PY'
+        from __future__ import annotations
+        import csv,hashlib,json,shutil,tarfile
+        from pathlib import Path
+        from warehouse.snapshot import FAMILIES,OPTIONAL_FAMILIES
+        archives=list(Path('downloads').rglob('*.tar.gz'))
+        if len(archives)!=1:raise RuntimeError(f'Expected one baseline snapshot archive; found {len(archives)}')
+        with tarfile.open(archives[0],'r:gz') as tar:
+            files={m.name:m for m in tar.getmembers() if m.isfile()}
+            manifest_names=[name for name in files if name.count('/')==1 and name.endswith('/manifest.json')]
+            if len(manifest_names)!=1:raise ValueError(f'Expected one root manifest: {manifest_names}')
+            root=manifest_names[0].split('/')[0]
+            with tar.extractfile(files[manifest_names[0]]) as file:manifest=json.load(file)
+            families=manifest['source_families']
+            if len(families)<21 or int(manifest['total_source_observations'])<1238610:
+                raise ValueError('Source warehouse is missing previously validated coverage')
+            if 'census_bds' in families:raise ValueError('BDS already present in baseline; refusing duplicate integration')
+            inventory={x['path']:x['sha256'] for x in manifest['files']}
+            registry={**FAMILIES,**OPTIONAL_FAMILIES}
+            for family,report in families.items():
+                subdir,filename,_=registry[family]
+                for rel,dst in [(f'sources/{family}/run_report.json',Path('merged_data')/subdir/'run_report.json'),
+                                (f'sources/{family}/processed/{filename}',Path('merged_data')/subdir/'processed'/filename)]:
+                    expected=inventory.get(rel)
+                    name=f'{root}/{rel}'
+                    if not expected or name not in files:raise ValueError(f'Archive omitted {rel}')
+                    dst.parent.mkdir(parents=True,exist_ok=True)
+                    with tar.extractfile(files[name]) as source,dst.open('wb') as target:
+                        shutil.copyfileobj(source,target)
+                    h=hashlib.file_digest(dst.open('rb'),'sha256').hexdigest()
+                    if h!=expected:raise ValueError(f'Corrupted baseline file: {rel}')
+                with (Path('merged_data')/subdir/'processed'/filename).open(newline='',encoding='utf-8-sig') as file:
+                    n=sum(1 for _ in csv.DictReader(file))
+                if n!=int(report['rows']):raise ValueError(f'Baseline row regression for {family}: {n}')
+        Path('baseline_manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+        print(f'Checked and restored {len(families)} baseline families; {manifest["total_source_observations"]:,} rows')
+        PY
+    - name: Register new family while preserving source-separated definitions
+      shell: bash
+      run: |-
+        set -euo pipefail
+        python - <<'PY'
+        from pathlib import Path
+        path=Path('warehouse/snapshot.py')
+        s=path.read_text()
+        entry="    'census_bds': ('census_bds', 'census_bds_panel.csv', 100000),\n"
+        if "'census_bds':" not in s:
+            needle='OPTIONAL_FAMILIES = {\n'
+            if s.count(needle)!=1:raise ValueError('Unable to find optional source family registry')
+            s=s.replace(needle,needle+entry)
+            path.write_text(s)
+        from warehouse.snapshot import OPTIONAL_FAMILIES
+        assert OPTIONAL_FAMILIES['census_bds']==('census_bds','census_bds_panel.csv',100000)
+        print('BDS registered as new optional source family without changing 21 existing families')
+        PY
+        python -m unittest discover -s tests -p 'test_snapshot.py' -v
+    - name: Build enlarged versioned SQLite warehouse
+      shell: bash
+      run: |-
+        set -euo pipefail
+        SNAPSHOT_ID="economic-census-bds-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+        echo "SNAPSHOT_ID=$SNAPSHOT_ID" >> "$GITHUB_ENV"
+        python warehouse/snapshot.py --data merged_data --out warehouse_output --snapshot-id "$SNAPSHOT_ID"
+    - name: Verify all 21 earlier sources retained and BDS increment exact
+      shell: bash
+      run: |-
+        set -euo pipefail
+        python - <<'PY'
+        import csv,hashlib,json,os,sqlite3
+        from pathlib import Path
+        p=Path('warehouse_output')/os.environ['SNAPSHOT_ID']
+        base=json.loads(Path('baseline_manifest.json').read_text())
+        new=json.loads((p/'manifest.json').read_text())
+        report=json.loads(Path('merged_data/census_bds/run_report.json').read_text())
+        a=base['source_families'];b=new['source_families']
+        assert set(b)==set(a)|{'census_bds'},(sorted(set(a)-set(b)),sorted(set(b)-set(a)))
+        assert b['census_bds']['rows']==report['observations']
+        assert report['observations']>=100000
+        assert new['total_source_observations']==base['total_source_observations']+report['observations']
+        for family in a:
+            assert b[family]['rows']==a[family]['rows'],family
+            assert b[family]['series']==a[family]['series'],family
+        with sqlite3.connect(p/'warehouse.sqlite') as db:
+            assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+            assert db.execute('SELECT COUNT(*) FROM observations').fetchone()[0]==new['total_source_observations']
+            actual=db.execute("SELECT COUNT(*) FROM observations WHERE family='census_bds'").fetchone()[0]
+            assert actual==report['observations']
+        Path('bds_addition_summary.json').write_text(json.dumps({
+            'previous_snapshot':base['snapshot_id'],'new_snapshot':new['snapshot_id'],
+            'previous_observations':base['total_source_observations'],
+            'bds_observations':report['observations'],
+            'total_observations':new['total_source_observations'],
+            'source_families':len(b),'release_vintage':'2023',
+            'source_tables':[x['table'] for x in report['source_tables']],
+            'no_existing_source_was_dropped':True,
+            'is_causal_inference_ready':False},indent=2)+'\n')
+        print(Path('bds_addition_summary.json').read_text())
+        PY
+    - name: Retain expanded validated snapshot and collection audit
+      uses: actions/upload-artifact@v4
+      with:
+        name: economic-with-census-bds-${{ github.run_number }}
+        path: |-
+          warehouse_output/*.tar.gz
+          warehouse_output/*/manifest.json
+          bds_addition_summary.json
+          merged_data/census_bds/run_report.json
+        retention-days: 90
+        if-no-files-found: error
+    - name: Commit ordinary reusable integration code to repository
+      shell: bash
+      run: |-
+        set -euo pipefail
+        git config user.name 'github-actions[bot]'
+        git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+        git add open_data/census_bds.py docs/CENSUS_BDS_INTEGRATION.md warehouse/snapshot.py
+        if ! git diff --cached --quiet; then
+          git commit -m 'Add audited U.S. Census BDS job-flow source without regression'
+          git push || echo 'Code persistence not permitted: built snapshot and the workflow still contain the integration.'
+        fi
+    - name: Back up snapshot to existing OneDrive and verify content
+      shell: bash
+      env:
+        RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      run: |-
+        set -euo pipefail
+        test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64; snapshot still saved in GitHub artifacts' >&2; exit 1; }
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq rclone
+        umask 077
+        mkdir -p "$RUNNER_TEMP/rclone"
+        printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+        chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+        export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+        archive="warehouse_output/$SNAPSHOT_ID.tar.gz"
+        remote="$ONEDRIVE_TARGET/snapshots/$(basename "$archive")"
+        rclone copyto "$archive" "$remote" --retries 3 --low-level-retries 10
+        local_hash=$(sha256sum "$archive" | awk '{print $1}')
+        remote_hash=$(rclone hashsum SHA-256 "$remote" 2>/dev/null | awk 'NR==1 {print $1}' || true)
+        if [[ "$remote_hash" =~ ^[0-9a-fA-F]{64}$ ]]; then
+          test "${local_hash,,}" = "${remote_hash,,}" || { echo 'OneDrive SHA256 mismatch' >&2; exit 1; }
+        else
+          rclone copyto "$remote" "$RUNNER_TEMP/verify-backup.tar.gz"
+          cmp "$archive" "$RUNNER_TEMP/verify-backup.tar.gz"
+        fi
+        printf '%s  %s\n' "$local_hash" "$(basename "$archive")" > "$RUNNER_TEMP/bds.sha256"
+        rclone copyto "$RUNNER_TEMP/bds.sha256" "$remote.sha256"
+        rclone copyto "warehouse_output/$SNAPSHOT_ID/manifest.json" "$ONEDRIVE_TARGET/snapshots/$SNAPSHOT_ID.manifest.json"
+        rclone copyto bds_addition_summary.json "$ONEDRIVE_TARGET/snapshots/$SNAPSHOT_ID.bds_addition_summary.json"
+        echo "Verified OneDrive backup: $remote"
+    - name: Remove temporary OneDrive credential
+      if: always()
+      shell: bash
+      run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
