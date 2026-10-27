@@ -1,0 +1,452 @@
+name: Audit ITEP tax-rate changes against NCSL policy effective dates
+'on':
+  workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: Verified successful ITEP warehouse run containing 24 source families
+        required: true
+        default: '40439631125'
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: tax-rate-policy-timing-audit
+  cancel-in-progress: false
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - name: Check out repository and trusted archive verifier
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install audited noncausal linkage utility
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p analysis
+          cat > analysis/link_state_tax_changes.py <<'AUDITED_LINKAGE_SOURCE_END'
+          """Audited, deliberately noncausal ITEP rate-change / NCSL policy-event linkage.
+          
+          This utility does NOT assign legal dates to ITEP rate changes and does NOT identify
+          exogenous shocks. It only finds contextual candidates with equal state, tax type,
+          and effective-date calendar year; all relationships require documentary review.
+          """
+          from __future__ import annotations
+          
+          import argparse
+          import collections
+          import csv
+          from decimal import Decimal, InvalidOperation
+          import hashlib
+          import json
+          from pathlib import Path
+          import tempfile
+          
+          RATE_FAMILIES = {'ITEP.STATE_TAX_RATE.PIT.STATUTORY':'pit',
+                           'ITEP.STATE_TAX_RATE.CIT.STATUTORY':'cit',
+                           'ITEP.STATE_TAX_RATE.SALES.STATUTORY':'sales'}
+          ACTION_CATEGORIES = {'Personal Income':'pit','Corporate Income':'cit','Sales':'sales','Sales and Use':'sales'}
+          RATE_FIELDS = ['state_abbr','year','tax_type','previous_year_end_rate_pp',
+                         'current_year_end_rate_pp','delta_percentage_points','direction',
+                         'first_december_31','second_december_31','source_url','rate_original_cells']
+          MATCH_FIELDS = ['state_abbr','rate_change_year','tax_type','previous_year_end_rate_pp',
+                          'current_year_end_rate_pp','delta_percentage_points',
+                          'ncsl_effective_date_iso','ncsl_action_report_year','ncsl_source_record_id',
+                          'ncsl_tax_type_original','ncsl_description','ncsl_source_url',
+                          'candidate_link_class','legal_rate_change_effect_verified',
+                          'legal_source_citation','human_review_status']
+          REVIEW_FIELDS = RATE_FIELDS + ['contextual_candidate_count','candidate_record_ids',
+                          'coverage_note','matched_date_is_not_a_confirmed_rate_effective_date',
+                          'is_exogenous_causal_shock','review_priority']
+          
+          
+          def digest(path:Path)->str:
+              h=hashlib.sha256()
+              with path.open('rb') as f:
+                  for block in iter(lambda:f.read(1024*1024),b''):h.update(block)
+              return h.hexdigest()
+          
+          
+          def read_source(path:Path):
+              with path.open(encoding='utf-8-sig',newline='') as f:
+                  return list(csv.DictReader(f))
+          
+          
+          def write_csv(path:Path,columns:list[str],records):
+              with path.open('w',encoding='utf-8',newline='') as f:
+                  writer=csv.DictWriter(f,fieldnames=columns,extrasaction='raise')
+                  writer.writeheader();writer.writerows(records)
+          
+          
+          def classify_action(value:str)->str|None:
+              return ACTION_CATEGORIES.get(value.strip())
+          
+          
+          def reconstruct_rates(itep_rows):
+              histories={}; cells={}
+              for row in itep_rows:
+                  label=row['series']
+                  if label not in RATE_FAMILIES:raise ValueError('Unexpected rate series '+repr(label))
+                  meta=json.loads(row['disaggregation'])
+                  st=meta['state_abbr'].upper();kind=RATE_FAMILIES[label];yr=int(row['year'])
+                  if meta['tax_type']!=kind or meta['year_end_rate_as_of']!=f'{yr}-12-31':
+                      raise ValueError('Rate series and ITEP source disaggregation disagree')
+                  if row.get('unit')!='percent_points': raise ValueError('Incorrect ITEP percent-point unit')
+                  if row.get('obs_status')!='source_reported_year_end_statutory_rate':
+                      raise ValueError('Unexpected ITEP source status')
+                  if not(1900<=yr<=2025):raise ValueError('Rate year out of intended bounds')
+                  if not st or len(st)!=2 or kind not in ('pit','cit','sales'):
+                      raise ValueError('Unexpected ITEP state/type')
+                  try: value=Decimal(row['value'])
+                  except InvalidOperation as exc:raise ValueError('Invalid ITEP numeric value') from exc
+                  if not value.is_finite() or not(Decimal('0')<=value<=Decimal('100')):
+                      raise ValueError('ITEP rate outside 0-100 pp')
+                  key=(st,kind,yr)
+                  if key in histories:raise ValueError('Duplicate ITEP source rate key')
+                  histories[key]=value
+                  cells[key]=f"{meta['original_sheet']}!{meta['original_cell']}"
+              changes=[]
+              for (state,kind,year),current in sorted(histories.items()):
+                  prev_key=(state,kind,year-1)
+                  if prev_key not in histories:continue
+                  previous=histories[prev_key]
+                  if current==previous:continue
+                  delta=current-previous
+                  changes.append({'state_abbr':state,'year':year,'tax_type':kind,
+                      'previous_year_end_rate_pp':str(previous),
+                      'current_year_end_rate_pp':str(current),
+                      'delta_percentage_points':str(delta),
+                      'direction':'increase' if delta>0 else 'decrease',
+                      'first_december_31':f'{year-1}-12-31',
+                      'second_december_31':f'{year}-12-31',
+                      'source_url':row_url(itep_rows),
+                      'rate_original_cells':f'{cells[prev_key]}; {cells[(state,kind,year)]}'})
+              return changes
+          
+          
+          def row_url(rows):
+              urls={r.get('source_url','') for r in rows}
+              if len(urls)!=1 or not next(iter(urls)):
+                  raise ValueError('Expected one source URL for source family')
+              return next(iter(urls))
+          
+          
+          def read_actions(rows):
+              dated=[];excluded=collections.Counter();identifiers=set()
+              for row in rows:
+                  if row['provider']!='National Conference of State Legislatures':
+                      raise ValueError('Unexpected state-action provider')
+                  if row['unit']!='documented_action_count' or row['value'] not in ('1','1.0'):
+                      raise ValueError('NCSL action is not a one-action count')
+                  src=json.loads(row['disaggregation'])
+                  category=str(src['tax_type_original']).strip()
+                  kind=classify_action(category)
+                  if kind is None:
+                      excluded[category]+=1;continue
+                  d=src.get('effective_date_iso')
+                  if d!=row['period'] or not d or len(d)!=10 or d[4]!='-' or d[7]!='-':
+                      raise ValueError('NCSL effective date differs from canonical period')
+                  if int(d[:4])!=int(row['year']):raise ValueError('NCSL effective date year mismatches canonical year')
+                  st=src['state_abbr'];action_id=src['source_record_id']
+                  if not st or len(st)!=2 or action_id in identifiers:
+                      raise ValueError('Invalid or duplicated NCSL action ID')
+                  identifiers.add(action_id)
+                  dated.append({'state_abbr':st,'tax_type':kind,'effective_date':d,
+                      'effective_year':int(d[:4]),'action_report_year':int(src['action_report_year']),
+                      'source_record_id':action_id,'tax_type_original':category,
+                      'description':src['description'],
+                      'source_url':row['source_url']})
+              return dated,dict(sorted(excluded.items()))
+          
+          
+          def build(itep_csv:Path,ncsl_csv:Path,itep_report:Path,ncsl_report:Path,out:Path,
+                    expected_full=True):
+              out.mkdir(parents=True,exist_ok=True)
+              ir=json.loads(itep_report.read_text(encoding='utf-8'))
+              nr=json.loads(ncsl_report.read_text(encoding='utf-8'))
+              rates=read_source(itep_csv);events=read_source(ncsl_csv)
+              if len(rates)!=int(ir['observations']) or len(events)!=int(nr['observations']):
+                  raise ValueError('Original source reports and CSV counts disagree')
+              if digest(itep_csv)!=ir['panel_sha256'] or digest(ncsl_csv)!=nr['panel_sha256']:
+                  raise ValueError('Source checksum disagreement')
+              changes=reconstruct_rates(rates)
+              actions,excluded=read_actions(events)
+              if len(changes)!=int(ir['derived_year_end_change_comparisons']):
+                  raise ValueError('Year-end differences do not replicate ITEP collector report')
+              if expected_full:
+                  if len(rates)!=19278 or len(events)!=855 or len(changes)!=1543:
+                      raise ValueError('Unexpected baseline source family coverage (must not silently regress)')
+              index=collections.defaultdict(list)
+              for a in actions:index[(a['state_abbr'],a['tax_type'],a['effective_year'])].append(a)
+              review=[];matched=[];stats=collections.Counter(); candidate_states=set()
+              for ch in changes:
+                  st=ch['state_abbr'];yr=int(ch['year']);tax=ch['tax_type']
+                  hits=sorted(index.get((st,tax,yr),[]),key=lambda x:(x['effective_date'],x['source_record_id']))
+                  summary={**ch,'contextual_candidate_count':len(hits),
+                      'candidate_record_ids':';'.join(h['source_record_id'] for h in hits),
+                      'coverage_note':'NCSL source only incorporates 2015-2018 survey reports; no hit does not imply no tax legislation',
+                      'matched_date_is_not_a_confirmed_rate_effective_date':'true',
+                      'is_exogenous_causal_shock':'false',
+                      'review_priority':'documentary_review_needed' if hits else 'find_relevant_legislation_and_effective_date'}
+                  review.append(summary)
+                  stats['changes_with_candidates' if hits else 'changes_without_candidates']+=1
+                  if hits:
+                      candidate_states.add(st);stats['candidate_links']+=len(hits)
+                  for h in hits:
+                      matched.append({'state_abbr':st,'rate_change_year':yr,'tax_type':tax,
+                          'previous_year_end_rate_pp':ch['previous_year_end_rate_pp'],
+                          'current_year_end_rate_pp':ch['current_year_end_rate_pp'],
+                          'delta_percentage_points':ch['delta_percentage_points'],
+                          'ncsl_effective_date_iso':h['effective_date'],
+                          'ncsl_action_report_year':h['action_report_year'],
+                          'ncsl_source_record_id':h['source_record_id'],
+                          'ncsl_tax_type_original':h['tax_type_original'],
+                          'ncsl_description':h['description'],
+                          'ncsl_source_url':h['source_url'],
+                          'candidate_link_class':'same_state_tax_category_and_year_only_UNVERIFIED',
+                          'legal_rate_change_effect_verified':'false',
+                          'legal_source_citation':'',
+                          'human_review_status':'not_reviewed'})
+              write_csv(out/'year_end_rate_changes.csv',RATE_FIELDS,changes)
+              write_csv(out/'candidate_policy_event_links.csv',MATCH_FIELDS,matched)
+              write_csv(out/'all_rate_change_review_queue.csv',REVIEW_FIELDS,review)
+              report={'analysis_type':'observational_policy_timing_context_not_causal',
+                  'itep_panel_sha256':digest(itep_csv),'ncsl_panel_sha256':digest(ncsl_csv),
+                  'itep_source_report_sha256':digest(itep_report),'ncsl_source_report_sha256':digest(ncsl_report),
+                  'source_rate_observations':len(rates),'source_dated_tax_actions':len(events),
+                  'eligible_pit_cit_sales_action_events':len(actions),
+                  'other_tax_categories_excluded_from_rate_matching':excluded,
+                  'year_end_rate_changes':len(changes),
+                  'candidate_links':len(matched),
+                  'rate_changes_with_candidates':stats['changes_with_candidates'],
+                  'rate_changes_without_candidates':stats['changes_without_candidates'],
+                  'states_with_candidates':len(candidate_states),
+                  'verified_rate_effective_dates':0,
+                  'verified_exogenous_policy_shocks':0,
+                  'nonmatching_year_or_unobserved_source_not_conclusive':True,
+                  'no_interpolation_or_imputation':True,
+                  'limitations':[
+                      'ITEP rates measured December 31, not the statute enactment/effective date.',
+                      'NCSL dated action observations are drawn only from the historical 2015-2018 report sections.',
+                      'NCSL action may be a credit, exemption, or tax-base change and not the top statutory rate.',
+                      'One enactment may have several NCSL action rows and one rate change may have several candidate matches.',
+                      'Matching state, broad tax type, and calendar year is not a verified legal link.',
+                      'The ITEP rate may change for reasons not included in the restricted historical NCSL extraction.',
+                      'No NCSL action year is automatically treated as a causal or exogenous shock.',
+                      'The standalone analysis is not added as independent observations to the economic warehouse.'
+                  ]}
+              for name in ('year_end_rate_changes.csv','candidate_policy_event_links.csv','all_rate_change_review_queue.csv'):
+                  report[name+'_sha256']=digest(out/name)
+              (out/'linkage_audit.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+              (out/'README.md').write_text('''# Tax-rate changes and legislation: contextual linkage audit\n\n'
+                  'The candidate links join ITEP **year-end** changes with NCSL **reported effective dates** '
+                  'by U.S. state, broad tax category and calendar year. **No link confirms** a legal rate-change '
+                  'date, change magnitude, legislative cause, or exogenous shock. The source NCSL action '
+                  'records describe 2015-2018 survey reports only. Every row is included in the manual review '
+                  'queue, including rate changes without an action candidate. The underlying 24-family warehouse '
+                  'is neither replaced nor augmented. Review primary statutory sources before applying '
+                  'causal analysis. See linkage_audit.json for counts, checksums and limitations.\n''',encoding='utf-8')
+              print(json.dumps({k:v for k,v in report.items() if k in ('source_rate_observations','source_dated_tax_actions','year_end_rate_changes','candidate_links','rate_changes_with_candidates','verified_exogenous_policy_shocks')},indent=2))
+              return report
+          
+          
+          def selftest():
+              with tempfile.TemporaryDirectory() as temp:
+                  p=Path(temp);ip=p/'itep.csv';np=p/'ncsl.csv';irp=p/'ir.json';nrp=p/'nr.json'
+                  data=[]
+                  for state in ('CT','CA'):
+                      for year,rate in ((2016,Decimal('6.35')),(2017,Decimal('6.35')),(2018,Decimal('6.00'))):
+                          dims={'state_abbr':state,'tax_type':'sales','year_end_rate_as_of':f'{year}-12-31',
+                                'original_sheet':'GST_history','original_cell':'D10'}
+                          data.append({'provider':'ITEP','country_iso3':'USA','year':year,'period':str(year),
+                              'series':'ITEP.STATE_TAX_RATE.SALES.STATUTORY','value':str(rate),'unit':'percent_points',
+                              'frequency':'annual_december_31','disaggregation':json.dumps(dims),
+                              'obs_status':'source_reported_year_end_statutory_rate','source_url':'https://itep.org/historical-state-tax-rate-data/'})
+                  write_csv(ip,list(data[0]),data)
+                  def action(state,year,category,identifier):
+                      dims={'state_abbr':state,'tax_type_original':category,'effective_date_iso':f'{year}-07-01',
+                            'action_report_year':2018,'source_record_id':identifier,'description':'Test statute'}
+                      return {'provider':'National Conference of State Legislatures','country_iso3':'USA',
+                              'year':year,'period':f'{year}-07-01','series':'NCSL.STATE_TAX_ACTION.SALES',
+                              'value':'1','unit':'documented_action_count','frequency':'irregular_exact_effective_date',
+                              'disaggregation':json.dumps(dims),'obs_status':'officially_reported_effective_date_not_causal_shock',
+                              'source_url':'https://www.ncsl.org/fiscal/state-tax-actions-database'}
+                  entries=[action('CT',2018,'Sales','id-ct-1'),action('CA',2019,'Sales','id-ca-1'),
+                           action('CA',2018,'Motor Fuel','id-ca-excluded')]
+                  write_csv(np,list(entries[0]),entries)
+                  irp.write_text(json.dumps({'observations':len(data),'panel_sha256':digest(ip),'derived_year_end_change_comparisons':2}))
+                  nrp.write_text(json.dumps({'observations':len(entries),'panel_sha256':digest(np)}))
+                  res=build(ip,np,irp,nrp,p/'out',expected_full=False)
+                  assert res['year_end_rate_changes']==2
+                  assert res['candidate_links']==1
+                  assert res['rate_changes_with_candidates']==1
+                  assert res['verified_exogenous_policy_shocks']==0
+                  assert res['other_tax_categories_excluded_from_rate_matching']=={'Motor Fuel':1}
+                  for row in read_source(p/'out'/'candidate_policy_event_links.csv'):
+                      assert row['state_abbr']=='CT' and row['legal_rate_change_effect_verified']=='false'
+                  # Fail-closed test on checksum modifications
+                  ip.write_text(ip.read_text()+'unexpected\n')
+                  try: build(ip,np,irp,nrp,p/'bad',expected_full=False)
+                  except ValueError: pass
+                  else: raise AssertionError('Tampering must cause failure')
+              print('PASS self-test: exact-year candidates, action exclusion, reviewer flags, checksum guards')
+          
+          
+          def main():
+              p=argparse.ArgumentParser()
+              p.add_argument('--self-test',action='store_true')
+              p.add_argument('--itep-csv',type=Path)
+              p.add_argument('--ncsl-csv',type=Path)
+              p.add_argument('--itep-report',type=Path)
+              p.add_argument('--ncsl-report',type=Path)
+              p.add_argument('--out',type=Path,default=Path('tax_linkage_output'))
+              a=p.parse_args()
+              if a.self_test:return selftest()
+              if not all((a.itep_csv,a.ncsl_csv,a.itep_report,a.ncsl_report)):
+                  p.error('All four source files are required')
+              build(a.itep_csv,a.ncsl_csv,a.itep_report,a.ncsl_report,a.out)
+          
+          if __name__=='__main__':main()
+          AUDITED_LINKAGE_SOURCE_END
+          python -m py_compile analysis/link_state_tax_changes.py
+      - name: Run offline linkage, exclusion, provenance and tamper tests
+        run: python analysis/link_state_tax_changes.py --self-test
+      - name: Verify ITEP baseline workflow and download source-separated snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BASELINE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
+          test "$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.conclusion')" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.head_branch')" = main
+          test "$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.name')" = 'Add ITEP historical tax rates with verified GST sheet mapping'
+          mkdir -p downloads/itep_baseline
+          gh run download "$BASELINE_RUN_ID" --repo "$GH_REPO" --pattern 'economic-with-itep-tax-rates-*' --dir downloads/itep_baseline
+      - name: Verify entire baseline family inventory and extract exact two source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from warehouse.consolidate import SnapshotArchive,exactly_one_archive
+          import json
+          snap=SnapshotArchive(exactly_one_archive(Path('downloads/itep_baseline')))
+          try:
+              expected=2_780_117
+              if int(snap.manifest['total_source_observations'])!=expected:
+                  raise ValueError('Baseline observation total differs from latest verified ITEP run')
+              if len(snap.families)!=24 or not {'itep_tax_rates','state_tax_policy_actions'}.issubset(snap.families):
+                  raise ValueError('Source families missing or regressed')
+              if int(snap.families['itep_tax_rates']['rows'])!=19_278 or int(snap.families['state_tax_policy_actions']['rows'])!=855:
+                  raise ValueError('Rate/action source rows regressed')
+              for family,filename in [('itep_tax_rates','itep_tax_rates_panel.csv'),
+                                      ('state_tax_policy_actions','state_tax_policy_actions_panel.csv')]:
+                  root=Path('verified_sources')/family
+                  snap.copy_verified(f'sources/{family}/processed/{filename}',root/filename)
+                  snap.copy_verified(f'sources/{family}/run_report.json',root/'run_report.json')
+              Path('baseline_manifest_summary.json').write_text(json.dumps({
+                  'source_run_id': __import__('os').environ['BASELINE_RUN_ID'],
+                  'snapshot_id':snap.manifest['snapshot_id'],
+                  'observation_count':snap.manifest['total_source_observations'],
+                  'source_family_count':len(snap.families),
+                  'individual_source_files_verified_against_baseline_sha256_inventory':True
+              },indent=2)+'\n')
+              print('Verified all original family totals and extracted exact, SHA256-checked source files')
+          finally:
+              snap.close()
+          PY
+      - name: Link candidate legislative context without inventing legal dates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python analysis/link_state_tax_changes.py \
+            --itep-csv verified_sources/itep_tax_rates/itep_tax_rates_panel.csv \
+            --itep-report verified_sources/itep_tax_rates/run_report.json \
+            --ncsl-csv verified_sources/state_tax_policy_actions/state_tax_policy_actions_panel.csv \
+            --ncsl-report verified_sources/state_tax_policy_actions/run_report.json \
+            --out tax_linkage_output
+          cp analysis/link_state_tax_changes.py tax_linkage_output/link_state_tax_changes.py
+          cp baseline_manifest_summary.json tax_linkage_output/baseline_manifest_summary.json
+      - name: Enforce expected exact counts and zero unreviewed causal claims
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          output=Path('tax_linkage_output')
+          audit=json.loads((output/'linkage_audit.json').read_text())
+          assert audit['source_rate_observations']==19278
+          assert audit['source_dated_tax_actions']==855
+          assert audit['year_end_rate_changes']==1543
+          assert audit['candidate_links']>=0
+          assert audit['rate_changes_with_candidates']>=0
+          assert audit['verified_rate_effective_dates']==0
+          assert audit['verified_exogenous_policy_shocks']==0
+          with (output/'all_rate_change_review_queue.csv').open(newline='') as f:
+              review=list(csv.DictReader(f))
+          with (output/'candidate_policy_event_links.csv').open(newline='') as f:
+              links=list(csv.DictReader(f))
+          assert len(review)==1543
+          assert len(links)==audit['candidate_links']
+          assert all(row['legal_rate_change_effect_verified']=='false'
+                     and row['human_review_status']=='not_reviewed' for row in links)
+          assert all(row['is_exogenous_causal_shock']=='false' for row in review)
+          print('PASS full historical rate review and candidate-only audit',audit['candidate_links'])
+          PY
+      - name: Package reproducible audit and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="tax-rate-timing-audit-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+          echo "AUDIT_NAME=$NAME" >> "$GITHUB_ENV"
+          tar -czf "${NAME}.tar.gz" -C tax_linkage_output .
+          sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256"
+      - name: Upload all candidate links, full review queue and documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: tax-rate-timing-audit-${{ github.run_number }}
+          path: |
+            tax_linkage_output/
+            tax-rate-timing-audit-*.tar.gz
+            tax-rate-timing-audit-*.tar.gz.sha256
+          retention-days: 90
+          if-no-files-found: error
+      - name: Back up verified audit archive to existing private OneDrive
+        if: ${{ success() }}
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing existing RCLONE_CONFIG_B64 secret'; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          mkdir -p "$RUNNER_TEMP/rclone"
+          umask 077
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+          target="$ONEDRIVE_TARGET/snapshots/analysis/${AUDIT_NAME}.tar.gz"
+          rclone copyto "${AUDIT_NAME}.tar.gz" "$target" --retries 3 --low-level-retries 10
+          local_hash=$(sha256sum "${AUDIT_NAME}.tar.gz" | awk '{print $1}')
+          remote_hash=$(rclone hashsum SHA-256 "$target" 2>/dev/null | awk 'NR==1 {print $1}' || true)
+          if [ "$remote_hash" != "$local_hash" ]; then
+            rclone copyto "$target" "$RUNNER_TEMP/tax-timing-audit-verification.tar.gz"
+            cmp "${AUDIT_NAME}.tar.gz" "$RUNNER_TEMP/tax-timing-audit-verification.tar.gz"
+          fi
+          rclone copyto "${AUDIT_NAME}.tar.gz.sha256" "$target.sha256"
+          rclone copyto tax_linkage_output/linkage_audit.json "$ONEDRIVE_TARGET/snapshots/analysis/${AUDIT_NAME}.json"
+          echo "OneDrive timing audit verified: $target SHA256=$local_hash"
+      - name: Delete temporary OneDrive credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
