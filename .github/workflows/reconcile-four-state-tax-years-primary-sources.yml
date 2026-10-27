@@ -1,0 +1,341 @@
+name: Reconcile four ITEP tax years to official laws without rewriting source data
+'on':
+  workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: Successful 24-case government-source review run
+        required: true
+        type: string
+        default: '40443322848'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: economic-tax-year-government-reconciliation
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
+      ONEDRIVE_TARGET: onedrive:Diego/economic research database
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+      - name: Install Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install four-case legal tax-year reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p analysis
+          cat > analysis/tax_year_reconcile_4.py <<'TAX_RECONCILE_PY_END'
+          """Reconcile four ITEP reporting-year discrepancies to official *tax years*.
+          Do not confuse tax-year applicability with legal enactment, legal effective
+          section dates, surprise, exogeneity, or a causal policy treatment.
+          """
+          from __future__ import annotations
+          import argparse,csv,datetime as dt,hashlib,json,re,urllib.request,urllib.error,html
+          from pathlib import Path
+          from urllib.parse import urlparse
+          from collections import Counter
+
+          BASELINE_RUN=40443322848
+          GOV_SOURCES={
+           'KY_tax_year':('Kentucky state withholding tax FAQ','https://taxanswers.ky.gov/Income-Taxes/Pages/Withholding-Tax-FAQs.aspx',['5%','2018']),
+           'KY_bill':('Kentucky legislature HB366 2018','https://apps.legislature.ky.gov/record/18RS/HB366.html',['366','2018']),
+           'NJ_tax_year':('New Jersey Division of Taxation 2018 notice','https://www.nj.gov/treasury/taxation/git2018TaxRates.shtml',['10.75','2018']),
+           'ID_tax_year':('Idaho State Tax Commission individual rate schedules','https://tax.idaho.gov/taxes/income-tax/individual-income/individual-income-tax-rate-schedule/',['2021','2022','6.5','6.0']),
+           'ID_2021_bill':('Idaho Governor HB380 2021 announcement','https://gov.idaho.gov/pressrelease/idaho-achieves-single-largest-tax-cut-in-state-history/',['380','2021','6.5']),
+           'ID_2022_bill':('Idaho Tax Commission 2022 update','https://tax.idaho.gov/taxes/tax-pros/tax-update/tax-update-summer-2022/',['436','2022','6%']),
+           'OH_tax_year':('Ohio Department of Taxation 2021 and 2022 brackets','https://tax.ohio.gov/individual/resources/annual-tax-rates',['2021','2022','3.990']),
+           'OH_bill':('Ohio legislative HB110 status','https://www.legislature.ohio.gov/legislation/134/hb110/status',['110','2021']),
+          }
+          CASES={
+           ('KY',2019,'pit'):dict(previous=6.0,current=5.0,government_tax_year=2018,primary_law='Kentucky HB 366 (2018), Acts ch. 171',government_rate_2018=5.0,government_rate_2019=5.0,
+                                   basis='Tax year applicability begins 2018; 2019 ITEP year-end step is not the law start',refs=['KY_tax_year','KY_bill'],legislative_action_year=2018),
+           ('NJ',2019,'pit'):dict(previous=8.97,current=10.75,government_tax_year=2018,primary_law='P.L. 2018, c.45',government_rate_2018=10.75,government_rate_2019=10.75,
+                                   basis='Signed 2018-07-01, 10.75% retroactive for tax year 2018',refs=['NJ_tax_year'],legislative_action_year=2018,law_signed_date='2018-07-01'),
+           ('ID',2022,'pit'):dict(previous=6.925,current=6.5,government_tax_year=2021,primary_law='Idaho HB 380 (2021); HB 436 (2022)',government_rate_2021=6.5,government_rate_2022=6.0,
+                                   basis='Source-reported ITEP delta 6.925 to 6.5 in 2022 does not describe official 2022 top rate of 6%; HB380/2021 -> 6.5 and HB436/2022 -> 6%',refs=['ID_tax_year','ID_2021_bill','ID_2022_bill'],legislative_action_year=2021,law_signed_date='2021-05-10'),
+           ('OH',2022,'pit'):dict(previous=4.797,current=3.99,government_tax_year=2021,primary_law='Ohio HB 110 (134th General Assembly)',government_rate_2020=4.797,government_rate_2021=3.99,government_rate_2022=3.99,
+                                   basis='Ohio publishes top 3.99% in tax year 2021 and 2022; 2022 comparison is lagged',refs=['OH_tax_year','OH_bill'],legislative_action_year=2021),
+          }
+          # One source-reported ITEP comparison may have >1 underlying policy-year event.
+          EVENTS=[
+           dict(state_abbr='KY',tax_type='pit',policy_tax_year=2018,policy_applicability_from='2018-01-01',law='Kentucky HB 366 / Acts ch.171',government_rate_pp=5.0,law_enacted_or_signed_date='',reference_ids='KY_tax_year|KY_bill'),
+           dict(state_abbr='NJ',tax_type='pit',policy_tax_year=2018,policy_applicability_from='2018-01-01',law='New Jersey P.L. 2018 c.45',government_rate_pp=10.75,law_enacted_or_signed_date='2018-07-01',reference_ids='NJ_tax_year'),
+           dict(state_abbr='ID',tax_type='pit',policy_tax_year=2021,policy_applicability_from='2021-01-01',law='Idaho HB 380',government_rate_pp=6.5,law_enacted_or_signed_date='2021-05-10',reference_ids='ID_tax_year|ID_2021_bill'),
+           dict(state_abbr='ID',tax_type='pit',policy_tax_year=2022,policy_applicability_from='2022-01-01',law='Idaho HB 436',government_rate_pp=6.0,law_enacted_or_signed_date='2022-02-04',reference_ids='ID_tax_year|ID_2022_bill'),
+           dict(state_abbr='OH',tax_type='pit',policy_tax_year=2021,policy_applicability_from='2021-01-01',law='Ohio HB 110',government_rate_pp=3.99,law_enacted_or_signed_date='',reference_ids='OH_tax_year|OH_bill'),
+          ]
+
+          def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          def write_csv(path,rows):
+              assert rows
+              with Path(path).open('w',newline='',encoding='utf-8') as f:
+                  keys=list(rows[0]);writer=csv.DictWriter(f,fieldnames=keys,extrasaction='raise');writer.writeheader();writer.writerows(rows)
+
+          def verify_baseline(root):
+              root=Path(root)
+              manifestfile=root/'official_tax_timing_review/manifest.json'
+              queue=root/'official_tax_timing_review/24_unmatched_rate_changes_government_evidence_review.csv'
+              reference=root/'analysis/official_state_tax_reference_24.csv'
+              if not all(p.is_file() for p in (manifestfile,queue,reference)):raise ValueError('Expected exact official tax review artifact paths missing')
+              manifest=json.loads(manifestfile.read_text())
+              assert int(manifest['previous_missing_context_cases'])==24
+              assert int(manifest['cases_flagged_possible_ITEP_year_alignment_conflict'])==4
+              assert sha(queue)==manifest['outputs_sha256'][queue.name]
+              assert sha(reference)==manifest['official_review_reference_sha256']
+              with queue.open(newline='',encoding='utf-8-sig') as f:rows=list(csv.DictReader(f))
+              keys=[(r['state_abbr'],int(r['year']),r['tax_type']) for r in rows]
+              if len(rows)!=24 or len(keys)!=len(set(keys)):raise ValueError('Baseline row count or keys changed')
+              flagged={key for key,r in zip(keys,rows) if r['year_alignment_conflict_review_required']=='True'}
+              if flagged!=set(CASES):raise ValueError(f'Mismatched discrepancy keys: {flagged ^ set(CASES)}')
+              for key,r in zip(keys,rows):
+                  if key in CASES:
+                      expected=CASES[key]
+                      if abs(float(r['previous_year_end_rate_pp'])-expected['previous'])>1e-6 or abs(float(r['current_year_end_rate_pp'])-expected['current'])>1e-6:
+                          raise ValueError(f'Rate mismatch: {key}')
+              return rows,manifest
+
+          def official_fetch(ref,allow_fetch=True):
+              publisher,url,tokens=GOV_SOURCES[ref]
+              data={'ref_id':ref,'publisher':publisher,'source_url':url,'allowed_government_domain_only':True,'retrieved':False,'source_sha256':'','minimum_source_terms_detected':False,'content_type':'','error':'','caveat':'Source-document retrieval and text tokens cannot certify a legal policy date.'}
+              host=urlparse(url).hostname
+              if not (host and (host.endswith('.gov') or host in {'apps.legislature.ky.gov','www.legislature.ohio.gov'})):
+                  raise ValueError('Non government domain: '+str(host))
+              if not allow_fetch:
+                  data['error']='Offline self-test mode';return data
+              try:
+                  req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (research provenance audit)','Accept':'text/html'})
+                  with urllib.request.urlopen(req,timeout=35) as response:
+                      landing=urlparse(response.geturl()).hostname
+                      if landing!=host and not (landing and landing.endswith('.gov')):raise ValueError('Redirect to unapproved domain')
+                      body=response.read(4_000_001)
+                      if len(body)>4_000_000:raise ValueError('Source larger than 4 MB')
+                      kind=response.headers.get('Content-Type','')
+                  if not ('html' in kind.lower() or body[:100].lower().find(b'<html')>=0 or b'<!doctype' in body[:200].lower()):
+                      raise ValueError('Non-HTML source; full document review required')
+                  txt=html.unescape(re.sub(r'<[^>]*>',' ',body.decode('utf-8',errors='replace')))
+                  txt=re.sub(r'\s+',' ',txt).lower()
+                  matched=all(token.lower() in txt for token in tokens)
+                  data.update(retrieved=True,source_sha256=hashlib.sha256(body).hexdigest(),minimum_source_terms_detected=matched,content_type=kind)
+              except Exception as exc:
+                  data['error']=type(exc).__name__+': '+str(exc)[:230]
+              return data
+
+          def build(root,out,live=True):
+              original,manifest=verify_baseline(root)
+              out=Path(out);out.mkdir(parents=True,exist_ok=True)
+              scans=[official_fetch(ref,live) for ref in GOV_SOURCES]
+              scan_index={x['ref_id']:x for x in scans}
+              changes=[];unflagged=0
+              for r in original:
+                  key=(r['state_abbr'],int(r['year']),r['tax_type'])
+                  if key not in CASES:
+                      unflagged+=1;continue
+                  x=CASES[key]
+                  enough=any(scan_index[ref]['retrieved'] and scan_index[ref]['minimum_source_terms_detected'] for ref in x['refs'])
+                  changes.append({'state_abbr':key[0],'itep_comparison_year':key[1],'tax_type':key[2],
+                    'itep_previous_rate_pp':r['previous_year_end_rate_pp'],'itep_current_rate_pp':r['current_year_end_rate_pp'],
+                    'government_documented_tax_year':x['government_tax_year'],
+                    'research_treatment_year_candidate':x['government_tax_year'],'legal_instrument':x['primary_law'],
+                    'official_source_urls':' | '.join(GOV_SOURCES[ref][1] for ref in x['refs']),
+                    'primary_source_ids':'|'.join(x['refs']),
+                    'original_year_mismatch':'True',
+                    'discrepancy_type':'WRONG_YEAR_AND_RATE_DEFINITION_OR_VINTAGE' if key[0]=='ID' else 'LAGGED_ITEP_RATE_CHANGE_YEAR',
+                    'explanation':x['basis'],
+                    'source_terms_present_in_live_fetch':str(enough),
+                    'statutory_effective_date_verified_from_enacted_bill':'False',
+                    'causal_policy_shock_verified':'False',
+                    'must_preserve_itep_observations':'True',
+                    'research_status':'TAX_YEAR_RECONCILIATION_GOVERNMENT_PUBLISHED_NOT_CAUSAL_SHOCK',
+                  })
+              assert len(changes)==4 and unflagged==20
+              events=[]
+              for ev in EVENTS:
+                  if dt.date.fromisoformat(ev['policy_applicability_from']).year!=ev['policy_tax_year']:
+                      raise ValueError('Policy tax year mismatch')
+                  events.append({**ev,'date_type':'tax_year_applicability_start_not_statutory_section_effective_date',
+                                 'statutory_bill_text_section_reconciled':'False','treatment_exogeneity_verified':'False',
+                                 'confidence':'government_tax_guidance_plus_legislative_context_requires_bill_section_review'})
+              assert len(events)==5 and len({(e['state_abbr'],e['policy_tax_year'],e['tax_type']) for e in events})==5
+              write_csv(out/'four_itep_timing_discrepancies.csv',changes)
+              write_csv(out/'five_official_tax_year_policy_events_for_bill_review.csv',events)
+              write_csv(out/'primary_source_website_availability.csv',scans)
+              audit={'analysis_type':'PRIMARY_GOVERNMENT_TAX_YEAR_RECONCILIATION_NOT_CAUSAL_SHOCK_ESTIMATOR',
+                     'baseline_run_id':BASELINE_RUN,'original_source_comparison_rows':24,'discrepancy_rows':len(changes),
+                     'original_unflagged_cases_untouched':unflagged,'separate_government_tax_year_events':len(events),
+                     'government_webpages_retrieved':sum(x['retrieved'] for x in scans),
+                     'source_pages_with_minimum_expected_terms':sum(x['minimum_source_terms_detected'] for x in scans),
+                     'confirmed_causal_policy_shocks':0,'verified_statutory_section_effective_dates':0,
+                     'changes_made_to_existing_warehouse':0,'source_manifest_sha256':sha(Path(root)/'official_tax_timing_review/manifest.json'),
+                     'source_rate_review_sha256':sha(Path(root)/'official_tax_timing_review/24_unmatched_rate_changes_government_evidence_review.csv'),
+                     'legislative_sources_for_follow_up':[GOV_SOURCES[ref][1] for ref in GOV_SOURCES],
+                     'known_issues':['ITEP changes are year-end comparisons, potentially reflecting reporting revisions/vintage; official tax-year guidance is not the same as change in law on January 1.',
+                                     'Kentucky record refers to HB 487 in earlier source annotation; 2018 flat rate appears in HB 366 and warrants a full amendment timeline review.',
+                                     'Idaho 2022 ITEP top rate is 6.5% but official tax rate is 6.0% for 2022; not solely a one-year offset.',
+                                     'Government website access may vary by CI environment; failures are not absence of a law.',
+                                     'One law may bundle multiple measures; all cases require full text, fiscal notes, anticipation/exogeneity assessment.']}
+              audit['output_sha256']={p.name:sha(p) for p in sorted(out.glob('*.csv'))}
+              (out/'manifest.json').write_text(json.dumps(audit,indent=2,sort_keys=True)+'\n')
+              print(json.dumps({k:audit[k] for k in ('original_source_comparison_rows','discrepancy_rows','separate_government_tax_year_events','government_webpages_retrieved','source_pages_with_minimum_expected_terms','confirmed_causal_policy_shocks')},indent=2))
+              return audit
+
+          def selftest():
+              from tempfile import TemporaryDirectory
+              with TemporaryDirectory() as tmp:
+                  d=Path(tmp);(d/'official_tax_timing_review').mkdir();(d/'analysis').mkdir()
+                  rows=[]
+                  for key,x in CASES.items():
+                      rows.append({'state_abbr':key[0],'year':str(key[1]),'tax_type':key[2],
+                                   'previous_year_end_rate_pp':str(x['previous']),'current_year_end_rate_pp':str(x['current']),
+                                   'year_alignment_conflict_review_required':'True'})
+                  for i in range(20):
+                      rows.append({'state_abbr':'ZZ','year':str(2000+i),'tax_type':'pit',
+                                   'previous_year_end_rate_pp':'2','current_year_end_rate_pp':'3',
+                                   'year_alignment_conflict_review_required':'False'})
+                  q=d/'official_tax_timing_review/24_unmatched_rate_changes_government_evidence_review.csv'
+                  write_csv(q,rows)
+                  r=d/'analysis/official_state_tax_reference_24.csv';r.write_text('test\n')
+                  m={'previous_missing_context_cases':24,'cases_flagged_possible_ITEP_year_alignment_conflict':4,
+                     'outputs_sha256':{q.name:sha(q)},'official_review_reference_sha256':sha(r)}
+                  (d/'official_tax_timing_review/manifest.json').write_text(json.dumps(m))
+                  a=build(d,d/'output',live=False)
+                  assert a['discrepancy_rows']==4 and a['separate_government_tax_year_events']==5
+                  rows[0]['current_year_end_rate_pp']='999';write_csv(q,rows)
+                  try:build(d,d/'broken',live=False)
+                  except (AssertionError,ValueError):pass
+                  else:raise AssertionError('Source tamper not detected')
+                  print('PASS original four keys, 5 tax-year events, 20 untouched, baseline tamper rejection')
+
+          if __name__=='__main__':
+              p=argparse.ArgumentParser();p.add_argument('--baseline',type=Path);p.add_argument('--out',type=Path,default=Path('tax_legal_reconciliation'))
+              p.add_argument('--self-test',action='store_true');a=p.parse_args()
+              if a.self_test:selftest()
+              else:
+                  if a.baseline is None:p.error('--baseline required')
+                  build(a.baseline,a.out)
+          TAX_RECONCILE_PY_END
+          python -m py_compile analysis/tax_year_reconcile_4.py
+      - name: Offline self-test against source tampering and false causal labeling
+        run: python analysis/tax_year_reconcile_4.py --self-test
+      - name: Verify previous official review run and download both audit artifact forms
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BASELINE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
+          test "$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq .conclusion)" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq .name)" = 'Review 24 ITEP tax-rate changes against primary state sources'
+          mkdir -p prior/artifacts prior/archive
+          gh run download "$BASELINE_RUN_ID" --repo "$GH_REPO" --pattern 'official-state-tax-review-source-audit-*' --dir prior/artifacts
+          gh run download "$BASELINE_RUN_ID" --repo "$GH_REPO" --pattern 'official-state-tax-timing-review-*' --dir prior/archive
+      - name: Verify archived primary evidence files against SHA256 and normalize to canonical locations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib,tarfile,shutil
+          base=Path('prior/artifacts'); archives=Path('prior/archive')
+          manifests=list(base.rglob('official_tax_timing_review/manifest.json'))
+          assert len(manifests)==1, f'Expected exactly one manifest: {manifests}'
+          root=manifests[0].parent.parent
+          tarballs=list(archives.rglob('official-tax-timing-review-*.tar.gz'))
+          assert len(tarballs)==1, f'Expected exactly one snapshot archive: {tarballs}'
+          path=tarballs[0]; checksum=path.with_name(path.name+'.sha256')
+          assert checksum.is_file()
+          assert hashlib.sha256(path.read_bytes()).hexdigest()==checksum.read_text().split()[0]
+          with tarfile.open(path,'r:gz') as tar:
+              for rel in ('official_tax_timing_review/manifest.json',
+                          'official_tax_timing_review/24_unmatched_rate_changes_government_evidence_review.csv',
+                          'analysis/official_state_tax_reference_24.csv'):
+                  entries=[m for m in tar.getmembers() if m.isfile() and m.name==rel]
+                  assert len(entries)==1, (rel,entries)
+                  assert tar.extractfile(entries[0]).read()==(root/rel).read_bytes(), 'Archive and file differ: '+rel
+          dest=Path('verified_24_case_baseline');shutil.copytree(root,dest,dirs_exist_ok=True)
+          from analysis.tax_year_reconcile_4 import verify_baseline
+          rows,_=verify_baseline(dest)
+          assert len(rows)==24
+          print('PASS exact prior audit, reference files, source hashes and archive checksum')
+          PY
+      - name: Reconcile four misaligned ITEP comparisons with tax-year evidence
+        run: python analysis/tax_year_reconcile_4.py --baseline verified_24_case_baseline --out tax_year_reconciliation
+      - name: Retain an audit even when government sites cannot be fetched
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tax-year-official-source-access-${{ github.run_number }}
+          path: tax_year_reconciliation/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Verify 24 original cases, five separate policy events and zero claimed causal shocks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          folder=Path('tax_year_reconciliation')
+          report=json.loads((folder/'manifest.json').read_text())
+          assert report['original_source_comparison_rows']==24
+          assert report['original_unflagged_cases_untouched']==20
+          assert report['discrepancy_rows']==4
+          assert report['separate_government_tax_year_events']==5
+          assert report['confirmed_causal_policy_shocks']==0
+          assert report['verified_statutory_section_effective_dates']==0
+          assert report['changes_made_to_existing_warehouse']==0
+          for f,n in [('four_itep_timing_discrepancies.csv',4),('five_official_tax_year_policy_events_for_bill_review.csv',5)]:
+              with (folder/f).open(newline='') as stream:
+                  rows=list(csv.DictReader(stream))
+              assert len(rows)==n,(f,len(rows))
+              assert all(x.get('causal_policy_shock_verified','False')=='False' and x.get('treatment_exogeneity_verified','False')=='False' for x in rows)
+          print('PASS no auto-rewriting tax observations, no fabricated statutory effective dates, no causal claims')
+          PY
+      - name: Publish a SHA256-verified standalone audit snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="four-state-tax-year-reconciliation-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+          echo "AUDIT_ID=$NAME" >> "$GITHUB_ENV"
+          mkdir -p tax_year_archive
+          tar -czf "tax_year_archive/$NAME.tar.gz" tax_year_reconciliation analysis/tax_year_reconcile_4.py
+          (cd tax_year_archive && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256" && sha256sum -c "$NAME.tar.gz.sha256")
+      - name: Upload verified reconciliation to GitHub artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: four-state-tax-year-reconciliation-${{ github.run_number }}
+          path: tax_year_archive/
+          retention-days: 90
+      - name: Back up reconciliation to private OneDrive and verify byte equivalence
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64'; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          mkdir -p "$RUNNER_TEMP/rclone"
+          chmod 700 "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+          source="tax_year_archive/${AUDIT_ID}.tar.gz"
+          dest="$ONEDRIVE_TARGET/snapshots/analysis/${AUDIT_ID}.tar.gz"
+          rclone copyto "$source" "$dest" --retries 3 --low-level-retries 10
+          rclone copyto "$dest" "$RUNNER_TEMP/reconciliation-verify.tar.gz" --retries 3
+          cmp "$source" "$RUNNER_TEMP/reconciliation-verify.tar.gz"
+          rclone copyto "${source}.sha256" "${dest}.sha256"
+          rclone copyto tax_year_reconciliation/manifest.json "$ONEDRIVE_TARGET/snapshots/analysis/${AUDIT_ID}.manifest.json"
+          echo "OneDrive reconciliation verified: $dest SHA256=$(sha256sum "$source" | awk '{print $1}')"
+      - name: Clear temporary OneDrive credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
