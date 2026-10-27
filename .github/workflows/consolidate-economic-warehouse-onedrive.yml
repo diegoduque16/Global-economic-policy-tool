@@ -1,0 +1,374 @@
+name: Consolidate full economic warehouse and back up to OneDrive
+
+on:
+  push:
+    paths:
+      - '.github/workflows/consolidate-economic-warehouse-onedrive.yml'
+  workflow_dispatch:
+    inputs:
+      recent_run_id:
+        description: 'Successful resilient warehouse run to consolidate (defaults to validated Oct 27 run)'
+        type: string
+        required: true
+        default: '40431584422'
+  workflow_run:
+    workflows: ['Build economic warehouse with source checkpoints']
+    types: [completed]
+
+permissions:
+  contents: write  # Persist ordinary consolidation code; never push workflow files
+  actions: read
+
+concurrency:
+  group: consolidated-economic-warehouse
+  cancel-in-progress: false
+
+jobs:
+  consolidate:
+    if: >-
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'push' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      LEGACY_RUN_ID: '40268484973'
+      RECENT_RUN_ID: ${{ github.event.workflow_run.id || inputs.recent_run_id || '40431584422' }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Confirm both source workflows completed successfully
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RECENT_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Invalid recent run ID' >&2; exit 1; }
+          for kind in legacy recent; do
+            if [ "$kind" = legacy ]; then
+              id="$LEGACY_RUN_ID"
+              expected='Build versioned economic research warehouse'
+            else
+              id="$RECENT_RUN_ID"
+              expected='Build economic warehouse with source checkpoints'
+            fi
+            status=$(gh api "repos/$GH_REPO/actions/runs/$id" --jq '.conclusion')
+            name=$(gh api "repos/$GH_REPO/actions/runs/$id" --jq '.name')
+            branch=$(gh api "repos/$GH_REPO/actions/runs/$id" --jq '.head_branch')
+            test "$status" = success || { echo "Run $id is not successful: $status" >&2; exit 1; }
+            test "$name" = "$expected" || { echo "Unexpected $kind source workflow: $name" >&2; exit 1; }
+            test "$branch" = main || { echo "Unexpected $kind source branch: $branch" >&2; exit 1; }
+          done
+      - name: Retrieve both versioned warehouse archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p downloads/legacy downloads/recent
+          gh run download "$LEGACY_RUN_ID" --repo "$GH_REPO" --pattern 'economic-warehouse-*' --dir downloads/legacy
+          gh run download "$RECENT_RUN_ID" --repo "$GH_REPO" --pattern 'economic-validated-warehouse-*' --dir downloads/recent
+          echo 'Legacy warehouse archives:'
+          find downloads/legacy -type f -name '*.tar.gz'
+          echo 'Recent warehouse archives:'
+          find downloads/recent -type f -name '*.tar.gz'
+      - name: Install audited consolidation module from this workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p warehouse
+          cat > warehouse/consolidate.py <<'PY'
+          """Reconstruct an audited union of two validated warehouse snapshots.
+          
+          Copies processed CSVs and their collector reports without fabricating observations.
+          Requires validated per-file hashes and a no-regression floor for each family.
+          """
+          from __future__ import annotations
+          
+          import argparse
+          import csv
+          import hashlib
+          import json
+          from pathlib import Path
+          import shutil
+          import tarfile
+          from contextlib import ExitStack
+          
+          from warehouse.snapshot import FAMILIES, OPTIONAL_FAMILIES
+          
+          # Source-family coverage of the Oct 26 baseline and Oct 27 validated build.
+          BASELINE_FLOORS = {
+              'wdi': 300240, 'us_europe': 13448, 'historical': 16395,
+              'imf_oecd': 51243, 'labor': 123233, 'eurostat_ai': 139,
+              'imf_gfs': 2579, 'bls_bed': 3444, 'oecd_cit': 3929,
+              'bls_jolts': 252390, 'historical_turnover': 2868,
+              'bocconi_fiscal': 7672, 'imf_extension': 94524,
+              'us_state_qcew': 25625, 'us_state_bea': 13056,
+              'us_state_tax': 118155, 'bjk_state_rates': 22124,
+              'bjk_county_rates': 173789,
+          }
+          RECENT_FLOORS = {
+              'wdi': 300240, 'us_europe': 13448, 'historical': 16395,
+              'imf_oecd': 51243, 'labor': 123233, 'eurostat_ai': 139,
+              'tariff_shocks': 185, 'cait_ai_claims': 1872,
+              'us_state_qcew_historical': 11700,
+              'bjk_state_rates': 22124, 'bjk_county_rates': 173789,
+          }
+          REQUIRED_FAMILIES = set(BASELINE_FLOORS) | set(RECENT_FLOORS)
+          MIN_OBSERVATIONS = 1_238_610
+          
+          
+          def sha256(path: Path) -> str:
+              digest = hashlib.sha256()
+              with path.open('rb') as stream:
+                  for block in iter(lambda: stream.read(1024 * 1024), b''):
+                      digest.update(block)
+              return digest.hexdigest()
+          
+          
+          class SnapshotArchive:
+              def __init__(self, path: Path):
+                  self.path = path
+                  self.archive = tarfile.open(path, 'r:gz')
+                  entries = {entry.name: entry for entry in self.archive.getmembers() if entry.isfile()}
+                  candidates = [name for name in entries if name.count('/') == 1 and name.endswith('/manifest.json')]
+                  if len(candidates) != 1:
+                      raise ValueError(f'{path}: expected one root manifest, found {candidates}')
+                  self.root = candidates[0].split('/')[0]
+                  self.entries = entries
+                  self.manifest = json.loads(self._read(candidates[0]))
+                  self.inventory = {record['path']: record['sha256'] for record in self.manifest['files']}
+                  self.families = self.manifest['source_families']
+                  if sum(int(x['rows']) for x in self.families.values()) != int(self.manifest['total_source_observations']):
+                      raise ValueError(f'{path}: manifest totals are inconsistent')
+          
+              def _read(self, name: str) -> bytes:
+                  obj = self.archive.extractfile(self.entries[name])
+                  if obj is None:
+                      raise ValueError(f'{self.path}: cannot read {name}')
+                  return obj.read()
+          
+              def copy_verified(self, relative_name: str, target: Path) -> None:
+                  expected_hash = self.inventory.get(relative_name)
+                  if expected_hash is None:
+                      raise ValueError(f'{self.path}: inventory missing {relative_name}')
+                  member = f'{self.root}/{relative_name}'
+                  if member not in self.entries:
+                      raise ValueError(f'{self.path}: archive missing {member}')
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  with self.archive.extractfile(self.entries[member]) as src, target.open('wb') as out:
+                      shutil.copyfileobj(src, out)
+                  if sha256(target) != expected_hash:
+                      target.unlink(missing_ok=True)
+                      raise ValueError(f'{self.path}: checksum mismatch for {member}')
+          
+              def close(self):
+                  self.archive.close()
+          
+          
+          def exactly_one_archive(directory: Path) -> Path:
+              found = list(directory.rglob('*.tar.gz'))
+              if len(found) != 1:
+                  raise ValueError(f'Expected one warehouse .tar.gz under {directory}, found {len(found)}')
+              return found[0]
+          
+          
+          def consolidate(legacy_archive: Path, recent_archive: Path, output: Path, report_path: Path):
+              registry = {**FAMILIES, **OPTIONAL_FAMILIES}
+              output = Path(output)
+              report_path = Path(report_path)
+              if output.exists() and any(output.iterdir()):
+                  raise ValueError(f'Output directory must be empty: {output}')
+              if not REQUIRED_FAMILIES.issubset(registry):
+                  raise ValueError('warehouse.snapshot registry is missing required families')
+          
+              with ExitStack() as stack:
+                  legacy = SnapshotArchive(Path(legacy_archive))
+                  recent = SnapshotArchive(Path(recent_archive))
+                  stack.callback(legacy.close)
+                  stack.callback(recent.close)
+                  for label, snap, required in [('legacy', legacy, BASELINE_FLOORS), ('recent', recent, RECENT_FLOORS)]:
+                      missing = set(required) - set(snap.families)
+                      if missing:
+                          raise ValueError(f'{label} snapshot is missing {sorted(missing)}')
+                      regressions = {fam: [int(snap.families[fam]['rows']), floor]
+                                     for fam, floor in required.items() if int(snap.families[fam]['rows']) < floor}
+                      if regressions:
+                          raise ValueError(f'{label} source coverage regressed: {regressions}')
+          
+                  families = sorted(set(legacy.families) | set(recent.families))
+                  if not REQUIRED_FAMILIES.issubset(families):
+                      raise ValueError('Union is missing required source families')
+                  unfamiliar = sorted(set(families) - set(registry))
+                  if unfamiliar:
+                      raise ValueError(f'Unregistered family would be lost: {unfamiliar}')
+          
+                  selection = {}
+                  grand_total = 0
+                  for family in families:
+                      selected = recent if family in recent.families else legacy
+                      origin = 'recent' if selected is recent else 'legacy'
+                      directory, filename, _ = registry[family]
+                      stored_report = output / directory / 'run_report.json'
+                      stored_csv = output / directory / 'processed' / filename
+                      selected.copy_verified(f'sources/{family}/run_report.json', stored_report)
+                      selected.copy_verified(f'sources/{family}/processed/{filename}', stored_csv)
+                      source_report = json.loads(stored_report.read_text(encoding='utf-8'))
+                      if source_report.get('errors') or source_report.get('conflicts'):
+                          raise ValueError(f'{family}: source report contains collection errors/conflicts')
+                      expected = int(selected.families[family]['rows'])
+                      if expected != int(source_report['observations']):
+                          raise ValueError(f'{family}: source report and snapshot counts differ')
+                      with stored_csv.open(newline='', encoding='utf-8-sig') as file:
+                          actual = sum(1 for _ in csv.DictReader(file))
+                      if actual != expected:
+                          raise ValueError(f'{family}: CSV has {actual} rows, manifest expects {expected}')
+                      floor = max(BASELINE_FLOORS.get(family, 0), RECENT_FLOORS.get(family, 0))
+                      if actual < floor:
+                          raise ValueError(f'{family}: regression {actual} below required {floor}')
+                      grand_total += actual
+                      selection[family] = {'source_snapshot': origin,
+                                           'rows': actual,
+                                           'sha256': sha256(stored_csv)}
+                  if grand_total < MIN_OBSERVATIONS:
+                      raise ValueError(f'Merged count {grand_total} is below the {MIN_OBSERVATIONS} regression floor')
+                  result = {
+                      'legacy_snapshot': legacy.manifest['snapshot_id'],
+                      'recent_snapshot': recent.manifest['snapshot_id'],
+                      'total_observations': grand_total,
+                      'source_family_count': len(families),
+                      'source_selection': selection,
+                      'source_snapshots_verified_from_sha256_inventory': True,
+                      'is_definition_harmonized': False,
+                      'is_causal_inference_ready': False,
+                      'notes': [
+                          'Newer sources are preferred when a family occurs in both snapshots.',
+                          'Missing historical source families are restored from the original validated snapshot.',
+                          'Historical-only sources have NOT been refreshed; their original retrieval dates are preserved.',
+                          'Source units, definitions, and overlapping providers have not been harmonized.',
+                      ],
+                  }
+                  report_path.parent.mkdir(parents=True, exist_ok=True)
+                  report_path.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+                  print(json.dumps({'observations': grand_total, 'families': len(families),
+                                    'restored_from_legacy': sorted(set(legacy.families) - set(recent.families)),
+                                    'added_from_recent': sorted(set(recent.families) - set(legacy.families))}, indent=2))
+                  return result
+          
+          
+          def main():
+              parser = argparse.ArgumentParser(description=__doc__)
+              parser.add_argument('--legacy-dir', type=Path, required=True)
+              parser.add_argument('--recent-dir', type=Path, required=True)
+              parser.add_argument('--out-data', type=Path, default=Path('data'))
+              parser.add_argument('--report', type=Path, default=Path('consolidation_report.json'))
+              args = parser.parse_args()
+              consolidate(exactly_one_archive(args.legacy_dir), exactly_one_archive(args.recent_dir),
+                          args.out_data, args.report)
+          
+          
+          if __name__ == '__main__':
+              main()
+          PY
+          python -m py_compile warehouse/consolidate.py
+      - name: Preserve the reusable consolidation module in the repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add warehouse/consolidate.py
+          if ! git diff --cached --quiet; then
+            git commit -m 'Preserve audited 21-family economic warehouse consolidation logic'
+            git push || echo 'Code persistence not permitted; module remains available in the workflow'
+          fi
+      - name: Merge sources without losing historical data
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m warehouse.consolidate \
+            --legacy-dir downloads/legacy \
+            --recent-dir downloads/recent \
+            --out-data merged_data \
+            --report consolidation_report.json
+      - name: Create validated consolidated SQLite snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          ID="economic-consolidated-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+          echo "SNAPSHOT_ID=$ID" >> "$GITHUB_ENV"
+          python warehouse/snapshot.py --data merged_data --out warehouse_output --snapshot-id "$ID"
+      - name: Fail if any source family or previous observations were lost
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sqlite3
+          from pathlib import Path
+          from warehouse.consolidate import REQUIRED_FAMILIES, MIN_OBSERVATIONS
+          provenance=json.loads(Path('consolidation_report.json').read_text())
+          folder=Path('warehouse_output')/os.environ['SNAPSHOT_ID']
+          manifest=json.loads((folder/'manifest.json').read_text())
+          families=manifest['source_families']
+          assert REQUIRED_FAMILIES.issubset(families), sorted(REQUIRED_FAMILIES-set(families))
+          assert len(families) >= 21, f'Only {len(families)} source families'
+          assert manifest['total_source_observations'] >= MIN_OBSERVATIONS
+          assert manifest['total_source_observations'] == provenance['total_observations']
+          assert set(families) == set(provenance['source_selection'])
+          with sqlite3.connect(folder/'warehouse.sqlite') as db:
+              actual=db.execute('SELECT COUNT(*) FROM observations').fetchone()[0]
+              assert actual == manifest['total_source_observations']
+              assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+          print(f'Validated {actual:,} source-native observations from {len(families)} families')
+          print('Restored:', [k for k,v in provenance['source_selection'].items() if v['source_snapshot']=='legacy'])
+          PY
+      - name: Save consolidated warehouse and provenance as GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-consolidated-warehouse-${{ github.run_number }}
+          path: |
+            warehouse_output/*.tar.gz
+            warehouse_output/*/manifest.json
+            consolidation_report.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Upload consolidated archive to existing private OneDrive backup and verify it
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing repository secret RCLONE_CONFIG_B64' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+          archive="warehouse_output/${SNAPSHOT_ID}.tar.gz"
+          file=$(basename "$archive")
+          remote="$ONEDRIVE_TARGET/snapshots/$file"
+          rclone copyto "$archive" "$remote" --retries 3 --low-level-retries 10
+          local_hash=$(sha256sum "$archive" | awk '{print $1}')
+          remote_hash=$(rclone hashsum SHA-256 "$remote" 2>/dev/null | awk 'NR==1 {print $1}' || true)
+          if [[ "$remote_hash" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            test "${local_hash,,}" = "${remote_hash,,}" || { echo 'OneDrive checksum mismatch' >&2; exit 1; }
+          else
+            rclone copyto "$remote" "$RUNNER_TEMP/verify-backup.tar.gz"
+            cmp "$archive" "$RUNNER_TEMP/verify-backup.tar.gz"
+          fi
+          printf '%s  %s\n' "$local_hash" "$file" > "$RUNNER_TEMP/$file.sha256"
+          rclone copyto "$RUNNER_TEMP/$file.sha256" "$remote.sha256"
+          rclone copyto "warehouse_output/$SNAPSHOT_ID/manifest.json" "$ONEDRIVE_TARGET/snapshots/$SNAPSHOT_ID.manifest.json"
+          rclone copyto "consolidation_report.json" "$ONEDRIVE_TARGET/snapshots/$SNAPSHOT_ID.provenance.json"
+          echo "OneDrive backup verified at $remote (SHA-256: $local_hash)"
+      - name: Remove temporary OneDrive credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
