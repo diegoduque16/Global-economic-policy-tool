@@ -1,0 +1,471 @@
+name: Add ITEP historical state tax rates without data regression
+'on':
+  workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: Successful prior tax-events warehouse run; 23 source families
+        required: true
+        type: string
+        default: '40437086084'
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: economic-itep-rate-extension
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
+      ONEDRIVE_TARGET: onedrive:Diego/economic research database
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install workbook reader
+      run: python -m pip install --disable-pip-version-check openpyxl==3.1.5
+    - name: Install ITEP rate collector and documentation
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p open_data
+        cat > open_data/itep_tax_rates.py <<'IT_SOURCE_CODE_END'
+        """Fail-closed ITEP 2026.2 historical state tax-rate workbook importer.
+
+        Requires explicitly identifiable state/year/rate columns or state-year matrix by
+        single-tax worksheets. A schema audit is written even if import fails.
+        """
+        from __future__ import annotations
+        import collections,csv,datetime as dt,hashlib,io,json,math,re,urllib.request,urllib.parse,zipfile
+        from pathlib import Path
+        from openpyxl import load_workbook
+
+        SOURCE='https://itep.org/wp-content/uploads/2026.2_ITEP-State-Tax-Rate-Historical-Data.xlsx'
+        SOURCE_PAGE='https://itep.org/historical-state-tax-rate-data/'
+        VERSION='2026.2 (June 2026)'
+        STATES='AL Alabama|AK Alaska|AZ Arizona|AR Arkansas|CA California|CO Colorado|CT Connecticut|DE Delaware|FL Florida|GA Georgia|HI Hawaii|ID Idaho|IL Illinois|IN Indiana|IA Iowa|KS Kansas|KY Kentucky|LA Louisiana|ME Maine|MD Maryland|MA Massachusetts|MI Michigan|MN Minnesota|MS Mississippi|MO Missouri|MT Montana|NE Nebraska|NV Nevada|NH New Hampshire|NJ New Jersey|NM New Mexico|NY New York|NC North Carolina|ND North Dakota|OH Ohio|OK Oklahoma|OR Oregon|PA Pennsylvania|RI Rhode Island|SC South Carolina|SD South Dakota|TN Tennessee|TX Texas|UT Utah|VT Vermont|VA Virginia|WA Washington|WV West Virginia|WI Wisconsin|WY Wyoming|DC District of Columbia'
+        STATE_ALIASES={}
+        for s in STATES.split('|'):
+            code,name=s.split(' ',1)
+            STATE_ALIASES[code.lower()]=code
+            STATE_ALIASES[name.lower()]=code
+        STATE_ALIASES.update({'washington dc':'DC','washington d.c.':'DC','district of columbia':'DC'})
+        KINDS={
+         'pit':r'(?<![a-z])pit(?![a-z])|personal income|individual income',
+         'cit':r'(?<![a-z])cit(?![a-z])|corporate income|corporation income',
+         'sales':r'general sales|sales tax|sales taxes',
+        }
+        FORBIDDEN=r'deduct|adjust|supplement|summary|instruction|readme|footnote|citations|change|federal|effective|historical notes|data sources|description'
+        FIELDS=['provider','country_iso3','year','period','series','value','unit','frequency','disaggregation','obs_status','source_url','retrieved_utc']
+
+        def norm(x):return ' '.join(str(x or '').strip().lower().replace('_',' ').replace('\n',' ').split())
+        def state(x):return STATE_ALIASES.get(norm(x).strip('.'))
+        def year(x):
+            if isinstance(x,dt.datetime):x=x.year
+            if isinstance(x,(int,float)) and int(x)==x:x=int(x)
+            s=str(x or '').strip()
+            if re.fullmatch(r'(?:18|19|20)\d{2}',s):
+                val=int(s)
+                return val if 1900<=val<=2025 else None
+            return None
+
+        def kind_from_text(s):
+            s=norm(s)
+            kinds=[k for k,rx in KINDS.items() if re.search(rx,s)]
+            return kinds[0] if len(kinds)==1 and not re.search(FORBIDDEN,s) else None
+
+        def rate(cell):
+            raw=cell.value
+            if raw is None or raw=='' or isinstance(raw,bool):return None
+            if isinstance(raw,str):
+                s=raw.strip()
+                if s in ('-','N/A','NA','n/a','—','*','...'):return None
+                if s.endswith('%'):
+                    try:value=float(s[:-1].replace(',',''))
+                    except ValueError:return None
+                    fmt='string_percentage'
+                else:return None # formulas need evaluated cached numeric values
+            elif isinstance(raw,(int,float)):
+                value=float(raw)
+                fmt=str(cell.number_format or '')
+                if '%' in fmt:value*=100
+                elif 0<abs(value)<0.30:raise ValueError(f'Ambiguous fraction-or-percent rate at {cell.coordinate}: {raw} format={fmt}')
+            else:return None
+            if not math.isfinite(value) or not 0<=value<=50:
+                raise ValueError(f'Out-of-range rate at {cell.coordinate}: {raw}')
+            return round(value,9)
+
+        def detect_matrix(ws,kind,audit):
+            """Parse when one axis explicitly enumerates states, the other tax years.
+
+            Never infer tax type from numeric data or silently turn missing into zero.
+            """
+            results=[]; seen=set(); proposals=[]
+            max_r=min(ws.max_row or 0,180)
+            max_c=min(ws.max_column or 0,220)
+            for hr in range(1,min(max_r,65)+1):
+                header=[ws.cell(hr,c).value for c in range(1,max_c+1)]
+                years=[(c,year(v)) for c,v in enumerate(header,1) if year(v) is not None]
+                statecols=[(c,state(v)) for c,v in enumerate(header,1) if state(v) is not None]
+                if len(years)>=12 and len({y for _,y in years})==len(years):
+                    for sc in range(1,min(max_c,8)+1):
+                        state_rows=[]
+                        for r in range(hr+1,min(ws.max_row,hr+100)+1):
+                            st=state(ws.cell(r,sc).value)
+                            if st:state_rows.append((r,st))
+                        if len(set(x[1] for x in state_rows))>=35:
+                            proposals.append(('state_row',hr,sc,years,state_rows))
+                if len(set(s for _,s in statecols))>=35:
+                    for yc in range(1,min(max_c,8)+1):
+                        yearrows=[(r,year(ws.cell(r,yc).value)) for r in range(hr+1,(ws.max_row or hr)+1)]
+                        yearrows=[x for x in yearrows if x[1] is not None]
+                        if len(yearrows)>=12 and len(set(y for _,y in yearrows))==len(yearrows):
+                            proposals.append(('year_row',hr,yc,statecols,yearrows))
+            if len(proposals)>1:
+                # Overlapping repeated headers may be detected more than once; reject unknown layouts.
+                raise ValueError(f'Ambiguous state-year matrices in {ws.title}: {len(proposals)} candidates')
+            if not proposals:return []
+            orient,hr,axis,first,second=proposals[0]
+            audit.setdefault('accepted_layouts',[]).append({'sheet':ws.title,'kind':kind,'orientation':orient,'header_row':hr,'axis_col':axis})
+            for row,st in (second if orient=='state_row' else []):
+                for col,yr in first:
+                    if col==axis:continue
+                    v=rate(ws.cell(row,col))
+                    if v is not None:results.append((st,yr,kind,v,ws.title,ws.cell(row,col).coordinate))
+            for row,yr in (second if orient=='year_row' else []):
+                for col,st in first:
+                    if col==axis:continue
+                    v=rate(ws.cell(row,col))
+                    if v is not None:results.append((st,yr,kind,v,ws.title,ws.cell(row,col).coordinate))
+            return results
+
+        def detect_long_form(ws,audit):
+            results=[]
+            # Explicit state/year columns and columns that name rate *and* tax type.
+            for hr in range(1,min(ws.max_row or 0,35)+1):
+                header=[norm(ws.cell(hr,c).value) for c in range(1,min(ws.max_column or 0,90)+1)]
+                sc=[c for c,v in enumerate(header,1) if v in ('state','state name','state abbreviation','state abbr','jurisdiction')]
+                yc=[c for c,v in enumerate(header,1) if v in ('year','tax year','calendar year')]
+                taxcols=[(c,kind_from_text(v)) for c,v in enumerate(header,1) if kind_from_text(v) and ('rate' in v or v in ('pit','cit'))]
+                taxcols=[(c,k) for c,k in taxcols if 'federal' not in header[c-1]]
+                if len(sc)!=1 or len(yc)!=1 or len(taxcols)<2:continue
+                if len(set(k for _,k in taxcols))!=len(taxcols):raise ValueError('Ambiguous duplicate tax-type columns')
+                for r in range(hr+1,(ws.max_row or hr)+1):
+                    st=state(ws.cell(r,sc[0]).value);yr=year(ws.cell(r,yc[0]).value)
+                    if not st or yr is None:continue
+                    for c,k in taxcols:
+                        value=rate(ws.cell(r,c))
+                        if value is not None:results.append((st,yr,k,value,ws.title,ws.cell(r,c).coordinate))
+                if results:
+                    audit.setdefault('accepted_layouts',[]).append({'sheet':ws.title,'layout':'explicit_long_form','header_row':hr,'rate_columns':[(header[c-1],k) for c,k in taxcols]})
+                    return results
+            return []
+
+        def parse(raw,audit_path:Path):
+            audit={'source_url':SOURCE,'version':VERSION,'source_sha256':hashlib.sha256(raw).hexdigest(),'sheets':[],'accepted_layouts':[]}
+            try:
+                wb=load_workbook(io.BytesIO(raw),read_only=False,data_only=True)
+                results=[]
+                for ws in wb.worksheets:
+                    sample=[]
+                    for r in ws.iter_rows(min_row=1,max_row=min(ws.max_row or 0,12),max_col=min(ws.max_column or 0,13)):
+                        sample.append([str(c.value)[:110] if isinstance(c.value,str) else ('numeric' if isinstance(c.value,(float,int)) else '') for c in r])
+                    kind=kind_from_text(ws.title)
+                    audit['sheets'].append({'title':ws.title,'rows':ws.max_row,'columns':ws.max_column,'tax_type_in_title':kind,'first_rows_label_audit':sample})
+                    if re.search(FORBIDDEN,norm(ws.title)) and not kind:continue
+                    if kind:
+                        results.extend(detect_matrix(ws,kind,audit))
+                    else:
+                        results.extend(detect_long_form(ws,audit))
+                dedup={}
+                for st,yr,k,value,sheet,cell in results:
+                    key=(st,yr,k)
+                    if key in dedup:
+                        if dedup[key][0]!=value:raise ValueError(f'Conflicting ITEP rates for {key}: {dedup[key][0]} vs {value}')
+                        raise ValueError(f'Duplicate identical rate for {key} across workbook; review layout')
+                    dedup[key]=(value,sheet,cell)
+                by_kind=collections.Counter(k for _,_,k in dedup)
+                states_by_kind={k:{st for st,yr,kind in dedup if kind==k} for k in KINDS}
+                years_by_kind={k:{yr for st,yr,kind in dedup if kind==k} for k in KINDS}
+                audit.update({'parsed_rate_observations':len(dedup),'rates_by_tax_type':dict(by_kind),
+                              'state_count_by_type':{k:len(v) for k,v in states_by_kind.items()},
+                              'year_count_by_type':{k:len(v) for k,v in years_by_kind.items()}})
+                if not all(by_kind[k]>=500 and len(states_by_kind[k])>=35 and len(years_by_kind[k])>=20 for k in KINDS):
+                    raise ValueError('RATE_SCHEMA_NOT_VERIFIED: expected >=500 numeric points, >=35 states and >=20 years for each of PIT,CIT,sales; inspect audit before importing')
+                return dedup,audit
+            except Exception as exc:
+                audit['status']='SOURCE_SCHEMA_REVIEW_REQUIRED'
+                audit['error']=f'{type(exc).__name__}: {str(exc)}'
+                raise
+            finally:
+                audit_path.parent.mkdir(parents=True,exist_ok=True)
+                audit_path.write_text(json.dumps(audit,indent=2,default=str)+'\n',encoding='utf-8')
+
+        def download():
+            req=urllib.request.Request(SOURCE,headers={'User-Agent':'GlobalEconomicPolicyTool/1.0 (academic source data audit)'})
+            with urllib.request.urlopen(req,timeout=120) as response:
+                if response.geturl()!=SOURCE:raise ValueError(f'ITEP source redirect changed: {response.geturl()}')
+                blob=response.read(25_000_001)
+            if not 10000<len(blob)<=25_000_000 or not zipfile.is_zipfile(io.BytesIO(blob)):
+                raise ValueError('Unexpected ITEP XLSX download type/size')
+            return blob
+
+        def run(out='merged_data/itep_tax_rates',audit='itep_workbook_schema_audit.json',fetch=download):
+            out=Path(out);audit=Path(audit);out.mkdir(parents=True,exist_ok=True)
+            blob=fetch()
+            dedup,audit_result=parse(blob,audit)
+            stamp=dt.datetime.now(dt.timezone.utc).isoformat()
+            rows=[];lookup=collections.defaultdict(dict)
+            for (st,yr,k),(value,sheet,cell) in sorted(dedup.items()):
+                lookup[(st,k)][yr]=value
+                dims={'state_abbr':st,'tax_type':k,'rate_definition':{'pit':'top_statutory_personal_income','cit':'top_statutory_corporate_income','sales':'state_general_sales'}[k],
+                      'year_end_rate_as_of':f'{yr}-12-31','original_sheet':sheet,'original_cell':cell,
+                      'source_version':VERSION,'tax_base_changes_excluded':True,'local_taxes_excluded':True,
+                      'legal_effective_date_not_identified':True,'not_causal_policy_shock':True}
+                rows.append({'provider':'ITEP Historical State Tax Rate Data','country_iso3':'USA','year':yr,'period':str(yr),
+                             'series':f'ITEP.STATE_TAX_RATE.{k.upper()}.STATUTORY','value':format(value,'.9g'),
+                             'unit':'percent_points','frequency':'annual_december_31','disaggregation':json.dumps(dims,sort_keys=True),
+                             'obs_status':'source_reported_year_end_statutory_rate','source_url':SOURCE_PAGE,'retrieved_utc':stamp})
+            path=out/'processed'/'itep_tax_rates_panel.csv';path.parent.mkdir(parents=True,exist_ok=True)
+            with path.open('w',newline='',encoding='utf-8') as stream:
+                w=csv.DictWriter(stream,fieldnames=FIELDS);w.writeheader();w.writerows(rows)
+            changes=[]
+            for (st,k),hist in lookup.items():
+                for yr in sorted(hist):
+                    if yr-1 not in hist:continue
+                    previous,current=hist[yr-1],hist[yr]
+                    if abs(current-previous)>1e-9:
+                        changes.append({'state_abbr':st,'year':yr,'tax_type':k,'rate_previous_dec_31_pp':previous,
+                                        'rate_current_dec_31_pp':current,'delta_percentage_points':round(current-previous,9),
+                                        'direction':'increase' if current>previous else 'decrease',
+                                        'enactment_date':'','effective_date':'',
+                                        'timing_status':'year_end_comparison_only_not_verified_legal_effective_date',
+                                        'source_url':SOURCE_PAGE})
+            changepath=out/'processed'/'derived_year_end_changes_not_legal_events.csv'
+            with changepath.open('w',newline='',encoding='utf-8') as f:
+                cols=['state_abbr','year','tax_type','rate_previous_dec_31_pp','rate_current_dec_31_pp','delta_percentage_points','direction','enactment_date','effective_date','timing_status','source_url']
+                w=csv.DictWriter(f,fieldnames=cols);w.writeheader();w.writerows(changes)
+            report={'source_url':SOURCE,'source_page':SOURCE_PAGE,'version':VERSION,
+                    'source_sha256':hashlib.sha256(blob).hexdigest(),'panel_sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+                    'observations':len(rows),'derived_year_end_change_comparisons':len(changes),
+                    'rates_by_tax_type':audit_result['rates_by_tax_type'],
+                    'errors':[],'conflicts':[],'research_ready':False,'is_causal_policy_shock':False,
+                    'source_as_of':'december_31','last_included_year':2025,
+                    'limitations':['ITEP workbook is version 2026.2 (June 2026); only years <=2025 included, excludes potentially changing 2026/2027 future rates.',
+                                   'Source only reports year-end values, not the exact legal implementation or enactment date.',
+                                   'Top marginal rates do not measure effective average tax burdens or tax base changes.',
+                                   'Changes are derived differences; cannot identify motive, surprise, or causality.',
+                                   'No source missing cell is imputed to zero; rate formats are interpreted conservatively.']}
+            (out/'run_report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+            print(json.dumps({'observations':len(rows),'by_tax_type':report['rates_by_tax_type'],'derived_year_end_changes':len(changes)},indent=2))
+            return report
+
+        if __name__=='__main__':
+            import argparse
+            p=argparse.ArgumentParser();p.add_argument('--out',default='merged_data/itep_tax_rates');p.add_argument('--audit',default='itep_workbook_schema_audit.json')
+            a=p.parse_args();run(a.out,a.audit)
+        IT_SOURCE_CODE_END
+        python -m py_compile open_data/itep_tax_rates.py
+        mkdir -p docs
+        cat > docs/ITEP_STATE_TAX_RATES.md <<'IT_SOURCE_CODE_END'
+        # ITEP historical state rates — evidence-gated integration
+
+        Source: Institute on Taxation and Economic Policy (ITEP), *Historical State Tax Rate Data*, File Version 2026.2 (June 2026), https://itep.org/historical-state-tax-rate-data/.
+
+        This collector captures explicitly labeled state top statutory personal and corporate income rates, and state general sales rates, in **percentage points** as of **December 31** of each calendar year. It excludes 2026-2027 provisional rates and does not conflate a year-end change with a verified legislative enactment or effective date. For state-years that are missing, it never imputes zero. ITEP omits most local taxes, excludes tax base changes from its rate measure, and includes certain surcharges within headline top rates; see ITEP methodology.
+
+        The workbook parser fails closed unless it recognizes official file structure unambiguously and confirms substantial coverage for all three tax types. An independent schema metadata artifact is retained even if full integration cannot proceed. The source workbook is neither committed nor archived. The new family remains separate from the prior tax collections, policy action records, and OECD corporate tax series.
+
+        The workflow restores exactly all previously validated source families from GitHub run 40437086084, validates original snapshot file hashes and record counts, adds source-native ITEP rate observations, and checks the complete resulting SQLite snapshot before uploading a new versioned artifact and verifying the private OneDrive backup under `Diego/economic research database/snapshots`. All old-family counts must be preserved unchanged. Checksums are recorded. The workflow is manual-only to avoid rerunning costly large warehouse builds with no new ITEP release.
+
+        The `derived_year_end_changes_not_legal_events.csv` file is a descriptive comparison table only. It must never be treated as a list of legal changes or a causal shock series; for that, use documented effective dates and independently reviewed tax legislation. Rates may differ from actual average/effective tax burdens because of brackets, tax bases, credits, exemptions, deductions, and taxpayer mix.
+
+        If the workbook's layout differs from the supported explicitly labeled formats, download `itep-source-audit-*` from GitHub Actions, inspect `itep_workbook_schema_audit.json`, and update the parser before a live import. Do not remove verification gates or insert guessed observations to force success.
+        IT_SOURCE_CODE_END
+    - name: Test state, year, rate unit and workbook parsing offline
+      run: |-
+        python - <<'PY'
+        import io,tempfile
+        from pathlib import Path
+        from openpyxl import Workbook
+        from open_data.itep_tax_rates import parse,STATES,rate
+        w=Workbook();w.remove(w.active)
+        for title in ('Top Personal Income Tax Rate','Top Corporate Income Tax Rate','General Sales Tax Rate'):
+            sheet=w.create_sheet(title)
+            sheet.cell(1,1,'State')
+            for col,year in enumerate(range(2004,2025),2): sheet.cell(1,col,year)
+            for row,item in enumerate(STATES.split('|'),2):
+                sheet.cell(row,1,item.split(' ',1)[0])
+                for col in range(2,23):
+                    cell=sheet.cell(row,col,0.05 + (col-2)*0.0001)
+                    cell.number_format='0.00%'
+        blob=io.BytesIO();w.save(blob)
+        with tempfile.TemporaryDirectory() as temp:
+            rows,metadata=parse(blob.getvalue(),Path(temp)/'audit.json')
+            assert len(rows)==51*21*3,len(rows)
+            assert rows['AL',2004,'pit'][0]==5.0
+            assert rows['WA',2024,'cit'][0]==5.2
+            assert all(n>=500 for n in metadata['rates_by_tax_type'].values())
+        print('Passed offline ITEP parsing/format/state/year tests')
+        PY
+    - name: Collect and audit exact official ITEP 2026.2 workbook
+      run: python open_data/itep_tax_rates.py --out merged_data/itep_tax_rates --audit itep_workbook_schema_audit.json
+    - name: Retain ITEP source-layout audit even if importer fails
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: itep-source-audit-${{ github.run_number }}
+        path: itep_workbook_schema_audit.json
+        if-no-files-found: warn
+        retention-days: 90
+    - name: Validate prior warehouse and download complete verified artifact
+      shell: bash
+      run: |
+        set -euo pipefail
+        [[ "$BASELINE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
+        name=$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq .name)
+        conclusion=$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq .conclusion)
+        branch=$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq .head_branch)
+        test "$name" = 'Add state tax policy locations and effective dates to full warehouse'
+        test "$conclusion" = success
+        test "$branch" = main
+        mkdir -p downloads/baseline
+        gh run download "$BASELINE_RUN_ID" --repo "$GH_REPO" --pattern 'economic-with-tax-effective-dates-*' --dir downloads/baseline
+    - name: Restore all previous source families and verify SHA256
+      run: |-
+        python - <<'PY'
+        from pathlib import Path
+        from warehouse.consolidate import SnapshotArchive,exactly_one_archive
+        import json
+        snap=SnapshotArchive(exactly_one_archive(Path('downloads/baseline')))
+        try:
+            families=snap.families
+            assert len(families)>=23, len(families)
+            assert {'state_tax_policy_actions','census_bds','us_state_tax','oecd_cit'}.issubset(families)
+            expected=snap.manifest['total_source_observations']
+            assert expected>=2759984,expected
+            Path('baseline_manifest.json').write_text(json.dumps(snap.manifest,indent=2)+'\n')
+            registry={**__import__('warehouse.snapshot',fromlist=['FAMILIES']).FAMILIES,
+                      **__import__('warehouse.snapshot',fromlist=['OPTIONAL_FAMILIES']).OPTIONAL_FAMILIES}
+            for fam in families:
+                folder,filename,_=registry[fam]
+                root=Path('merged_data')/folder
+                snap.copy_verified(f'sources/{fam}/processed/{filename}',root/'processed'/filename)
+                snap.copy_verified(f'sources/{fam}/run_report.json',root/'run_report.json')
+            print('Restored validated baseline source families:',len(families),'observations:',expected)
+        finally:snap.close()
+        PY
+    - name: Register separate ITEP rate family without altering other datasets
+      run: |-
+        python - <<'PY'
+        from pathlib import Path
+        path=Path('warehouse/snapshot.py')
+        s=path.read_text(encoding='utf-8')
+        assert 'OPTIONAL_FAMILIES = {\n' in s
+        entry="    'itep_tax_rates': ('itep_tax_rates', 'itep_tax_rates_panel.csv', 1500),\n"
+        if "'itep_tax_rates':" not in s:
+            s=s.replace('OPTIONAL_FAMILIES = {\n','OPTIONAL_FAMILIES = {\n'+entry,1)
+            path.write_text(s,encoding='utf-8')
+        from warehouse.snapshot import OPTIONAL_FAMILIES
+        assert OPTIONAL_FAMILIES['itep_tax_rates']==('itep_tax_rates','itep_tax_rates_panel.csv',1500)
+        PY
+    - name: Build expanded source-separated SQLite research warehouse
+      shell: bash
+      run: |-
+        set -euo pipefail
+        ID="economic-with-itep-rates-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+        echo "SNAPSHOT_ID=$ID" >> "$GITHUB_ENV"
+        python warehouse/snapshot.py --data merged_data --out warehouse_output --snapshot-id "$ID"
+    - name: Verify every original family retained and validate exact new rate increment
+      run: |-
+        python - <<'PY'
+        from pathlib import Path
+        import csv,json,sqlite3,os,hashlib
+        old=json.loads(Path('baseline_manifest.json').read_text(encoding='utf-8'))
+        new=json.loads((Path('warehouse_output')/os.environ['SNAPSHOT_ID']/'manifest.json').read_text(encoding='utf-8'))
+        original=old['source_families'];combined=new['source_families']
+        assert len(original)>=23
+        assert set(combined)==set(original)|{'itep_tax_rates'},(sorted(set(original)-set(combined)),sorted(set(combined)-set(original)))
+        for family,earlier in original.items():
+            assert combined[family]['rows']==earlier['rows'],(family,earlier,combined[family])
+        source=json.loads(Path('merged_data/itep_tax_rates/run_report.json').read_text())
+        assert source['observations']>=1500
+        assert combined['itep_tax_rates']['rows']==source['observations']
+        assert new['total_source_observations']==old['total_source_observations']+source['observations']
+        db=Path('warehouse_output')/os.environ['SNAPSHOT_ID']/'warehouse.sqlite'
+        with sqlite3.connect(db) as conn:
+            assert conn.execute('SELECT COUNT(*) FROM observations').fetchone()[0]==new['total_source_observations']
+            assert conn.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+            assert conn.execute("SELECT COUNT(*) FROM observations WHERE family='itep_tax_rates'").fetchone()[0]==source['observations']
+        report={'snapshot_id':new['snapshot_id'],'baseline_run_id':os.environ['BASELINE_RUN_ID'],
+                'previous_observations':old['total_source_observations'],'itep_observations':source['observations'],
+                'total_observations':new['total_source_observations'],
+                'source_families':len(combined),'itep_source_sha256':source['source_sha256'],
+                'baseline_families_preserved_exactly':True,
+                'is_causal_inference_ready':False}
+        Path('itep_addition_report.json').write_text(json.dumps(report,indent=2)+'\n')
+        print(json.dumps(report,indent=2))
+        PY
+    - name: Keep complete validated warehouse, rate changes and audit reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: economic-with-itep-tax-rates-${{ github.run_number }}
+        path: |
+          warehouse_output/*.tar.gz
+          warehouse_output/*/manifest.json
+          itep_addition_report.json
+          merged_data/itep_tax_rates/run_report.json
+          merged_data/itep_tax_rates/processed/derived_year_end_changes_not_legal_events.csv
+        if-no-files-found: error
+        retention-days: 90
+    - name: Save reusable audited collector and registry code to GitHub
+      shell: bash
+      run: |
+        set -euo pipefail
+        git config user.name 'github-actions[bot]'
+        git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+        git add open_data/itep_tax_rates.py warehouse/snapshot.py docs/ITEP_STATE_TAX_RATES.md
+        if ! git diff --cached --quiet; then
+          git commit -m 'Add fail-closed ITEP historical state tax-rate collector'
+          git push || echo 'Repository write unavailable; collector remains embedded in the workflow'
+        fi
+    - name: Back up expanded archive to existing private OneDrive and verify checksum
+      env:
+        RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64 secret' >&2; exit 1; }
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq rclone
+        umask 077
+        mkdir -p "$RUNNER_TEMP/rclone"
+        printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+        chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+        export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+        archive="warehouse_output/${SNAPSHOT_ID}.tar.gz"
+        remote="$ONEDRIVE_TARGET/snapshots/$(basename "$archive")"
+        rclone copyto "$archive" "$remote" --retries 3 --low-level-retries 10
+        local_hash=$(sha256sum "$archive" | awk '{print $1}')
+        remote_hash=$(rclone hashsum SHA-256 "$remote" 2>/dev/null | awk 'NR==1 {print $1}' || true)
+        if [[ "$remote_hash" =~ ^[0-9a-fA-F]{64}$ ]]; then
+          test "${local_hash,,}" = "${remote_hash,,}" || { echo 'OneDrive SHA256 mismatch' >&2; exit 1; }
+        else
+          rclone copyto "$remote" "$RUNNER_TEMP/verified-itep-snapshot.tar.gz"
+          cmp "$archive" "$RUNNER_TEMP/verified-itep-snapshot.tar.gz"
+        fi
+        printf '%s  %s\n' "$local_hash" "$(basename "$archive")" > "$RUNNER_TEMP/$SNAPSHOT_ID.sha256"
+        rclone copyto "$RUNNER_TEMP/$SNAPSHOT_ID.sha256" "$remote.sha256"
+        rclone copyto "warehouse_output/$SNAPSHOT_ID/manifest.json" "$ONEDRIVE_TARGET/snapshots/$SNAPSHOT_ID.manifest.json"
+        rclone copyto itep_addition_report.json "$ONEDRIVE_TARGET/snapshots/$SNAPSHOT_ID.itep_addition_report.json"
+        echo "OneDrive verified: $remote SHA256=$local_hash"
+    - name: Erase temporary OneDrive OAuth credentials
+      if: always()
+      run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
