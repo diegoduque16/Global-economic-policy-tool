@@ -1,0 +1,130 @@
+name: Materialize five source-native datasets in canonical warehouse
+
+on:
+  workflow_dispatch:
+    inputs:
+      canonical_run_id:
+        description: 'Successful canonical warehouse run ID (includes all five staged datasets)'
+        required: true
+        type: string
+        default: '40616230528'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: materialize-canonical-native
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SOURCE_RUN_ID: ${{ inputs.canonical_run_id }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - name: Checkout verified source code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test source-native schema without external downloads
+        run: python warehouse/native_materialize.py --self-test
+      - name: Validate canonical source run and download its exact artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          conclusion=$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" --jq '.conclusion')
+          name=$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" --jq '.name')
+          branch=$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" --jq '.head_branch')
+          source_repo=$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" --jq '.head_repository.full_name')
+          test "$conclusion" = success
+          test "$name" = 'Build canonical economic warehouse inventory'
+          test "$branch" = main
+          test "$source_repo" = "$GH_REPO"
+          mkdir -p source_package
+          gh run download "$SOURCE_RUN_ID" --repo "$GH_REPO" \
+            --name "canonical-warehouse-$SOURCE_RUN_ID" --dir source_package
+          archive="source_package/canonical-20261028-40616230528.tar.gz"
+          # For this certified starting snapshot, pin the exact hash audited in
+          # the previous GitHub run and OneDrive byte-for-byte verification.
+          if [ "$SOURCE_RUN_ID" = '40616230528' ]; then
+            test -f "$archive"
+            echo '8f6ae9a3674045851c0726aa6415014389082a6309e784c77753542d7147072f  source_package/canonical-20261028-40616230528.tar.gz' | sha256sum -c -
+          else
+            mapfile -d '' -t found < <(find source_package -type f -name 'canonical-*.tar.gz' -print0)
+            test "${#found[@]}" -eq 1
+            archive="${found[0]}"
+          fi
+          echo "SOURCE_ARCHIVE=$archive" >> "$GITHUB_ENV"
+      - name: Materialize audited five-source tables into a new SQLite snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          id="canonical-native-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"
+          echo "NATIVE_SNAPSHOT_ID=$id" >> "$GITHUB_ENV"
+          python warehouse/native_materialize.py \
+            --archive "$SOURCE_ARCHIVE" --output native_output --snapshot-id "$id"
+      - name: Verify unchanged analytic observations and queryable native row counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,sqlite3
+          from pathlib import Path
+          root=Path('native_output')/os.environ['NATIVE_SNAPSHOT_ID']
+          r=json.loads((Path('native_output')/(os.environ['NATIVE_SNAPSHOT_ID']+'.integration_report.json')).read_text())
+          db=root/'canonical_warehouse'/'warehouse.sqlite'
+          with sqlite3.connect(f'file:{db}?mode=ro',uri=True) as con:
+              assert con.execute('SELECT COUNT(*) FROM observations').fetchone()[0]==2780117
+              assert con.execute('SELECT COUNT(*) FROM source_files').fetchone()[0]==24
+              assert con.execute('SELECT COUNT(*) FROM native_sources').fetchone()[0]==5
+              assert con.execute('SELECT COUNT(*) FROM native_records').fetchone()[0]==2104609
+              assert con.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+          assert r['source_native_unharmonized_rows']==2104609
+          assert r['warehouse_modified_observations'] is False
+          print('Verified existing 2,780,117 observations and 2,104,609 queryable source-native rows')
+          PY
+      - name: Save immutable integrated snapshot and audit as GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-native-${{ github.run_id }}
+          path: |
+            native_output/*.tar.gz
+            native_output/*.integration_report.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Back up derived snapshot to existing private OneDrive and verify exact bytes
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing existing OneDrive secret' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+          archive="native_output/$NATIVE_SNAPSHOT_ID.tar.gz"
+          remote="$ONEDRIVE_TARGET/snapshots/$NATIVE_SNAPSHOT_ID.tar.gz"
+          rclone copyto "$archive" "$remote" --retries 3 --low-level-retries 10
+          rclone copyto "$remote" "$RUNNER_TEMP/native-verify.tar.gz" --retries 3
+          cmp "$archive" "$RUNNER_TEMP/native-verify.tar.gz"
+          sha256sum "$archive" > "native_output/$NATIVE_SNAPSHOT_ID.tar.gz.sha256"
+          rclone copyto "native_output/$NATIVE_SNAPSHOT_ID.tar.gz.sha256" "$remote.sha256"
+          rclone copyto "native_output/$NATIVE_SNAPSHOT_ID.integration_report.json" \
+            "$ONEDRIVE_TARGET/snapshots/$NATIVE_SNAPSHOT_ID.integration_report.json"
+          echo "Verified OneDrive derived snapshot at $remote"
+      - name: Remove temporary OAuth credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
