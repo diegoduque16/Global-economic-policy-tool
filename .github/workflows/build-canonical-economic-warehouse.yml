@@ -1,0 +1,113 @@
+name: Build canonical economic warehouse inventory
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: 'Successful consolidated warehouse Actions run ID'
+        required: true
+        type: string
+        default: '40439631125'
+      wave1_run_id:
+        description: 'Successful Treasury and Census BFS staging run ID'
+        required: true
+        type: string
+        default: '40449156776'
+      batch_run_id:
+        description: 'Successful staged economic batch Actions run ID'
+        required: true
+        type: string
+        default: '40614303570'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: canonical-warehouse-build
+  cancel-in-progress: false
+
+jobs:
+  unify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
+      BATCH_RUN_ID: ${{ inputs.batch_run_id }}
+      WAVE1_RUN_ID: ${{ inputs.wave1_run_id }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate implementation tests
+        run: python -m unittest discover -s tests -p 'test_build_canonical.py' -v
+      - name: Check both source workflows and run conclusions
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BASELINE_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$BATCH_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$WAVE1_RUN_ID" =~ ^[0-9]+$ ]]
+          test "$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.conclusion')" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.name')" = 'Add ITEP historical tax rates with verified GST sheet mapping'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$BASELINE_RUN_ID" --jq '.head_branch')" = main
+          test "$(gh api "repos/$GH_REPO/actions/runs/$BATCH_RUN_ID" --jq '.conclusion')" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/$BATCH_RUN_ID" --jq '.name')" = 'Expand economic sources (batch collector)'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$BATCH_RUN_ID" --jq '.head_branch')" = main
+          test "$(gh api "repos/$GH_REPO/actions/runs/$WAVE1_RUN_ID" --jq '.conclusion')" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/$WAVE1_RUN_ID" --jq '.name')" = 'Expand high-priority economic sources (wave 1: Treasury + Census BFS)'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$WAVE1_RUN_ID" --jq '.head_branch')" = main
+      - name: Download exact source artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p downloads/baseline downloads/batch downloads/wave1
+          gh run download "$BASELINE_RUN_ID" --repo "$GH_REPO" --pattern 'economic-with-itep-tax-rates-*' --dir downloads/baseline
+          gh run download "$BATCH_RUN_ID" --repo "$GH_REPO" --name "economic-batch-$BATCH_RUN_ID" --dir downloads/batch
+          gh run download "$WAVE1_RUN_ID" --repo "$GH_REPO" --pattern 'high-priority-economic-source-wave1-*' --dir downloads/wave1
+          find downloads/baseline -name '*.tar.gz' -type f
+          find downloads/batch -name audit.json -type f
+          find downloads/wave1 -name source_native_fetch_audit.json -type f
+      - name: Build one immutable inventory and source bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          ID="canonical-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+          echo "SNAPSHOT_ID=$ID" >> "$GITHUB_ENV"
+          python warehouse/build_canonical.py \
+            --baseline-dir downloads/baseline \
+            --batch-dir downloads/batch \
+            --wave1-dir downloads/wave1 \
+            --output canonical_output --snapshot-id "$ID"
+      - name: Recheck canonical database and source statuses
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,sqlite3
+          from pathlib import Path
+          root=Path('canonical_output')/os.environ['SNAPSHOT_ID']
+          inv=json.loads((root/'unified_inventory.json').read_text())
+          with sqlite3.connect(f"file:{root/'canonical_warehouse'/'warehouse.sqlite'}?mode=ro",uri=True) as db:
+              assert db.execute('SELECT COUNT(*) FROM observations').fetchone()[0] == inv['canonical_observations']
+          assert inv['canonical_observations']>=2780117
+          assert inv['canonical_source_families']>=24
+          assert len(inv['staged_sources'])==5
+          assert all(x['status']=='STAGED_NOT_IN_OBSERVATIONS' for x in inv['staged_sources'].values())
+          assert not inv['warehouse_updated_with_staged_rows']
+          print('Canonical inventory and staging distinction verified')
+          PY
+      - name: Preserve private-to-workflow artifact (no public release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-warehouse-${{ github.run_id }}
+          path: |
+            canonical_output/*.tar.gz
+            canonical_output/*/unified_inventory.json
+          retention-days: 90
+          if-no-files-found: error
