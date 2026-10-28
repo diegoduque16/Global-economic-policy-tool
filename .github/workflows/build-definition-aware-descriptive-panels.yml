@@ -1,0 +1,127 @@
+name: Build definition-aware descriptive economic panels (Phase 5)
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: 'Verified Phase 4 research-candidate run ID'
+        type: string
+        required: true
+        default: '40621538297'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: economic-phase5-descriptive
+  cancel-in-progress: false
+
+jobs:
+  descriptive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - name: Check out audited research code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test period, duplicate and indicator guards offline
+        run: python research/build_descriptive_panels.py --self-test
+      - name: Verify exact successful Phase 4 run and download artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CANDIDATE_RUN_ID" = 40621538297
+          test "$(gh api "repos/$GH_REPO/actions/runs/$CANDIDATE_RUN_ID" --jq '.conclusion')" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/$CANDIDATE_RUN_ID" --jq '.name')" = 'Build source-specific economic research candidates (Phase 4)'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$CANDIDATE_RUN_ID" --jq '.head_branch')" = main
+          test "$(gh api "repos/$GH_REPO/actions/runs/$CANDIDATE_RUN_ID" --jq '.head_repository.full_name')" = "$GH_REPO"
+          mkdir -p incoming
+          gh run download "$CANDIDATE_RUN_ID" --repo "$GH_REPO" \
+            --name "economic-native-candidates-$CANDIDATE_RUN_ID" --dir incoming
+          test "$(find incoming -maxdepth 1 -type f | wc -l)" -eq 7
+          echo '6b01e8550d959e218c962bf89f89c890b1225e04b14af2c5199dbd6bc9ef7574  incoming/candidate_quality_report.json' | sha256sum -c -
+          echo 'ef3b4ea14dd7e35664edc6f61fd48f49b9aa4a5e157647174efdee497db57576  incoming/sha256_manifest.json' | sha256sum -c -
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          with zipfile.ZipFile('phase4_input.zip','w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+              for f in sorted(Path('incoming').iterdir()):
+                  assert f.is_file() and f.suffix in ('.csv','.json')
+                  z.write(f,arcname=f.name)
+          print('Phase 4 inputs archived for source hash verification')
+          PY
+      - name: Build source-separated panels and quarantine unresolved Treasury periods
+        run: |
+          python research/build_descriptive_panels.py --artifact-zip phase4_input.zip --out descriptive_output
+      - name: Verify complete accounting, geography, panel keys and SHA256 outputs
+        run: |
+          python - <<'PY'
+          import csv,hashlib,json
+          from pathlib import Path
+          out=Path('descriptive_output')
+          r=json.loads((out/'descriptive_panel_report.json').read_text())
+          assert r['phase4_candidate_measurements_read']==432824
+          assert r['descriptive_panel_measurements']==67842
+          assert r['treasury_quarantined_measurements']==7767
+          assert r['original_warehouse_read_only']
+          assert not r['cross_source_harmonized']
+          assert not r['eligible_for_causal_inference']
+          assert sum(r['excluded_but_preserved_in_phase4_candidates'].values())==357215
+          expected={'bfs_business_applications':29904,'bfs_high_propensity_applications':29904,
+                    'wdi_current_account_pct_gdp_new_keys':7755,
+                    'cbp_state_mid_march_employment':255,
+                    'qcew_national_quarter_first_month_employment':24}
+          for panel,n in expected.items():
+              assert r['panels'][panel]['observations']==n
+              with (out/(panel+'.csv')).open(encoding='utf-8',newline='') as f:
+                  assert sum(1 for _ in csv.DictReader(f))==n
+          manifest=json.loads((out/'sha256_manifest.json').read_text())
+          for name,v in manifest.items():
+              f=out/name
+              assert f.stat().st_size==v['bytes']
+              h=hashlib.sha256()
+              with f.open('rb') as src:
+                  for block in iter(lambda:src.read(1024*1024),b''):h.update(block)
+              assert h.hexdigest()==v['sha256']
+          print('PASS: 67,842 source-defined panel measurements; 7,767 Treasury rows quarantined; all input accounted for')
+          PY
+      - name: Store versioned Phase 5 data panels and evidence manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-descriptive-panels-${{ github.run_id }}
+          path: descriptive_output/
+          retention-days: 90
+          if-no-files-found: error
+      - name: Back up research panels to private OneDrive and verify exact bytes
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing OneDrive credential secret' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+          remote="$ONEDRIVE_TARGET/research-panels/native-40617910011/descriptive-run-$GITHUB_RUN_ID"
+          rclone copy descriptive_output/ "$remote" --retries 3 --low-level-retries 10
+          mkdir -p "$RUNNER_TEMP/verify-descriptive"
+          rclone copy "$remote" "$RUNNER_TEMP/verify-descriptive" --retries 3
+          diff -rq descriptive_output/ "$RUNNER_TEMP/verify-descriptive"
+          echo "Verified Phase 5 descriptive panels at $remote"
+      - name: Remove private temporary OneDrive credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
