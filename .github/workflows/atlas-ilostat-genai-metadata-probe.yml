@@ -1,0 +1,67 @@
+name: Atlas P0 - Diagnose official ILOSTAT GenAI metadata
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect official ILOSTAT metadata endpoints without downloading economic observations
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+          import urllib.error
+          from urllib.parse import urlsplit
+
+          # Diagnostic only: these are candidate official ILO SDMX structure endpoints.
+          # Sample up to 256 KiB of metadata, never call the /data endpoint.
+          endpoints = {
+              "ilo_v1_dataflows": "https://sdmx.ilo.org/rest/v1/dataflow/ILO/all/latest?references=none",
+              "all_v1_dataflows": "https://sdmx.ilo.org/rest/v1/dataflow/all/all/latest?references=none",
+              "ilo_v2_dataflows": "https://sdmx.ilo.org/rest/v2/dataflow/ILO/all/latest?references=none",
+          }
+          results = []
+          for label, url in endpoints.items():
+              result = {"probe": label, "requested_host": "sdmx.ilo.org"}
+              try:
+                  req = urllib.request.Request(url, headers={
+                      "User-Agent": "EconomicDataAtlas/0.4 official public ILOSTAT metadata discovery",
+                      "Accept": "application/vnd.sdmx.structure+xml;version=2.1, application/xml;q=0.8",
+                  })
+                  with urllib.request.urlopen(req, timeout=35) as response:
+                      final = urlsplit(response.geturl())
+                      if final.scheme != "https" or final.hostname not in {"sdmx.ilo.org", "www.ilo.org"}:
+                          raise ValueError("Unexpected provider redirect")
+                      sample = response.read(262145)
+                      lo = sample.lower()
+                      result.update(
+                          status=response.status,
+                          resolved_host=final.hostname,
+                          content_type=response.headers.get("Content-Type"),
+                          content_length=response.headers.get("Content-Length"),
+                          sampled_bytes=len(sample),
+                          sample_truncated=len(sample) > 262144,
+                          appears_xml=sample.lstrip().startswith(b"<"),
+                          sdmx_dataflow_token=b"dataflow" in lo,
+                          genai_token_in_sample=(b"generative ai" in lo or b"genai" in lo or b"artificial intelligence" in lo),
+                      )
+              except urllib.error.HTTPError as error:
+                  result.update(status=error.code, content_type=error.headers.get("Content-Type"), error="HTTP error; no body logged")
+              except Exception as error:
+                  result["error"] = type(error).__name__ + ": " + str(error)[:160]
+              print(json.dumps(result, sort_keys=True), flush=True)
+              results.append(result)
+          nonempty = any(r.get("status") == 200 and r.get("sampled_bytes", 0) > 0 and r.get("appears_xml") for r in results)
+          print("DIAGNOSIS: at least one official ILO SDMX endpoint returned XML-like metadata." if nonempty else
+                "DIAGNOSIS: none of the three candidate endpoints returned usable XML-like metadata.")
+          print("Safety: no economic observations requested or ingested; only bounded metadata samples examined.")
+          if not nonempty:
+              raise SystemExit("ILOSTAT structure API access requires further diagnosis")
+          PY
