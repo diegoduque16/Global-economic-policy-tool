@@ -22,6 +22,7 @@ WB_BASE = "https://api.worldbank.org/v2/indicator"
 EU_TOC = "https://ec.europa.eu/eurostat/api/dissemination/catalogue/toc/txt?lang=en"
 MAX_BYTES = 25_000_000
 WB_PER_PAGE = 1000
+WB_MIN_UNIQUE = 3000
 TOC_COLS = ("title", "code", "type", "last update of data",
             "last table structure change", "data start", "data end", "values")
 PROVIDERS = {"worldbank", "eurostat"}
@@ -98,7 +99,17 @@ def parse_wb_page(raw: bytes, expected_page: int, expected_pages=None, expected_
     return pages, total, result
 
 def discover_worldbank(fetch=retrieve):
-    all_rows, hashes, seen = [], [], set()
+    """Inventory distinct official indicator/source identifiers without hiding API repeats.
+
+    The API's `total` is the *number of returned entries*, which can include
+    duplicate (source, indicator) identifiers. We preserve raw-occurrence counts
+    and exact content hashes, reject contradictory duplicate metadata, and emit
+    one search entry per identical identifier. A duplicate on different pages is
+    recorded as a possible pagination-stability caveat, not evidence of coverage.
+    """
+    all_rows, hashes, seen = [], [], {}
+    raw_occurrences = 0
+    repeats = []
     page = 1
     pages = total = None
     while True:
@@ -108,18 +119,39 @@ def discover_worldbank(fetch=retrieve):
         new_pages, new_total, rows = parse_wb_page(raw, page, pages, total)
         if pages is None:
             pages, total = new_pages, new_total
+        raw_occurrences += len(rows)
         for r in rows:
             key = r["source_key"]
             if key in seen:
-                raise ValueError(f"Duplicate World Bank indicator within source: {key}")
-            seen.add(key); all_rows.append(r)
+                prior, first_page = seen[key]
+                if prior != r:
+                    raise ValueError(f"Conflicting World Bank metadata for duplicated indicator: {key}")
+                repeats.append({"source_key": key, "original_page": first_page,
+                                "repeated_page": page})
+                continue
+            seen[key] = (r, page)
+            all_rows.append(r)
         if page == pages:
             break
         page += 1
-    if len(all_rows) != total or len(all_rows) < 3000:
-        raise ValueError(f"World Bank coverage mismatch, actual {len(all_rows)} versus reported {total}")
-    return all_rows, {"source_url": WB_BASE, "pages": pages, "source_reported_total_entries": total,
-                      "responses": hashes, "catalog_entries": len(all_rows)}
+    # Raw API total is NOT necessarily the count of distinct (source, indicator) keys.
+    if raw_occurrences != total:
+        raise ValueError(f"World Bank page count mismatch: {raw_occurrences} raw entries versus reported {total}")
+    if len(all_rows) < WB_MIN_UNIQUE:
+        raise ValueError(f"World Bank distinct catalog coverage unexpectedly small: {len(all_rows)}")
+    repeated_cross_pages = sum(x['original_page'] != x['repeated_page'] for x in repeats)
+    return all_rows, {
+        "source_url": WB_BASE, "pages": pages,
+        "source_reported_total_entries_including_duplicates": total,
+        "raw_indicator_occurrences": raw_occurrences,
+        "distinct_source_indicator_keys": len(all_rows),
+        "identical_duplicate_occurrences": len(repeats),
+        "cross_page_duplicate_occurrences": repeated_cross_pages,
+        "duplicate_identifiers_sample": repeats[:25],
+        "possible_pagination_instability": repeated_cross_pages > 0,
+        "duplicate_content_conflicts_rejected": True,
+        "responses": hashes, "catalog_entries": len(all_rows),
+    }
 
 def parse_eurostat_toc(raw: bytes):
     try:
