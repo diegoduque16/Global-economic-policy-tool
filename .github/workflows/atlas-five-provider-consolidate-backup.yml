@@ -1,0 +1,259 @@
+name: Atlas - Consolidate verified five-provider metadata and back up to OneDrive
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: atlas-five-provider-catalog-consolidation
+  cancel-in-progress: false
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      REMOTE_BASE: 'onedrive:Diego/economic research database/atlas/catalog-discovery/consolidated'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch four exact official discovery reports from successful workflow runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_one() {
+            local run_id="$1" expected_workflow="$2" artifact="$3" folder="$4"
+            local base="repos/$GH_REPO/actions/runs/$run_id"
+            test "$(gh api "$base" --jq .conclusion)" = success
+            test "$(gh api "$base" --jq .head_branch)" = main
+            test "$(gh api "$base" --jq .head_repository.full_name)" = "$GH_REPO"
+            test "$(gh api "$base" --jq .name)" = "$expected_workflow"
+            mkdir -p "$RUNNER_TEMP/atlas-catalog-inputs/$folder"
+            gh run download "$run_id" --repo "$GH_REPO" --name "$artifact" --dir "$RUNNER_TEMP/atlas-catalog-inputs/$folder"
+            echo "Verified source run $run_id for $folder"
+          }
+          fetch_one 40632944772 'Atlas 2 - Discover World Bank and Eurostat data catalogs' 'atlas2-worldbank-eurostat-metadata-40632944772' atlas2
+          fetch_one 40635233977 'Atlas 3 - Discover IMF OECD BIS SDMX dataflow catalogs' 'atlas3-imf-sdmx-dataflows-40635233977' imf
+          fetch_one 40635344300 'Atlas 3 - Discover IMF OECD BIS SDMX dataflow catalogs' 'atlas3-oecd-sdmx-dataflows-40635344300' oecd
+          fetch_one 40635423718 'Atlas 3 - Discover IMF OECD BIS SDMX dataflow catalogs' 'atlas3-bis-sdmx-dataflows-40635423718' bis
+      - name: Revalidate source manifests, consolidate provider metadata, preserve original reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          """Merge five independently verified official metadata catalogs; no data observations."""
+          import csv
+          import hashlib
+          import json
+          import os
+          import shutil
+          from collections import Counter
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          BASE = Path(os.environ['RUNNER_TEMP'])
+          INPUT = BASE / 'atlas-catalog-inputs'
+          OUTPUT = BASE / 'atlas-consolidated'
+          RUNS = {
+              'atlas2': 40632944772,
+              'imf': 40635233977,
+              'oecd': 40635344300,
+              'bis': 40635423718,
+          }
+          EXPECTED = {'worldbank': 29533, 'eurostat': 7602, 'imf': 229, 'oecd': 1553, 'bis': 32}
+          FIELDS = ['provider', 'metadata_layer', 'record_type', 'provider_record_key',
+                    'title', 'description', 'source_code', 'agency_id', 'version',
+                    'start_period_source', 'end_period_source', 'source_run_id',
+                    'evidence_status']
+
+          def load_verified(folder, csv_name, summary_name):
+              expected = {csv_name, summary_name, 'sha256_manifest.json'}
+              assert {p.name for p in folder.iterdir() if p.is_file()} == expected, f'Unexpected artifact files: {folder}'
+              manifest = json.loads((folder / 'sha256_manifest.json').read_text())
+              assert set(manifest) == {csv_name, summary_name}, f'Bad source SHA256 manifest: {folder}'
+              for name, info in manifest.items():
+                  contents = (folder / name).read_bytes()
+                  assert len(contents) == info['bytes'], f'Wrong source length: {folder}/{name}'
+                  assert hashlib.sha256(contents).hexdigest() == info['sha256'], f'Source checksum mismatch: {folder}/{name}'
+              with (folder / csv_name).open(encoding='utf-8', newline='') as fp:
+                  reader = csv.DictReader(fp)
+                  assert reader.fieldnames is not None
+                  rows = list(reader)
+              summary = json.loads((folder / summary_name).read_text())
+              return rows, summary
+
+          OUTPUT.mkdir(parents=True, exist_ok=False)
+          originals = OUTPUT / 'original-source-reports'
+          originals.mkdir()
+          combined = []
+          seen = set()
+          counts = Counter()
+          record_types = Counter()
+          sources = {}
+
+          def add(provider, typ, key, title, description, code, agency, version, start, end, run_id, evidence):
+              assert provider in EXPECTED and key and title is not None, 'Missing provider or record identity'
+              unique = (provider, key)
+              assert unique not in seen, f'Duplicate provider record key: {unique}'
+              seen.add(unique)
+              combined.append(dict(provider=provider, metadata_layer=('sdmx_dataflow_catalog' if typ == 'sdmx_dataflow' else 'source_indicator_catalog' if provider == 'worldbank' else 'dataset_table_catalog'),
+                                   record_type=typ, provider_record_key=key, title=title,
+                                   description=description, source_code=code, agency_id=agency,
+                                   version=version, start_period_source=start,
+                                   end_period_source=end, source_run_id=run_id,
+                                   evidence_status=evidence))
+              counts[provider] += 1
+              record_types[f'{provider}:{typ}'] += 1
+
+          folder = INPUT / 'atlas2'
+          rows, summary = load_verified(folder, 'discovered_series_metadata.csv', 'atlas2_discovery_summary.json')
+          assert summary['status'] == 'OFFICIAL_METADATA_DISCOVERED_NO_ECONOMIC_OBSERVATIONS_DOWNLOADED'
+          assert summary['economic_observations_ingested'] == 0 and summary['research_ready'] is False
+          assert summary['source_provider_count'] == 2
+          assert set(summary['by_provider']) == {'worldbank', 'eurostat'}
+          assert summary['discovered_catalog_entries'] == len(rows)
+          assert sum(v['catalog_entries'] for v in summary['by_provider'].values()) == len(rows)
+          for row in rows:
+              provider = row['provider']
+              assert provider in {'worldbank','eurostat'}, f'Unexpected Atlas 2 provider: {provider}'
+              assert row['evidence_status'] == 'OFFICIAL_CATALOG_METADATA_NOT_INGESTED'
+              typ = row['provider_catalog_type']
+              if provider == 'worldbank':
+                  assert typ == 'indicator'
+              else:
+                  assert typ in {'dataset', 'table'}
+              add(provider, typ, row['source_key'], row['title'], row['description_source'],
+                  row['source_code'], '', '', row['start_period_source'], row['end_period_source'],
+                  RUNS['atlas2'], row['evidence_status'])
+          for provider in ('worldbank','eurostat'):
+              assert counts[provider] == summary['by_provider'][provider]['catalog_entries']
+              sources[provider] = {'source_run_id': RUNS['atlas2'],
+                                   'official_endpoint': summary['by_provider'][provider]['source_url'],
+                                   'source_report_type': 'atlas2_provider_catalog_metadata'}
+          copy = originals / 'atlas2'
+          shutil.copytree(folder, copy)
+
+          for provider in ('imf', 'oecd', 'bis'):
+              folder = INPUT / provider
+              rows, report = load_verified(folder, 'discovered_sdmx_dataflows.csv', 'atlas3_sdmx_summary.json')
+              assert report['provider'] == provider
+              assert report['catalog_status'] == 'OFFICIAL_DATAFLOW_METADATA_ONLY_NO_OBSERVATIONS_INGESTED'
+              assert report['economic_observations_downloaded'] == 0
+              assert report['time_series_discovered'] is None
+              assert report['research_ready'] is False
+              assert report['redistribution_license_verified'] is False
+              assert report['distinct_dataflow_entries'] == len(rows)
+              for row in rows:
+                  assert row['provider'] == provider
+                  assert row['provider_catalog_type'] == 'sdmx_dataflow'
+                  assert row['evidence_status'] == 'OFFICIAL_DATAFLOW_METADATA_ONLY_NO_OBSERVATIONS_INGESTED'
+                  assert row['dataflow_key'] == f"{row['agency_id']}:{row['dataflow_id']}:{row['version']}"
+                  add(provider, 'sdmx_dataflow', row['dataflow_key'], row['title'], row['description'],
+                      row['dataflow_id'], row['agency_id'], row['version'], '', '',
+                      RUNS[provider], row['evidence_status'])
+              assert counts[provider] == report['distinct_dataflow_entries']
+              sources[provider] = {'source_run_id': RUNS[provider],
+                                   'official_endpoint': report['official_endpoint'],
+                                   'source_report_type': 'atlas3_sdmx_dataflow_metadata'}
+              shutil.copytree(folder, originals / provider)
+
+          assert dict(counts) == EXPECTED, f'Unexpected provider totals: {counts}'
+          assert len(combined) == 38949 == sum(EXPECTED.values())
+          with (OUTPUT / 'five_provider_catalog_records.csv').open('w', encoding='utf-8', newline='') as f:
+              writer = csv.DictWriter(f, fieldnames=FIELDS)
+              writer.writeheader()
+              writer.writerows(combined)
+          report = {
+              'classification': 'OFFICIAL_PROVIDER_CATALOG_METADATA_ONLY_NOT_ECONOMIC_DATA',
+              'created_utc': datetime.now(timezone.utc).isoformat(),
+              'providers': list(EXPECTED),
+              'catalog_entries_total': len(combined),
+              'counts_by_provider': dict(counts),
+              'counts_by_record_type': dict(record_types),
+              'source_runs_and_endpoints': sources,
+              'economic_observations_ingested': 0,
+              'individual_time_series_enumerated': False,
+              'cross_provider_concepts_deduplicated': False,
+              'redistribution_licenses_verified': False,
+              'research_ready': False,
+              'note': ('Provider-specific indicators, Eurostat datasets/tables and SDMX dataflows are different metadata units; '
+                       '38,949 is their catalog-record total, not a count of independent economic indicators or time series. '
+                       'Original metadata files and original provider SHA256 manifests are retained under original-source-reports.')
+          }
+          (OUTPUT / 'consolidation_summary.json').write_text(json.dumps(report, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          manifest = {p.relative_to(OUTPUT).as_posix(): {'sha256': hashlib.sha256(p.read_bytes()).hexdigest(), 'bytes': p.stat().st_size}
+                      for p in sorted(OUTPUT.rglob('*')) if p.is_file()}
+          (OUTPUT / 'sha256_manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          print('PASS: verified five official catalog providers; entries:', dict(counts))
+          print('PASS: 38,949 metadata records, 0 economic observations, 4 original GitHub Actions runs preserved')
+          PY
+      - name: Recheck all consolidated checksums and create a durable archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os, zipfile
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'atlas-consolidated'
+          manifest = json.loads((root / 'sha256_manifest.json').read_text())
+          files = {p.relative_to(root).as_posix(): p for p in root.rglob('*') if p.is_file() and p.relative_to(root).as_posix() != 'sha256_manifest.json'}
+          assert set(manifest) == set(files), 'Manifest does not cover source and consolidated records'
+          for name, p in files.items():
+              info = manifest[name]
+              raw = p.read_bytes()
+              assert len(raw) == info['bytes'] and hashlib.sha256(raw).hexdigest() == info['sha256'], f'Integrity failure: {name}'
+          archive = Path(os.environ['RUNNER_TEMP']) / ('atlas-five-provider-metadata-run-' + os.environ['GITHUB_RUN_ID'] + '.zip')
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=8) as z:
+              for f in sorted(root.rglob('*')):
+                  if f.is_file():
+                      z.write(f, f.relative_to(root).as_posix())
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+              assert len(z.namelist()) == len(files) + 1
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f'ARCHIVE_PATH={archive}\n')
+          print('PASS: consolidated archive created and SHA256 validated;', archive.stat().st_size, 'compressed bytes')
+          PY
+      - name: Save GitHub artifact for independent retrieval
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-five-provider-consolidated-${{ github.run_id }}
+          path: ${{ runner.temp }}/atlas-five-provider-metadata-run-${{ github.run_id }}.zip
+          if-no-files-found: error
+          retention-days: 90
+      - name: Install rclone and establish private OneDrive credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64 GitHub secret' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Preserve consolidated catalog on OneDrive and verify independent retrieval
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$REMOTE_BASE/$(basename "$ARCHIVE_PATH")"
+          rclone copyto "$ARCHIVE_PATH" "$remote" --retries 3 --low-level-retries 10
+          rclone copyto "$remote" "$RUNNER_TEMP/atlas-remote-retrieved.zip" --retries 3
+          cmp "$ARCHIVE_PATH" "$RUNNER_TEMP/atlas-remote-retrieved.zip"
+          hash=$(sha256sum "$ARCHIVE_PATH" | awk '{print $1}')
+          printf '%s  %s\n' "$hash" "$(basename "$ARCHIVE_PATH")" > "$RUNNER_TEMP/atlas-five-provider.sha256"
+          rclone copyto "$RUNNER_TEMP/atlas-five-provider.sha256" "$remote.sha256"
+          echo "PASS: exact five-provider archive independently restored and matched; SHA256=$hash; destination=$remote"
+      - name: Remove temporary private OneDrive credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
