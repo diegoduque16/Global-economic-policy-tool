@@ -1,0 +1,225 @@
+name: Atlas - Add ILOSTAT to verified six-provider catalog and back up
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: atlas-six-provider-metadata-consolidation
+  cancel-in-progress: false
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      REMOTE_BASE: 'onedrive:Diego/economic research database/atlas/catalog-discovery/consolidated'
+    steps:
+      - name: Verify source runs and download exact official metadata artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_run() {
+            local id="$1" title="$2" base="repos/$GH_REPO/actions/runs/$1"
+            test "$(gh api "$base" --jq .conclusion)" = success
+            test "$(gh api "$base" --jq .head_branch)" = main
+            test "$(gh api "$base" --jq .head_repository.full_name)" = "$GH_REPO"
+            test "$(gh api "$base" --jq .name)" = "$title"
+          }
+          check_run 40635823841 'Atlas - Consolidate verified five-provider metadata and back up to OneDrive'
+          check_run 40637045398 'Atlas P0 - Discover full ILOSTAT SDMX dataflow metadata'
+          mkdir -p "$RUNNER_TEMP/atlas6-input/five" "$RUNNER_TEMP/atlas6-input/ilo"
+          gh run download 40635823841 --repo "$GH_REPO" --name atlas-five-provider-consolidated-40635823841 --dir "$RUNNER_TEMP/atlas6-input/five"
+          gh run download 40637045398 --repo "$GH_REPO" --name ilostat-sdmx-catalog-40637045398 --dir "$RUNNER_TEMP/atlas6-input/ilo"
+          test -f "$RUNNER_TEMP/atlas6-input/five/atlas-five-provider-metadata-run-40635823841.zip"
+          test -f "$RUNNER_TEMP/atlas6-input/ilo/ilostat_dataflows.csv"
+      - name: Verify both reports, combine all six catalog providers and validate immutable archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+          import csv
+          import hashlib
+          import io
+          import json
+          import os
+          from collections import Counter
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+
+          OLD_ID = 40635823841
+          ILO_ID = 40637045398
+          OLD_EXPECTED = {'worldbank': 29533, 'eurostat': 7602, 'imf': 229, 'oecd': 1553, 'bis': 32}
+          TOTAL_EXPECTED = sum(OLD_EXPECTED.values()) + 1215
+          MAIN_FIELDS = ('provider','metadata_layer','record_type','provider_record_key','title','description','source_code','agency_id','version','start_period_source','end_period_source','source_run_id','evidence_status')
+          ILO_FIELDS = ('provider','agency_id','dataflow_id','version','dataflow_key','title','description','ai_keyword_match','labor_keyword_match','evidence_status')
+          ILO_STATUS = 'OFFICIAL_ILOSTAT_DATAFLOW_METADATA_NOT_INGESTED'
+          INPUT = Path(os.environ.get('ATLAS6_INPUT', Path(os.environ.get('RUNNER_TEMP','/tmp'))/'atlas6-input'))
+          OUT = Path(os.environ.get('ATLAS6_OUTPUT', Path(os.environ.get('RUNNER_TEMP','/tmp'))/'atlas6-consolidated'))
+
+
+          def digest(buf): return hashlib.sha256(buf).hexdigest()
+
+          def reader(raw, cols):
+              f = csv.DictReader(io.StringIO(raw.decode('utf-8')))
+              assert tuple(f.fieldnames or ()) == cols, ('Unexpected CSV schema', f.fieldnames)
+              rows = list(f)
+              assert all(None not in r and all(v is not None for v in r.values()) for r in rows)
+              return rows
+
+
+          def checked_zip(path):
+              with ZipFile(path) as z:
+                  assert not z.testzip()
+                  names = z.namelist()
+                  assert len(names) == len(set(names)) and len(names) <= 200
+                  assert all(not x.startswith('/') and not any(p in ('', '.', '..') for p in x.split('/')) and not x.endswith('/') for x in names)
+                  assert sum(z.getinfo(n).file_size for n in names) < 80_000_000
+                  return {n: z.read(n) for n in names}
+
+
+          def run():
+              old_archive = INPUT / 'five' / f'atlas-five-provider-metadata-run-{OLD_ID}.zip'
+              old = checked_zip(old_archive)
+              assert {'five_provider_catalog_records.csv','consolidation_summary.json','sha256_manifest.json'}.issubset(old)
+              old_manifest = json.loads(old['sha256_manifest.json'])
+              assert set(old_manifest) == set(old) - {'sha256_manifest.json'}
+              for name, val in old_manifest.items():
+                  assert len(old[name]) == val['bytes'] and digest(old[name]) == val['sha256'], f'Five-provider source mismatch: {name}'
+              old_summary = json.loads(old['consolidation_summary.json'])
+              assert old_summary['counts_by_provider'] == OLD_EXPECTED
+              assert old_summary['catalog_entries_total'] == sum(OLD_EXPECTED.values())
+              assert old_summary['economic_observations_ingested'] == 0 and not old_summary['research_ready']
+              original_rows = reader(old['five_provider_catalog_records.csv'], MAIN_FIELDS)
+              assert len(original_rows) == sum(OLD_EXPECTED.values())
+              assert dict(Counter(r['provider'] for r in original_rows)) == OLD_EXPECTED
+              original_identifiers = {(r['provider'],r['provider_record_key']) for r in original_rows}
+              assert len(original_identifiers) == len(original_rows)
+
+              ilo_folder = INPUT / 'ilo'
+              source_names = {'ilostat_dataflows.csv','ilostat_ai_labor_keyword_matches.csv','ilostat_catalog_summary.json','sha256_manifest.json'}
+              assert {p.name for p in ilo_folder.iterdir() if p.is_file()} == source_names
+              ilos = {n: (ilo_folder/n).read_bytes() for n in source_names}
+              m = json.loads(ilos['sha256_manifest.json'])
+              assert set(m) == source_names - {'sha256_manifest.json'}
+              for n,v in m.items():
+                  assert len(ilos[n]) == v['bytes'] and digest(ilos[n]) == v['sha256'], f'ILOSTAT source mismatch: {n}'
+              ilo_summary = json.loads(ilos['ilostat_catalog_summary.json'])
+              assert ilo_summary['provider'] == 'ilostat'
+              assert ilo_summary['distinct_dataflow_entries'] == 1215
+              assert ilo_summary['ai_keyword_matches'] == 3 and ilo_summary['labor_keyword_matches'] == 1189
+              assert ilo_summary['economic_observations_downloaded'] == 0
+              assert ilo_summary['individual_time_series_enumerated'] is False
+              assert ilo_summary['research_ready'] is False and ilo_summary['redistribution_license_verified'] is False
+              ilo_rows = reader(ilos['ilostat_dataflows.csv'], ILO_FIELDS)
+              ilo_matches = reader(ilos['ilostat_ai_labor_keyword_matches.csv'], ILO_FIELDS)
+              assert len(ilo_rows) == 1215
+              assert ilo_matches == [r for r in ilo_rows if r['ai_keyword_match']=='true' or r['labor_keyword_match']=='true']
+              assert sum(r['ai_keyword_match']=='true' for r in ilo_rows) == 3
+              assert sum(r['labor_keyword_match']=='true' for r in ilo_rows) == 1189
+              ids = {(r['provider'], r['dataflow_key']) for r in ilo_rows}
+              assert len(ids) == 1215
+              genai_ids = {r['dataflow_id'] for r in ilo_rows if r['ai_keyword_match']=='true'}
+              assert genai_ids == {'DF_EMP_3EMP_SEX_AGE_GAI_NB','DF_EMP_TEMP_SEX_AGE_GAI_NB','DF_EMP_TEMP_SEX_GAI_NB'}
+              combined = list(original_rows)
+              for row in ilo_rows:
+                  assert row['provider']=='ilostat' and row['agency_id']=='ILO' and row['version']=='1.0'
+                  assert row['dataflow_key'] == f"{row['agency_id']}:{row['dataflow_id']}:{row['version']}"
+                  assert row['evidence_status']==ILO_STATUS and row['title']
+                  key = ('ilostat',row['dataflow_key'])
+                  assert key not in original_identifiers
+                  original_identifiers.add(key)
+                  combined.append(dict(provider='ilostat',metadata_layer='sdmx_dataflow_catalog',record_type='sdmx_dataflow',
+                                       provider_record_key=row['dataflow_key'],title=row['title'],description=row['description'],
+                                       source_code=row['dataflow_id'],agency_id=row['agency_id'],version=row['version'],
+                                       start_period_source='',end_period_source='',source_run_id=str(ILO_ID),
+                                       evidence_status=row['evidence_status']))
+              assert len(combined)==TOTAL_EXPECTED==40164 and len(original_identifiers)==TOTAL_EXPECTED
+              counts=dict(Counter(row['provider'] for row in combined))
+              assert counts == {**OLD_EXPECTED,'ilostat':1215}
+              if OUT.exists(): raise FileExistsError('Refusing to overwrite existing consolidation snapshot')
+              OUT.mkdir(parents=True)
+              with (OUT/'six_provider_catalog_records.csv').open('w',encoding='utf-8',newline='') as file:
+                  w=csv.DictWriter(file,fieldnames=MAIN_FIELDS);w.writeheader();w.writerows(combined)
+              summary=dict(classification='OFFICIAL_PROVIDER_CATALOG_METADATA_ONLY_NOT_ECONOMIC_DATA',
+                           created_utc=datetime.now(timezone.utc).isoformat(),catalog_entries_total=len(combined),
+                           counts_by_provider=counts,
+                           source_run_ids={'five_provider_snapshot':OLD_ID,'ilostat':ILO_ID},
+                           existing_five_provider_summary_sha256=digest(old['consolidation_summary.json']),
+                           ilostat_genai_dataflow_ids=sorted(genai_ids),
+                           ilostat_ai_keyword_matches=3,ilostat_labor_keyword_matches=1189,
+                           economic_observations_ingested=0,individual_time_series_enumerated=False,
+                           cross_provider_concepts_deduplicated=False,research_ready=False,
+                           redistribution_licenses_verified=False,
+                           note='Five-provider source indicator and dataset records and six-provider SDMX dataflow metadata are different measurement units. 40,164 counts catalog entries, not distinct comparable economic series. Full source reports are embedded unchanged; no numeric data is downloaded.')
+              (OUT/'consolidation_summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+              original=OUT/'original-source-reports'
+              (original/'five-provider').mkdir(parents=True)
+              (original/'ilostat').mkdir(parents=True)
+              (original/'five-provider'/old_archive.name).write_bytes(old_archive.read_bytes())
+              for n, b in ilos.items(): (original/'ilostat'/n).write_bytes(b)
+              manifest = {p.relative_to(OUT).as_posix():{'sha256':digest(p.read_bytes()),'bytes':p.stat().st_size}
+                          for p in sorted(OUT.rglob('*')) if p.is_file()}
+              (OUT/'sha256_manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+              assert len(manifest)==7
+              for n, detail in manifest.items():
+                  f=OUT/n
+                  assert len(f.read_bytes())==detail['bytes'] and digest(f.read_bytes())==detail['sha256']
+              archive = INPUT/'atlas-six-provider-catalog-source-runs-40635823841-40637045398.zip'
+              if archive.exists(): raise FileExistsError('Refusing to overwrite consolidated archive')
+              with ZipFile(archive,'w',ZIP_DEFLATED,compresslevel=8) as z:
+                  for p in sorted(OUT.rglob('*')):
+                      if p.is_file(): z.write(p,p.relative_to(OUT).as_posix())
+              archive_contents=checked_zip(archive)
+              assert set(archive_contents)==set(manifest)|{'sha256_manifest.json'}
+              for n, v in manifest.items():assert digest(archive_contents[n])==v['sha256']
+              with open(os.environ.get('GITHUB_ENV',str(INPUT/'env.txt')),'a') as f: f.write(f'ARCHIVE_PATH={archive}\n')
+              print('PASS: six-provider metadata consolidated; 40,164 records; ILOSTAT 1,215; GenAI flows 3; no numeric observations',flush=True)
+              print('PASS: source manifests verified and full unmodified source reports embedded; archive bytes:',archive.stat().st_size,flush=True)
+
+
+          if __name__=='__main__': run()
+          PY
+      - name: Save independent GitHub metadata artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-six-provider-catalog-${{ github.run_id }}
+          path: ${{ env.ARCHIVE_PATH }}
+          if-no-files-found: error
+          retention-days: 90
+      - name: Load existing private OneDrive credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64 secret' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Save private OneDrive backup and independently verify restored bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$REMOTE_BASE/atlas-six-provider-metadata-run-${GITHUB_RUN_ID}.zip"
+          rclone copyto "$ARCHIVE_PATH" "$remote" --retries 3 --low-level-retries 10
+          rclone copyto "$remote" "$RUNNER_TEMP/six-provider-verified-download.zip" --retries 3
+          cmp "$ARCHIVE_PATH" "$RUNNER_TEMP/six-provider-verified-download.zip"
+          hash=$(sha256sum "$ARCHIVE_PATH" | awk '{print $1}')
+          printf '%s  %s\n' "$hash" "atlas-six-provider-metadata-run-${GITHUB_RUN_ID}.zip" > "$RUNNER_TEMP/atlas6.sha256"
+          rclone copyto "$RUNNER_TEMP/atlas6.sha256" "$remote.sha256"
+          echo "PASS: six-provider catalog archived on OneDrive and independently restored; SHA256=$hash; destination=$remote"
+      - name: Remove temporary OAuth credential
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
