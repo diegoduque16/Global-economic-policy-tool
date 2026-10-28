@@ -1,0 +1,157 @@
+name: Atlas 2 - Back up verified provider catalog to OneDrive
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Successful Atlas 2 provider catalog discovery run ID'
+        required: true
+        default: '40632944772'
+        type: string
+  workflow_run:
+    workflows:
+      - 'Atlas 2 - Discover World Bank and Eurostat data catalogs'
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: atlas2-catalog-backup-${{ github.event.workflow_run.id || inputs.source_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SOURCE_RUN_ID: ${{ github.event.workflow_run.id || inputs.source_run_id }}
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      REMOTE_BASE: 'onedrive:Diego/economic research database/atlas/catalog-discovery'
+    steps:
+      - name: Check exact upstream run identity, successful completion, and backup credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Invalid source run ID' >&2; exit 1; }
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64 secret' >&2; exit 1; }
+          base="repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID"
+          test "$(gh api "$base" --jq .conclusion)" = success
+          test "$(gh api "$base" --jq .head_branch)" = main
+          test "$(gh api "$base" --jq .head_repository.full_name)" = "$GH_REPO"
+          test "$(gh api "$base" --jq .name)" = 'Atlas 2 - Discover World Bank and Eurostat data catalogs'
+          echo "Validated completed Atlas 2 source run $SOURCE_RUN_ID"
+
+      - name: Download exact verified catalog artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/atlas2-catalog"
+          gh run download "$SOURCE_RUN_ID" --repo "$GH_REPO" \
+            --name "atlas2-worldbank-eurostat-metadata-$SOURCE_RUN_ID" \
+            --dir "$RUNNER_TEMP/atlas2-catalog"
+
+      - name: Validate original checksums, catalog counts, and data classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv, hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'atlas2-catalog'
+          expected = {'atlas2_discovery_summary.json', 'discovered_series_metadata.csv', 'sha256_manifest.json'}
+          assert {p.name for p in root.iterdir() if p.is_file()} == expected, 'Unexpected/missing artifact files'
+          manifest = json.loads((root / 'sha256_manifest.json').read_text())
+          assert set(manifest) == expected - {'sha256_manifest.json'}
+          for name, record in manifest.items():
+              data = (root / name).read_bytes()
+              assert len(data) == record['bytes'], f'Wrong file size: {name}'
+              assert hashlib.sha256(data).hexdigest() == record['sha256'], f'Checksum mismatch: {name}'
+          summary = json.loads((root / 'atlas2_discovery_summary.json').read_text())
+          assert summary['status'] == 'OFFICIAL_METADATA_DISCOVERED_NO_ECONOMIC_OBSERVATIONS_DOWNLOADED'
+          assert summary['source_provider_count'] == 2
+          assert set(summary['by_provider']) == {'worldbank', 'eurostat'}
+          assert summary['economic_observations_ingested'] == 0
+          assert summary['research_ready'] is False
+          assert summary['permission_to_redistribute_underlying_data_verified'] is False
+          expected_total = sum(v['catalog_entries'] for v in summary['by_provider'].values())
+          assert expected_total == summary['discovered_catalog_entries']
+          assert summary['by_provider']['worldbank']['catalog_entries'] >= 3000
+          assert summary['by_provider']['eurostat']['catalog_entries'] >= 1000
+          with (root / 'discovered_series_metadata.csv').open(encoding='utf-8', newline='') as f:
+              rows = csv.DictReader(f)
+              assert {'provider','source_key','evidence_status'}.issubset(rows.fieldnames)
+              seen = set(); counts = {'worldbank': 0, 'eurostat': 0}
+              for row in rows:
+                  p = row['provider']
+                  assert p in counts, f'Unrecognized provider: {p}'
+                  key = (p, row['source_key'])
+                  assert key not in seen, f'Duplicate catalog key: {key}'
+                  seen.add(key)
+                  assert row['evidence_status'] == 'OFFICIAL_CATALOG_METADATA_NOT_INGESTED'
+                  counts[p] += 1
+          assert sum(counts.values()) == expected_total, 'Total count mismatch'
+          assert all(counts[k] == summary['by_provider'][k]['catalog_entries'] for k in counts)
+          print('PASS: source-checked immutable metadata artifact; catalog records:', counts)
+          PY
+
+      - name: Package validated files and per-file provenance into compressed archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, zipfile
+          from pathlib import Path
+          base = Path(os.environ['RUNNER_TEMP'])
+          src = base / 'atlas2-catalog'
+          target = base / f'atlas2-metadata-source-run-{os.environ["SOURCE_RUN_ID"]}.zip'
+          with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED, compresslevel=8, allowZip64=True) as bundle:
+              for name in ('atlas2_discovery_summary.json', 'discovered_series_metadata.csv', 'sha256_manifest.json'):
+                  bundle.write(src / name, arcname=name)
+          with zipfile.ZipFile(target, 'r') as bundle:
+              assert bundle.testzip() is None
+              assert len(bundle.namelist()) == 3
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write('ARCHIVE_PATH=' + str(target) + '\n')
+          print('Ready for private archival:', target.name, 'bytes:', target.stat().st_size)
+          PY
+
+      - name: Load established OneDrive rclone credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/rclone/rclone.conf" >> "$GITHUB_ENV"
+
+      - name: Back up to private OneDrive path and verify bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$REMOTE_BASE/$(basename "$ARCHIVE_PATH")"
+          rclone copyto "$ARCHIVE_PATH" "$remote" --retries 3 --low-level-retries 10
+          # Comparing locally with a freshly downloaded remote copy works even
+          # if OneDrive does not expose the same hash algorithm as the local file.
+          rclone copyto "$remote" "$RUNNER_TEMP/atlas2-remote-check.zip" --retries 3
+          cmp "$ARCHIVE_PATH" "$RUNNER_TEMP/atlas2-remote-check.zip"
+          hash=$(sha256sum "$ARCHIVE_PATH" | awk '{print $1}')
+          printf '%s  %s\n' "$hash" "$(basename "$ARCHIVE_PATH")" > "$RUNNER_TEMP/atlas2-backup.sha256"
+          rclone copyto "$RUNNER_TEMP/atlas2-backup.sha256" "$remote.sha256"
+          echo "PASS: exact remote archive restored and matched; SHA256=$hash; destination=$remote"
+
+      - name: Remove private OAuth credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
