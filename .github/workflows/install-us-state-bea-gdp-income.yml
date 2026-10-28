@@ -48,7 +48,7 @@ jobs:
           import zipfile
 
           # The BLS QCEW state panel already provides the exact official USPS -> FIPS map.
-  if __package__:
+          if __package__:
               from open_data.us_state_qcew import STATES
           else:
               from us_state_qcew import STATES
