@@ -1,0 +1,93 @@
+name: Atlas 1 - Reconcile verified economic source inventory
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: atlas1-source-inventory
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out current source catalog and reconciliation code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run source inventory tests
+        run: python -m unittest discover -s tests -p 'test_atlas1_reconcile_inventory.py' -v
+      - name: Verify precise source run identities and successful provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify_run () {
+            local id="$1" expected="$2"
+            test "$(gh api "repos/$GH_REPO/actions/runs/$id" --jq '.conclusion')" = success
+            test "$(gh api "repos/$GH_REPO/actions/runs/$id" --jq '.head_branch')" = main
+            test "$(gh api "repos/$GH_REPO/actions/runs/$id" --jq '.head_repository.full_name')" = "$GH_REPO"
+            test "$(gh api "repos/$GH_REPO/actions/runs/$id" --jq '.name')" = "$expected"
+          }
+          verify_run 40439631125 'Add ITEP historical tax rates with verified GST sheet mapping'
+          verify_run 40449156776 'Expand high-priority economic sources (wave 1: Treasury + Census BFS)'
+          verify_run 40617910011 'Materialize five source-native datasets in canonical warehouse'
+          verify_run 40619605467 'Audit research quality of canonical-native data'
+          verify_run 40623397720 'Build definition-aware descriptive economic panels (Phase 5)'
+          verify_run 40626561967 'Export verified Romer tax measures to private research storage (Phase 7)'
+          verify_run 40627969382 'Align Romer policy shocks with historical US outcomes privately (Phase 8)'
+      - name: Download only small, previously verified public-safe evidence artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p atlas1_inputs/{wave1,quality,descriptive,romer,alignment}
+          gh run download 40449156776 --repo "$GH_REPO" --name 'high-priority-economic-source-wave1-3' --dir atlas1_inputs/wave1
+          gh run download 40619605467 --repo "$GH_REPO" --name 'canonical-native-quality-40619605467' --dir atlas1_inputs/quality
+          gh run download 40623397720 --repo "$GH_REPO" --name 'economic-descriptive-panels-40623397720' --dir atlas1_inputs/descriptive
+          gh run download 40626561967 --repo "$GH_REPO" --name 'romer-private-export-metadata-40626561967' --dir atlas1_inputs/romer
+          gh run download 40627969382 --repo "$GH_REPO" --name 'romer-historical-outcome-alignment-metadata-40627969382' --dir atlas1_inputs/alignment
+          test -f atlas1_inputs/wave1/source_wave1_results/baseline_manifest_audit.json
+          test -f atlas1_inputs/quality/native_quality_report.json
+          test -f atlas1_inputs/descriptive/descriptive_panel_report.json
+          test -f atlas1_inputs/romer/romer_private_extraction_audit.json
+          test -f atlas1_inputs/alignment/historical_outcome_alignment_audit.json
+      - name: Reconcile current 125-entry catalog against source evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/atlas1_reconcile_inventory.py --catalog open_data/expanded_source_catalog.csv --inputs-dir atlas1_inputs --out atlas1_output
+          python - <<'PY'
+          import csv, json,hashlib
+          from pathlib import Path
+          d=Path('atlas1_output'); r=json.loads((d/'atlas1_inventory_summary.json').read_text())
+          assert r['canonical_source_families']==24 and r['additional_native_sources']==5
+          assert r['source_records_across_separate_layers_not_deduplicated']==4884726
+          assert r['catalog_entries']>=125 and r['catalog_priority_p0']>=71
+          assert not r['causal_research_ready'] and not r['all_source_data_integrated_to_common_gold_panel']
+          with (d/'catalog_evidence_reconciliation.csv').open(newline='') as f:
+              rows=list(csv.DictReader(f))
+          assert len(rows)==r['catalog_entries']
+          assert all(x['redistribution_license_verified']=='false' and x['research_ready']=='false' for x in rows)
+          checks=json.loads((d/'sha256_manifest.json').read_text())
+          for filename,meta in checks.items():
+              p=d/filename
+              assert p.is_file() and p.stat().st_size==meta['bytes']
+              assert hashlib.sha256(p.read_bytes()).hexdigest()==meta['sha256']
+          print('PASS: Atlas 1 catalog and source families reconciled with provenance; no scientific or source-coverage overclaims')
+          PY
+      - name: Upload only public-safe source evidence and catalog status report
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas1-verified-source-inventory-${{ github.run_id }}
+          path: atlas1_output/*
+          if-no-files-found: error
+          retention-days: 90
