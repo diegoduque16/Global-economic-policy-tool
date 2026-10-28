@@ -1,0 +1,199 @@
+name: Atlas P0 - Pilot ILOSTAT GenAI observed-data availability metadata
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: atlas-ilostat-genai-availability-pilot
+  cancel-in-progress: false
+
+jobs:
+  availability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify preceding GenAI dimension run and download its exact artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="repos/$GH_REPO/actions/runs/40637795788"
+          test "$(gh api "$ref" --jq '.conclusion')" = success
+          test "$(gh api "$ref" --jq '.name')" = 'Atlas P0 - Inspect ILOSTAT GenAI SDMX dimensions and available codes'
+          test "$(gh api "$ref" --jq '.head_branch')" = main
+          test "$(gh api "$ref" --jq '.head_repository.full_name')" = "$GH_REPO"
+          mkdir -p verified_structure
+          gh run download 40637795788 --repo "$GH_REPO" --name atlas-ilostat-genai-dimensions-40637795788 --dir verified_structure
+      - name: Use small country-year selections to check provider-reported availability, not economic values
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+          import csv, hashlib, json, time
+          from collections import Counter, defaultdict
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError, URLError
+          from urllib.parse import urlencode, urlsplit, quote
+          import xml.etree.ElementTree as ET
+
+          SOURCE=Path('verified_structure'); OUT=Path('ilostat_genai_availability_output')
+          FLOW_IDS=('DF_EMP_3EMP_SEX_AGE_GAI_NB','DF_EMP_TEMP_SEX_AGE_GAI_NB','DF_EMP_TEMP_SEX_GAI_NB')
+          COUNTRIES=('NGA','BRA','GBR')  # All appear in each provider's partial CL_AREA; not a claim of observations.
+          START='2020'; END='2025'; MAX_BYTES=8_000_000
+          ENDPOINT='https://sdmx.ilo.org/rest/v1/availableconstraint'
+          FIELDNAMES=('dataflow_id','country','start_period_queried','end_period_queried',
+                      'query_key','status_code','response_bytes','response_sha256',
+                      'explicit_cube_regions','explicit_time_ranges','returned_ref_area_codes',
+                      'availability_interpretation','source_url','error_type')
+          CODEFIELDS=('dataflow_id','queried_country','dimension_id','provider_reported_code','source_url')
+          def sha(b): return hashlib.sha256(b).hexdigest()
+          def local(tag): return tag.rsplit('}',1)[-1]
+          def get_csv(path):
+              with path.open(encoding='utf-8',newline='') as f:return list(csv.DictReader(f))
+          def require_source():
+              expected={'genai_sdmx_dimensions.csv','genai_sdmx_codes.csv','genai_structure_summary.json','sha256_manifest.json'}
+              assert {p.name for p in SOURCE.iterdir() if p.is_file()}==expected
+              manifest=json.loads((SOURCE/'sha256_manifest.json').read_text())
+              assert set(manifest)==expected-{'sha256_manifest.json'}
+              for name,m in manifest.items():
+                  b=(SOURCE/name).read_bytes();assert len(b)==m['bytes'] and sha(b)==m['sha256'],name
+              report=json.loads((SOURCE/'genai_structure_summary.json').read_text())
+              assert report['parent_catalog_run']==40637045398
+              assert report['economic_observations_downloaded']==0
+              assert {x['dataflow_id'] for x in report['dataflows']}==set(FLOW_IDS)
+              dims=get_csv(SOURCE/'genai_sdmx_dimensions.csv')
+              codes=get_csv(SOURCE/'genai_sdmx_codes.csv')
+              mapping={}
+              for flow in FLOW_IDS:
+                  d=[r for r in dims if r['dataflow_id']==flow and r['dimension_id'] and r['position'].isdigit()]
+                  d.sort(key=lambda x:int(x['position']))
+                  ids=[r['dimension_id'] for r in d]
+                  expected=['REF_AREA','FREQ','MEASURE','SEX']+(['AGE'] if 'AGE' in flow else [])+['GAI','TIME_PERIOD']
+                  assert ids==expected,(flow,ids,expected)
+                  country_codes={r['code'] for r in codes if r['dataflow_id']==flow and r['codelist_id']=='CL_AREA'}
+                  assert set(COUNTRIES)<=country_codes,(flow,country_codes)
+                  mapping[flow]=ids[:-1]
+              return mapping
+          def extract_metadata(raw):
+              if b'<!DOCTYPE' in raw.upper() or b'<!ENTITY' in raw.upper():raise ValueError('XML DTD/entity forbidden')
+              root=ET.fromstring(raw)
+              regions=[node for node in root.iter() if local(node.tag)=='CubeRegion']
+              ranges=[]; codes=[]
+              for reg in regions:
+                  for node in reg.iter():
+                      if local(node.tag)=='KeyValue':
+                          dim=node.get('id') or node.get('concept') or ''
+                          if dim in {'REF_AREA','GAI','FREQ','SEX','AGE','MEASURE','TIME_PERIOD'}:
+                              for child in node:
+                                  if local(child.tag)=='Value':
+                                      val=child.get('value') or (child.text or '').strip()
+                                      if val:codes.append((dim,val))
+                      if local(node.tag)=='TimeRange':
+                          a={local(c.tag):((c.get('value') or c.text or '').strip()) for c in node.iter() if c is not node}
+                          ranges.append(a)
+              return len(regions),ranges,sorted(set(codes))
+          def tests():
+              raw=b'<Structure><Structures><Constraints><ContentConstraint><CubeRegion><KeyValue id="REF_AREA"><Value>NGA</Value></KeyValue><KeyValue id="GAI"><Value>GAI_GRADIENT_1</Value></KeyValue><TimeRange><StartPeriod>2020</StartPeriod><EndPeriod>2024</EndPeriod></TimeRange></CubeRegion></ContentConstraint></Constraints></Structures></Structure>'
+              n,r,c=extract_metadata(raw)
+              assert n==1 and len(r)==1 and ('REF_AREA','NGA') in c and ('GAI','GAI_GRADIENT_1') in c
+              assert r[0]['StartPeriod']=='2020' and r[0]['EndPeriod']=='2024'
+              try:extract_metadata(b'<!DOCTYPE a><a/>');raise AssertionError('DTD not blocked')
+              except ValueError:pass
+              assert len('NGA.A..SEX_T..'.split('.'))==6
+              assert len('NGA.A..SEX_T.'.split('.'))==5
+          def request(url):
+              parts=urlsplit(url)
+              assert parts.scheme=='https' and parts.hostname=='sdmx.ilo.org'
+              req=Request(url,headers={'User-Agent':'EconomicDataAtlas/0.5 public availability metadata audit',
+                                       'Accept':'application/vnd.sdmx.structure+xml;version=2.1, application/xml;q=0.8'})
+              for trial in range(2):
+                  try:
+                      with urlopen(req,timeout=35) as response:
+                          final=urlsplit(response.geturl())
+                          if final.scheme!='https' or final.hostname!='sdmx.ilo.org':raise ValueError('Unapproved redirect')
+                          raw=response.read(MAX_BYTES+1)
+                          if len(raw)>MAX_BYTES:raise ValueError('Availability response exceeded 8MB guard')
+                          if response.status not in (200,204):raise ValueError('Unexpected response status')
+                          return response.status,raw,None
+                  except HTTPError as e:
+                      if e.code not in (408,429,500,502,503,504):return e.code,b'',f'HTTP_{e.code}'
+                      last=f'HTTP_{e.code}'
+                  except (TimeoutError,URLError) as e:last=type(e).__name__
+                  if trial==0:time.sleep(1)
+              return None,b'',last
+          def main():
+              tests(); dims=require_source()
+              OUT.mkdir(exist_ok=False)
+              results=[]; code_rows=[]
+              for flow in FLOW_IDS:
+                  for country in COUNTRIES:
+                      ids=dims[flow]
+                      key='.'.join({'REF_AREA':country,'FREQ':'A','SEX':'SEX_T'}.get(x,'') for x in ids)
+                      assert len(key.split('.'))==len(ids)
+                      # Query only one country, annual frequency, total sex, 2020–25;
+                      # other dimensions wildcarded. No data endpoint is called.
+                      url=f'{ENDPOINT}/{quote("ILO,"+flow+",1.0",safe=",")}/{key}/all/all?'+urlencode({'startPeriod':START,'endPeriod':END,'mode':'exact','references':'none'})
+                      status,raw,err=request(url)
+                      n=0;ranges=[];codes=[]
+                      if status==200 and raw:
+                          try:n,ranges,codes=extract_metadata(raw)
+                          except ET.ParseError:err='invalid_xml_response'
+                          except ValueError as e:err=type(e).__name__
+                      label=('explicit_availability_cube_region' if n else
+                             'http_200_no_explicit_cube_region' if status==200 else
+                             'empty_response' if status==204 else 'not_available_or_api_error')
+                      rec=dict(dataflow_id=flow,country=country,start_period_queried=START,end_period_queried=END,
+                               query_key=key,status_code=status if status is not None else '',response_bytes=len(raw),
+                               response_sha256=sha(raw) if raw else '',explicit_cube_regions=n,
+                               explicit_time_ranges=json.dumps(ranges,sort_keys=True),
+                               returned_ref_area_codes=';'.join(v for d,v in codes if d=='REF_AREA'),
+                               availability_interpretation=label,source_url=url,error_type=err or '')
+                      results.append(rec)
+                      code_rows.extend(dict(dataflow_id=flow,queried_country=country,dimension_id=d,
+                                            provider_reported_code=v,source_url=url) for d,v in codes)
+                      print('AVAILABILITY',json.dumps({k:rec[k] for k in ('dataflow_id','country','status_code','explicit_cube_regions','explicit_time_ranges','availability_interpretation','error_type')}),flush=True)
+              with (OUT/'availability_queries.csv').open('w',encoding='utf-8',newline='') as f:
+                  w=csv.DictWriter(f,fieldnames=FIELDNAMES);w.writeheader();w.writerows(results)
+              with (OUT/'provider_reported_available_codes.csv').open('w',encoding='utf-8',newline='') as f:
+                  w=csv.DictWriter(f,fieldnames=CODEFIELDS);w.writeheader();w.writerows(code_rows)
+              summary={
+                  'report_type':'OFFICIAL_SDmx_AVAILABILITY_METADATA_NOT_DATA_OBSERVATIONS',
+                  'generated_utc':datetime.now(timezone.utc).isoformat(),
+                  'pinned_structure_run':40637795788,
+                  'source_provider':'ILOSTAT', 'official_api_documentation':'https://sdmx.ilo.org/swagger.json',
+                  'flows':list(FLOW_IDS),'sample_countries':list(COUNTRIES),
+                  'window':{'startPeriod':START,'endPeriod':END},
+                  'attempted_queries':len(results),'http_statuses':dict(Counter(str(r['status_code']) for r in results)),
+                  'queries_with_explicit_regions':sum(int(r['explicit_cube_regions'])>0 for r in results),
+                  'all_country_year_coverage_verified':False,'numeric_observations_downloaded':0,
+                  'full_panel_research_ready':False,
+                  'interpretation':('Availability constraints can show the provider-reported dimension regions for the narrow sample; '
+                      'these are NOT observation-by-observation completeness checks. Missing constraints, unsupported queries and '
+                      'no response do not establish global or even country-level data absence. No numerical values were requested.'),
+                  'data_query_endpoint_contacted':False
+              }
+              (OUT/'availability_pilot_summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+              manifest={p.name:{'sha256':sha(p.read_bytes()),'bytes':p.stat().st_size} for p in sorted(OUT.iterdir()) if p.is_file()}
+              (OUT/'sha256_manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+              assert len(results)==9 and all(r['country'] in COUNTRIES and r['dataflow_id'] in FLOW_IDS for r in results)
+              assert all(sha((OUT/name).read_bytes())==m['sha256'] for name,m in manifest.items())
+              print('PASS: nine source-bounded metadata availability queries recorded; 0 economic observations downloaded',flush=True)
+              print('SUMMARY',json.dumps({k:summary[k] for k in ('attempted_queries','http_statuses','queries_with_explicit_regions')}),flush=True)
+          main()
+          PY
+      - name: Save availability diagnostic artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-ilostat-genai-availability-${{ github.run_id }}
+          path: ilostat_genai_availability_output/*
+          if-no-files-found: error
+          retention-days: 90
