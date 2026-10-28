@@ -179,37 +179,53 @@ def qcew(out):
 
 
 def inspect_cbp_zip(blob, year):
-    """Validate original Census state release without filtering/double-counting its categories."""
+    """Identify CBP tabular content by its CSV header, not its file extension.
+
+    Census ZIPs may package comma-separated text under .txt or extensionless
+    names. Never assume a filename, silently choose an ambiguous member, or
+    treat industry-category rows as additive state totals.
+    """
     if not blob.startswith(b'PK'):
         raise ValueError(f'CBP {year}: expected Census ZIP, got another response type')
     try:
         with zipfile.ZipFile(io.BytesIO(blob)) as archive:
-            members = [member for member in archive.infolist()
-                       if not member.is_dir() and member.filename.lower().endswith('.csv')]
-            expected = f'cbp{year % 100:02d}st.csv'
-            exact = [item for item in members if pathlib.PurePosixPath(item.filename).name.lower() == expected]
-            if len(exact) == 1:
-                member = exact[0]
-            elif len(members) == 1:
-                member = members[0]
-            else:
-                raise ValueError(f'CBP {year}: ambiguous CSV members {[m.filename for m in members[:5]]}')
-            if member.file_size < 10_000 or member.file_size > 350_000_000:
-                raise ValueError(f'CBP {year}: unexpected uncompressed size {member.file_size}')
-            if member.flag_bits & 0x1:
-                raise ValueError(f'CBP {year}: encrypted CSV member')
+            members = [item for item in archive.infolist() if not item.is_dir()]
+            if not members or len(members) > 100:
+                raise ValueError(f'CBP {year}: ZIP has invalid member count {len(members)}')
+            candidates, seen_headers = [], []
+            for item in members:
+                if not 10_000 < item.file_size <= 350_000_000 or item.flag_bits & 0x1:
+                    continue
+                with archive.open(item) as stream:
+                    beginning = stream.read(8192)
+                if beginning.startswith(b'PK') or b'\x00' in beginning:
+                    continue  # nested archives and binary entries are not tabular CSV
+                try:
+                    first_line = beginning.decode('utf-8-sig').splitlines()[0]
+                    header = next(csv.reader([first_line]))
+                except (UnicodeError, StopIteration, csv.Error, IndexError):
+                    continue
+                fields = [field.strip().casefold() for field in header]
+                seen_headers.append({'name': item.filename, 'fields': fields[:12]})
+                if (len(fields) >= 6 and len(set(fields)) == len(fields) and
+                    'emp' in fields and any('naics' in field for field in fields) and
+                    any('state' in field for field in fields)):
+                    candidates.append(item)
+            if len(candidates) != 1:
+                raise ValueError(
+                    f'CBP {year}: expected one state/industry CSV-like file, '
+                    f'found {len(candidates)}; ZIP member names '
+                    f'{[m.filename for m in members][:12]}; '
+                    f'observed headers {seen_headers[:5]}')
+            member = candidates[0]
             with archive.open(member) as source:
                 csvreader = csv.reader(io.TextIOWrapper(source, encoding='utf-8-sig', newline=''))
                 header = next(csvreader)
-                fields = [name.strip().lower() for name in header]
-                if len(fields) < 6 or len(set(fields)) != len(fields):
-                    raise ValueError(f'CBP {year}: invalid CSV column layout')
-                if 'emp' not in fields or not any('naics' in field for field in fields):
-                    raise ValueError(f'CBP {year}: missing employment/industry fields: {fields[:16]}')
+                fields = [field.strip().casefold() for field in header]
                 count = 0
                 for record in csvreader:
                     if len(record) != len(header):
-                        raise ValueError(f'CBP {year}: ragged CSV record at data row {count+1}')
+                        raise ValueError(f'CBP {year}: ragged CSV record at row {count + 1}')
                     count += 1
             if count < 500:
                 raise ValueError(f'CBP {year}: unexpectedly few source rows ({count})')
@@ -305,36 +321,50 @@ def run(args):
 
 
 def self_test():
-    """Deterministic tests; never downloads external material."""
+    """Offline contract tests for diverse Census ZIP members and integrity."""
     from tempfile import TemporaryDirectory
+
+    def make_zip(year, filename, *, duplicate=False, invalid=False):
+        if invalid:
+            content = b'not census data\n' * 600
+        else:
+            content = ('fipstate,naics,emp,est,payann,lfo,empflag\n' +
+                       ''.join(f'06,00,{i},1,100,001,N\n' for i in range(520))).encode()
+        buff = io.BytesIO()
+        with zipfile.ZipFile(buff, 'w', zipfile.ZIP_DEFLATED) as z:
+            z.writestr(filename, content)
+            z.writestr('release_readme.txt', 'Official metadata and year details')
+            if duplicate:
+                z.writestr('duplicate_file.txt', content)
+        return buff.getvalue()
 
     def fake_download(url, *, maximum):
         year = int(url.split('/datasets/')[1].split('/')[0])
-        content = ('fipstate,naics,emp,est,payann,lfo,empflag\n' +
-                   ''.join(f'06,00,{i},1,100,001,N\n' for i in range(520))).encode()
-        mem = io.BytesIO()
-        with zipfile.ZipFile(mem, 'w', zipfile.ZIP_DEFLATED) as z:
-            z.writestr(f'cbp{year%100:02d}st.csv', content)
-        return mem.getvalue()
+        # Exercise .txt, .csv, and extensionless packaging including extra metadata.
+        suffix = {2019: '.txt', 2020: '', 2021: '.csv', 2022: '.TXT', 2023: '.txt'}[year]
+        return make_zip(year, f'cbp{year % 100:02d}st{suffix}')
 
     with TemporaryDirectory() as td:
         dest = pathlib.Path(td) / 'source_native'
         report = cbp(dest, download=fake_download)
-        assert report['rows'] == 2600
-        assert len(report['requests']) == 5
+        assert report['rows'] == 2600 and len(report['requests']) == 5
         assert file_sha(dest / pathlib.Path(report['file']).name) == report['sha256']
         with zipfile.ZipFile(dest / pathlib.Path(report['file']).name) as bundle:
             assert len(bundle.namelist()) == 5
-            for item in report['requests']:
-                assert sha(bundle.read(item['member'])) == item['raw_zip_sha256']
-        try:
-            inspect_cbp_zip(b'<html>Invalid key</html>', 2023)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError('Non-ZIP payload accepted')
-    print('PASS offline Census ZIP, 5-year archive and integrity tests', flush=True)
-
+            for entry in report['requests']:
+                assert sha(bundle.read(entry['member'])) == entry['raw_zip_sha256']
+        for suspicious in (
+            b'<html>Invalid key</html>',
+            make_zip(2019, 'cbp19st.txt', invalid=True),
+            make_zip(2019, 'cbp19st.txt', duplicate=True),
+        ):
+            try:
+                inspect_cbp_zip(suspicious, 2019)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError('An invalid or ambiguous CBP source was accepted')
+    print('PASS offline CBP ZIP member detection, archive and checksum tests', flush=True)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
