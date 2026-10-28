@@ -1,0 +1,134 @@
+name: Export verified Romer tax measures to private research storage (Phase 7)
+
+on:
+  workflow_dispatch:
+    inputs:
+      validation_run_id:
+        description: 'Previously verified original Romer source validation GitHub run'
+        required: true
+        type: string
+        default: '40225221183'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: romer-private-source-export
+  cancel-in-progress: false
+
+jobs:
+  export-source-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - name: Check out policy-source audit code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run source-extraction safety tests
+        run: |
+          python -m policy_shocks.export_romer_quarterly_private --self-test
+          python -m unittest discover -s tests -p 'test_romer_tax_mapping.py' -v
+          python -m unittest discover -s tests -p 'test_inspect_romer.py' -v
+      - name: Verify previous successful original-source validation run
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$VALIDATION_RUN_ID" = '40225221183'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$VALIDATION_RUN_ID" --jq '.conclusion')" = 'success'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$VALIDATION_RUN_ID" --jq '.name')" = 'Validate Romer quarterly tax shocks against original source'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$VALIDATION_RUN_ID" --jq '.head_branch')" = 'main'
+          mkdir -p validated_prior
+          gh run download "$VALIDATION_RUN_ID" --repo "$GH_REPO" \
+            --name 'romer-quarterly-validation-1' --dir validated_prior
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path('validated_prior/numeric_source_validation.json').read_text())
+          assert p['source_archive_sha256']=='c6c3b4888f3de596abf56bc136e2175ec5a4aa0dab137e79e261984a0a84701c'
+          assert p['source_workbook_sha256']=='e0803df2b6a541041ef80c9dee050fc65bd75ea5ac57926f67483d1ee94dadd3'
+          assert p['total_numeric_exogenous_cells_verified']==756
+          assert {k:v['nonzero_quarters'] for k,v in p['variants'].items()}=={
+            'nonretroactive':45,'retroactive':53,'present_value':29}
+          assert not p['policy_identification_independently_verified']
+          print('PASS: original source, all three variants and conservative scientific status verified')
+          PY
+      - name: Re-download pinned original source and export private quarter-level series
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/private_source_export"
+          python -m policy_shocks.export_romer_quarterly_private \
+            --private-out "$RUNNER_TEMP/private_source_export" \
+            --public-out public_romer_audit
+      - name: Verify private accounting and ensure public artifact contains no numeric series
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PRIVATE_SOURCE_EXPORT="$RUNNER_TEMP/private_source_export"
+          python - <<'PY'
+          from pathlib import Path
+          import os, csv, hashlib, json
+          private=Path(os.environ['PRIVATE_SOURCE_EXPORT'])
+          public=Path('public_romer_audit')
+          assert len(list(public.iterdir()))==1
+          assert all(p.suffix=='.json' for p in public.iterdir())
+          report=json.loads((public/'romer_private_extraction_audit.json').read_text())
+          assert report['private_quarterly_rows']==756
+          assert report['private_component_measurements']==2268
+          assert not report['numeric_source_data_in_public_artifact']
+          assert not report['causal_inference_ready']
+          manifest=json.loads((private/'private_file_manifest.json').read_text())
+          assert len(manifest['files'])==3
+          for name,meta in manifest['files'].items():
+              assert name.startswith('romer_tax_') and name.endswith('_quarterly.csv')
+              f=private/name
+              with f.open(newline='',encoding='utf-8') as source:
+                  rows=list(csv.DictReader(source))
+              assert len(rows)==252 and len(set(r['period'] for r in rows))==252
+              assert f.stat().st_size==meta['bytes']
+              assert hashlib.sha256(f.read_bytes()).hexdigest()==meta['sha256']
+          assert len(list(private.iterdir()))==4
+          print('PASS: 756 quarterly rows, 2,268 exact source numeric measurements, public report is metadata-only')
+          PY
+      - name: Upload nonnumeric metadata report only to GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: romer-private-export-metadata-${{ github.run_id }}
+          path: public_romer_audit/romer_private_extraction_audit.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Back up original source-native numeric values to PRIVATE OneDrive and verify bytes
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing private OneDrive configuration' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+          remote="$ONEDRIVE_TARGET/private-research-sources/romer-romer-2010/source-extract-$GITHUB_RUN_ID"
+          rclone copy "$RUNNER_TEMP/private_source_export/" "$remote" --retries 3 --low-level-retries 10
+          mkdir -p "$RUNNER_TEMP/verify-private-source"
+          rclone copy "$remote" "$RUNNER_TEMP/verify-private-source" --retries 3
+          diff -rq "$RUNNER_TEMP/private_source_export/" "$RUNNER_TEMP/verify-private-source/"
+          echo "Verified PRIVATE research source series in OneDrive under private-research-sources/romer-romer-2010/source-extract-$GITHUB_RUN_ID"
+      - name: Remove temporary credentials and working copies of source values
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/rclone/rclone.conf"
+          rm -rf "$RUNNER_TEMP/private_source_export" "$RUNNER_TEMP/verify-private-source"
