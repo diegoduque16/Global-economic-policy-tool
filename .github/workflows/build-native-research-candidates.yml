@@ -1,0 +1,135 @@
+name: Build source-specific economic research candidates (Phase 4)
+
+on:
+  workflow_dispatch:
+    inputs:
+      native_run_id:
+        description: 'Verified Phase 2 source warehouse run ID'
+        type: string
+        required: true
+        default: '40617910011'
+      quality_run_id:
+        description: 'Verified Phase 3 research quality audit run ID'
+        type: string
+        required: true
+        default: '40619605467'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: economic-phase4-candidates
+  cancel-in-progress: false
+
+jobs:
+  candidates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      NATIVE_RUN_ID: ${{ inputs.native_run_id }}
+      QUALITY_RUN_ID: ${{ inputs.quality_run_id }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - name: Check out research code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run offline regression tests for all five collectors
+        run: |
+          python research/build_native_candidates.py --self-test
+          python research/audit_native_quality.py --self-test
+      - name: Validate the exact Phase 2 and Phase 3 successful runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$NATIVE_RUN_ID" = 40617910011
+          test "$QUALITY_RUN_ID" = 40619605467
+          for run in "$NATIVE_RUN_ID" "$QUALITY_RUN_ID"; do
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.conclusion')" = success
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.head_branch')" = main
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.head_repository.full_name')" = "$GH_REPO"
+          done
+          test "$(gh api "repos/$GH_REPO/actions/runs/$NATIVE_RUN_ID" --jq '.name')" = 'Materialize five source-native datasets in canonical warehouse'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$QUALITY_RUN_ID" --jq '.name')" = 'Audit research quality of canonical-native data'
+          mkdir -p incoming quality_input
+          gh run download "$NATIVE_RUN_ID" --repo "$GH_REPO" --name "canonical-native-$NATIVE_RUN_ID" --dir incoming
+          gh run download "$QUALITY_RUN_ID" --repo "$GH_REPO" --name "canonical-native-quality-$QUALITY_RUN_ID" --dir quality_input
+          archive="incoming/canonical-native-20261028-40617910011.tar.gz"
+          test -f "$archive"
+          echo 'dfe43456207e8681c4a79470d39578718c51670ceeb43cf4c68a379fdc61d17b  incoming/canonical-native-20261028-40617910011.tar.gz' | sha256sum -c -
+          test -f quality_input/native_quality_report.json
+          echo 'a959f3a2ec4e7cb74414b6cdfa7a57fbe201649a7f7d25ee89ac50a55e7022fc  quality_input/native_quality_report.json' | sha256sum -c -
+          echo "SOURCE_ARCHIVE=$archive" >> "$GITHUB_ENV"
+      - name: Build reviewed, source-separated candidate files without changing warehouse
+        run: |
+          python research/build_native_candidates.py \
+            --archive "$SOURCE_ARCHIVE" \
+            --quality-report quality_input/native_quality_report.json \
+            --iso-codes research/iso3_country_codes.csv \
+            --out candidate_output
+      - name: Verify all input observations and output measurement accounting
+        run: |
+          python - <<'PY'
+          import csv,hashlib,json
+          from pathlib import Path
+          root=Path('candidate_output')
+          r=json.loads((root/'candidate_quality_report.json').read_text())
+          assert r['baseline_analytical_observations_unchanged']==2780117
+          assert r['total_native_records_read']==2104609
+          assert len(r['sources'])==5
+          assert not r['cross_provider_harmonized']
+          assert not r['causal_inference_ready']
+          assert not r['policy_treatment_ready']
+          assert r['sources']['census_bfs_monthly']['candidate_measurements']>36883
+          assert r['sources']['us_treasury_mts']['candidate_measurements']>0
+          actual=0
+          for source,s in r['sources'].items():
+              file=root/(source+'_candidates.csv')
+              with file.open(newline='',encoding='utf-8') as stream:
+                  n=sum(1 for _ in csv.DictReader(stream))
+              assert n==s.get('candidate_measurements',0),(source,n,s)
+              actual+=n
+          assert actual==r['output_candidate_measurements']
+          manifest=json.loads((root/'sha256_manifest.json').read_text())
+          for filename,metadata in manifest.items():
+              path=root/filename
+              h=hashlib.sha256(path.read_bytes()).hexdigest()
+              assert h==metadata['sha256'] and path.stat().st_size==metadata['bytes']
+          print(f'PASS: reviewed {r["total_native_records_read"]:,} source rows; produced {actual:,} source-specific candidate measurements; source warehouse unchanged')
+          PY
+      - name: Save validated candidate files and provenance report as GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-native-candidates-${{ github.run_id }}
+          path: candidate_output/
+          retention-days: 90
+          if-no-files-found: error
+      - name: Back up all candidate reports to private OneDrive and verify exact bytes
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'OneDrive secret missing' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+          remote="$ONEDRIVE_TARGET/research-candidates/native-$NATIVE_RUN_ID/candidates-run-$GITHUB_RUN_ID"
+          rclone copy candidate_output/ "$remote" --retries 3 --low-level-retries 10
+          mkdir -p "$RUNNER_TEMP/verify-candidates"
+          rclone copy "$remote" "$RUNNER_TEMP/verify-candidates" --retries 3
+          diff -rq candidate_output/ "$RUNNER_TEMP/verify-candidates/"
+          echo "Verified Phase 4 source-specific candidates at $remote"
+      - name: Remove temporary OneDrive credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
