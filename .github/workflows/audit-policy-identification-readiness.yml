@@ -1,0 +1,128 @@
+name: Audit economic policy identification readiness (Phase 6)
+
+on:
+  workflow_dispatch:
+    inputs:
+      descriptive_run_id:
+        description: 'Verified Phase 5 descriptive panel run ID'
+        required: true
+        type: string
+        default: '40623397720'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: economic-phase6-identification-readiness
+  cancel-in-progress: false
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      DESCRIPTIVE_RUN_ID: ${{ inputs.descriptive_run_id }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - name: Check out verified research code and policy registry
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run fail-closed policy research offline guards
+        run: python research/audit_identification_readiness.py --self-test
+      - name: Verify exact Phase 5 source run and panel provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$DESCRIPTIVE_RUN_ID" = 40623397720
+          test "$(gh api "repos/$GH_REPO/actions/runs/$DESCRIPTIVE_RUN_ID" --jq '.conclusion')" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/$DESCRIPTIVE_RUN_ID" --jq '.name')" = 'Build definition-aware descriptive economic panels (Phase 5)'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$DESCRIPTIVE_RUN_ID" --jq '.head_branch')" = main
+          test "$(gh api "repos/$GH_REPO/actions/runs/$DESCRIPTIVE_RUN_ID" --jq '.head_repository.full_name')" = "$GH_REPO"
+          mkdir -p incoming
+          gh run download "$DESCRIPTIVE_RUN_ID" --repo "$GH_REPO" \
+            --name "economic-descriptive-panels-$DESCRIPTIVE_RUN_ID" --dir incoming
+          test "$(find incoming -maxdepth 1 -type f | wc -l)" -eq 9
+          echo '0ad1d6252bdbdbfc00d0f4a56ba3f903c557d34cbc2cd9354951ac5c51b4da74  incoming/descriptive_panel_report.json' | sha256sum -c -
+          echo '29f932216644657f447d065d60b4b054452d7c8a866279c4bb123e04c06a3665  incoming/sha256_manifest.json' | sha256sum -c -
+          python - <<'PY'
+          from pathlib import Path
+          import json,zipfile
+          registry=json.loads(Path('policy_shocks/sources.json').read_text())
+          assert {s['id'] for s in registry['sources']} == {
+            'romer_romer_2010','cloyne_2013','adler_allen_ganelli_leigh_2024'
+          },'Study registry changed; research design assumptions need review'
+          with zipfile.ZipFile('phase5_input.zip','w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+              for p in sorted(Path('incoming').iterdir()):
+                  assert p.is_file() and p.suffix in ('.csv','.json')
+                  z.write(p,arcname=p.name)
+          print('PASS: Phase 5 lineage and registered study metadata verified')
+          PY
+      - name: Screen definition-specific outcomes against documented fiscal study registry
+        run: |
+          python research/audit_identification_readiness.py \
+            --phase5-zip phase5_input.zip \
+            --registry policy_shocks/sources.json \
+            --out readiness_output
+      - name: Validate fail-closed readiness and output checksums
+        run: |
+          python - <<'PY'
+          import csv,hashlib,json
+          from pathlib import Path
+          root=Path('readiness_output')
+          r=json.loads((root/'identification_readiness_report.json').read_text())
+          assert r['phase5_input_measurements']==67842
+          assert r['panels_checked']==5
+          assert r['registered_policy_studies']==3
+          assert r['registered_study_outcome_pairs_screened']==15
+          assert r['validated_policy_event_observations']==0
+          assert r['verified_policy_treatment_dates']==0
+          assert r['valid_policy_counterfactual_designs']==0
+          assert not r['causal_inference_ready']
+          assert r['treasury_7767_measurements_remain_quarantined']
+          with (root/'source_outcome_readiness_matrix.csv').open(newline='') as f:
+              assert sum(1 for _ in csv.DictReader(f))==15
+          with (root/'policy_event_evidence_TEMPLATE.csv').open(newline='') as f:
+              assert sum(1 for _ in csv.DictReader(f))==0
+          for name,meta in json.loads((root/'sha256_manifest.json').read_text()).items():
+              content=(root/name).read_bytes()
+              assert len(content)==meta['bytes']
+              assert hashlib.sha256(content).hexdigest()==meta['sha256']
+          print('PASS: 67,842 observations screened; zero policy events fabricated; no causal claims')
+          PY
+      - name: Save identification-readiness audit as GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-identification-readiness-${{ github.run_id }}
+          path: readiness_output/
+          retention-days: 90
+          if-no-files-found: error
+      - name: Back up Phase 6 research-readiness results to OneDrive and verify bytes
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'OneDrive credential secret missing' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+          remote="$ONEDRIVE_TARGET/research-identification/phase5-$DESCRIPTIVE_RUN_ID/readiness-run-$GITHUB_RUN_ID"
+          rclone copy readiness_output/ "$remote" --retries 3 --low-level-retries 10
+          mkdir -p "$RUNNER_TEMP/verify-identification"
+          rclone copy "$remote" "$RUNNER_TEMP/verify-identification" --retries 3
+          diff -rq readiness_output/ "$RUNNER_TEMP/verify-identification/"
+          echo "Verified Phase 6 identification readiness at $remote"
+      - name: Remove temporary OneDrive credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
