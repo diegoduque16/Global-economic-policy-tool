@@ -22,7 +22,7 @@ from urllib.request import Request, urlopen
 # Public metadata URLs backed by official IMF, OECD and BIS API documentation.
 # Endpoint success/format must still be validated during a live GitHub Action.
 ENDPOINTS = {
-    "imf": "https://api.imf.org/external/sdmx/2.1/dataflow/all/all/latest?references=none",,
+    "imf": "https://api.imf.org/external/sdmx/2.1/dataflow/all/all/latest?references=none",
     "oecd": "https://sdmx.oecd.org/public/rest/v1/dataflow/all/all/latest?references=none",
     "bis": "https://stats.bis.org/api/v2/structure/dataflow/all/all/latest",
 }
