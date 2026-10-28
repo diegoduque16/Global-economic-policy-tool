@@ -1,0 +1,214 @@
+name: Atlas P0 - Pilot ILOSTAT GenAI count coverage via bounded Range header
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: atlas-ilostat-genai-range-coverage
+  cancel-in-progress: false
+
+jobs:
+  range_count:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify pinned source of country and GenAI dimension identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="repos/$GH_REPO/actions/runs/40637795788"
+          test "$(gh api "$base" --jq .conclusion)" = success
+          test "$(gh api "$base" --jq .head_branch)" = main
+          test "$(gh api "$base" --jq .head_repository.full_name)" = "$GH_REPO"
+          test "$(gh api "$base" --jq .name)" = 'Atlas P0 - Inspect ILOSTAT GenAI SDMX dimensions and available codes'
+          mkdir -p verified_structure
+          gh run download 40637795788 --repo "$GH_REPO" --name atlas-ilostat-genai-dimensions-40637795788 --dir verified_structure
+      - name: Request nine tiny country-year windows with documented ILO Range counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          """Retrieve only the first case per query; persist headers/counts, never numeric values."""
+          import csv
+          import hashlib
+          import json
+          import os
+          import re
+          import time
+          from collections import Counter
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from urllib.error import HTTPError, URLError
+          from urllib.parse import urlencode, urlsplit
+          from urllib.request import Request, urlopen
+
+          ROOT = Path('verified_structure')
+          OUTPUT = Path('ilostat_genai_range_output')
+          FLOW_IDS = ('DF_EMP_3EMP_SEX_AGE_GAI_NB','DF_EMP_TEMP_SEX_AGE_GAI_NB','DF_EMP_TEMP_SEX_GAI_NB')
+          COUNTRIES = ('NGA','BRA','GBR')
+          ENDPOINT = 'https://sdmx.ilo.org/rest/v1/data'
+          MAX_RESPONSE_BYTES = 131072
+          RANGE = 'values=1-1'
+          START,END = '2020','2025'
+          FIELDS = ('dataflow_id','country','start_period','end_period','query_key','http_status',
+                    'content_type','content_range','content_length_header','body_bytes_sampled',
+                    'sample_truncated','body_sha256_if_complete','range_confirmed',
+                    'observation_count_from_provider_header','interpretation','error_type','source_url')
+
+          def sha(data): return hashlib.sha256(data).hexdigest()
+          def load_csv(path):
+              with path.open(newline='',encoding='utf-8') as f: return list(csv.DictReader(f))
+          def parse_content_range(value):
+              match = re.fullmatch(r'values\s+(\d+)\s*-\s*(\d+)\s*/\s*(\d+|\*)',value.strip(),re.I)
+              if not match or match.group(3)=='*': return None
+              start,finish,total = map(int,match.groups())
+              if (start,finish)!=(1,1) or total<1: return None
+              return total
+          def offline_tests():
+              assert parse_content_range('values 1-1/156')==156
+              assert parse_content_range('values 1-1/1')==1
+              assert parse_content_range('Values 1-1/*') is None
+              assert parse_content_range('bytes 1-1/6') is None
+              assert parse_content_range('values 1-2/90') is None
+              assert parse_content_range('values 1-1/0') is None
+              assert parse_content_range('') is None
+              assert len('NGA.A..SEX_T..'.split('.'))==6
+              assert len('NGA.A..SEX_T.'.split('.'))==5
+              print('PASS: offline tests for provider header, range and SDMX position guards',flush=True)
+          def structure():
+              expected={'genai_sdmx_dimensions.csv','genai_sdmx_codes.csv','genai_structure_summary.json','sha256_manifest.json'}
+              assert {p.name for p in ROOT.iterdir() if p.is_file()}==expected
+              manifest=json.loads((ROOT/'sha256_manifest.json').read_text())
+              assert set(manifest)==expected-{'sha256_manifest.json'}
+              for name,details in manifest.items():
+                  blob=(ROOT/name).read_bytes()
+                  assert sha(blob)==details['sha256'] and len(blob)==details['bytes'],name
+              summary=json.loads((ROOT/'genai_structure_summary.json').read_text())
+              assert summary['parent_catalog_run']==40637045398
+              assert summary['economic_observations_downloaded']==0
+              assert {f['dataflow_id'] for f in summary['dataflows']}==set(FLOW_IDS)
+              dims=load_csv(ROOT/'genai_sdmx_dimensions.csv')
+              codes=load_csv(ROOT/'genai_sdmx_codes.csv')
+              mapping={}
+              for flow in FLOW_IDS:
+                  d=[r for r in dims if r['dataflow_id']==flow and r['dimension_id'] and r['position'].isdigit()]
+                  d.sort(key=lambda x:int(x['position']))
+                  ids=[r['dimension_id'] for r in d]
+                  expected_ids=['REF_AREA','FREQ','MEASURE','SEX']+(['AGE'] if 'AGE' in flow else [])+['GAI','TIME_PERIOD']
+                  assert ids==expected_ids,(flow,ids,expected_ids)
+                  for country in COUNTRIES:
+                      assert any(r['dataflow_id']==flow and r['codelist_id']=='CL_AREA' and r['code']==country for r in codes),(flow,country)
+                  for code in ('A','SEX_T','GAI_GRADIENT_TOTAL'):
+                      assert any(r['dataflow_id']==flow and r['code']==code for r in codes),(flow,code)
+                  mapping[flow]=ids[:-1]
+              return mapping
+          def fetch_count(url):
+              split=urlsplit(url)
+              assert split.scheme=='https' and split.hostname=='sdmx.ilo.org' and split.path.startswith('/rest/v1/data/')
+              headers={'User-Agent':'EconomicDataAtlas/0.8 range-limited ILOSTAT coverage pilot',
+                       'Accept':'application/vnd.sdmx.genericdata+xml;version=2.1',
+                       'Range':RANGE}
+              request=Request(url,headers=headers)
+              result={'http_status':'','content_type':'','content_range':'','content_length_header':'',
+                      'body_bytes_sampled':0,'sample_truncated':False,'body_sha256_if_complete':'',
+                      'range_confirmed':False,'observation_count_from_provider_header':'',
+                      'interpretation':'inconclusive','error_type':''}
+              for attempt in (0,1):
+                  try:
+                      with urlopen(request,timeout=45) as response:
+                          final=urlsplit(response.geturl())
+                          if final.scheme!='https' or final.hostname!='sdmx.ilo.org':
+                              raise ValueError('Rejected redirection outside ILOSTAT host')
+                          result['http_status']=str(response.status)
+                          result['content_type']=response.headers.get('Content-Type','')
+                          result['content_range']=response.headers.get('Content-Range','')
+                          result['content_length_header']=response.headers.get('Content-Length','')
+                          body=response.read(MAX_RESPONSE_BYTES+1)
+                          result['sample_truncated']=len(body)>MAX_RESPONSE_BYTES
+                          result['body_bytes_sampled']=min(len(body),MAX_RESPONSE_BYTES)
+                          if not result['sample_truncated']:
+                              result['body_sha256_if_complete']=sha(body)
+                          if 'xml' not in result['content_type'].lower():
+                              result['interpretation']='unexpected_mime_type'
+                          elif result['sample_truncated']:
+                              result['interpretation']='response_exceeded_bounded_sample'
+                          else:
+                              total=parse_content_range(result['content_range'])
+                              if total is not None and response.status in (200,206):
+                                  result['range_confirmed']=True
+                                  result['observation_count_from_provider_header']=str(total)
+                                  result['interpretation']='provider_header_reports_positive_query_count'
+                              else:
+                                  result['interpretation']='no_trusted_content_range_header'
+                          # Never write a response body or an economic value to disk.
+                          return result
+                  except HTTPError as e:
+                      result['http_status']=str(e.code)
+                      result['error_type']='HTTP_'+str(e.code)
+                      if e.code not in (408,429,500,502,503,504) or attempt==1:break
+                  except (TimeoutError,URLError) as e:
+                      result['error_type']=type(e).__name__
+                      if attempt==1:break
+                  if attempt==0:time.sleep(1.0)
+              result['interpretation']='provider_error_or_no_confirmed_count'
+              return result
+          def main():
+              offline_tests()
+              mapping=structure()
+              OUTPUT.mkdir(parents=True,exist_ok=False)
+              rows=[]
+              for flow in FLOW_IDS:
+                  for country in COUNTRIES:
+                      values={'REF_AREA':country,'FREQ':'A','SEX':'SEX_T', 'GAI':'GAI_GRADIENT_TOTAL'}
+                      key='.'.join(values.get(dim,'') for dim in mapping[flow])
+                      assert len(key.split('.'))==len(mapping[flow])
+                      query=urlencode({'startPeriod':START,'endPeriod':END,'detail':'dataonly'})
+                      url=f'{ENDPOINT}/ILO,{flow},1.0/{key}/all?{query}'
+                      result=fetch_count(url)
+                      record={'dataflow_id':flow,'country':country,'start_period':START,'end_period':END,
+                              'query_key':key,'source_url':url,**result}
+                      rows.append(record)
+                      print('RANGE_PROBE',json.dumps({k:record[k] for k in (
+                          'dataflow_id','country','http_status','content_range','range_confirmed',
+                          'observation_count_from_provider_header','interpretation','error_type')},sort_keys=True),flush=True)
+                      time.sleep(0.25)
+              with (OUTPUT/'ilostat_country_flow_range_counts.csv').open('w',newline='',encoding='utf-8') as f:
+                  writer=csv.DictWriter(f,fieldnames=FIELDS);writer.writeheader();writer.writerows(rows)
+              report={'classification':'PROVIDER_REPORTED_BOUNDED_QUERY_COUNTS_ONLY_NOT_OBSERVATION_DATA',
+                      'generated_utc':datetime.now(timezone.utc).isoformat(),
+                      'official_documentation':'https://www.ilo.org/sites/default/files/2024-12/ILOSTAT-SDMX_Dissem%20API%20Ref%20Guide_V4.1-(ILO%20Style).pdf',
+                      'structure_provenance_run':40637795788,'failed_availability_diagnostic_run':40638431147,
+                      'source_host':'sdmx.ilo.org','flows':list(FLOW_IDS),'countries':list(COUNTRIES),
+                      'sample_window':{'startPeriod':START,'endPeriod':END},
+                      'dimension_filter':'annual; total sex; total GenAI exposure; MEASURE/AGE wildcard',
+                      'range_request_header':RANGE,'query_count':len(rows),
+                      'http_statuses':dict(Counter(x['http_status'] or 'none' for x in rows)),
+                      'queries_with_verified_provider_count_header':sum(x['range_confirmed'] for x in rows),
+                      'numerical_observation_values_persisted':0,
+                      'full_country_year_coverage_verified':False,'causal_research_ready':False,
+                      'interpretation':'A valid Content-Range total reports the count matching that narrowly specified query, not full country/year/exposure completeness; no raw data or numeric observation values are retained. Missing Content-Range or server errors remain inconclusive.'}
+              (OUTPUT/'range_coverage_summary.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+              manifest={p.name:{'bytes':p.stat().st_size,'sha256':sha(p.read_bytes())} for p in sorted(OUTPUT.iterdir()) if p.is_file()}
+              (OUTPUT/'sha256_manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+              assert len(rows)==9
+              assert all(x['body_bytes_sampled']<=MAX_RESPONSE_BYTES for x in rows)
+              assert all(sha((OUTPUT/name).read_bytes())==m['sha256'] for name,m in manifest.items())
+              print('PASS: 9 bounded ILOSTAT queries, 0 numerical economic values persisted',flush=True)
+              print('SUMMARY',json.dumps({'range_confirmed':report['queries_with_verified_provider_count_header'],
+                                          'http_statuses':report['http_statuses']}),flush=True)
+          if __name__=='__main__':main()
+          PY
+      - name: Save source-pinned checksummed coverage diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-ilostat-genai-range-coverage-${{ github.run_id }}
+          path: ilostat_genai_range_output/*
+          retention-days: 90
+          if-no-files-found: error
