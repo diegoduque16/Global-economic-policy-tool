@@ -1,0 +1,296 @@
+name: Atlas - Audit source coverage against five-provider catalog
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: atlas-evidence-coverage-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      REMOTE_BASE: 'onedrive:Diego/economic research database/atlas/coverage-audits'
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+    steps:
+      - name: Verify pinned historical warehouse inventory and consolidated catalog runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_source() {
+            local id="$1" title="$2" path="repos/$GH_REPO/actions/runs/$1"
+            test "$(gh api "$path" --jq .conclusion)" = success
+            test "$(gh api "$path" --jq .head_branch)" = main
+            test "$(gh api "$path" --jq .head_repository.full_name)" = "$GH_REPO"
+            test "$(gh api "$path" --jq .name)" = "$title"
+          }
+          check_source 40631309627 'Atlas 1 - Reconcile verified economic source inventory'
+          check_source 40635823841 'Atlas - Consolidate verified five-provider metadata and back up to OneDrive'
+      - name: Download exact successful metadata-only evidence artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p atlas_audit_inputs/atlas1 atlas_audit_inputs/five
+          gh run download 40631309627 --repo "$GH_REPO" --name atlas1-verified-source-inventory-40631309627 --dir atlas_audit_inputs/atlas1
+          gh run download 40635823841 --repo "$GH_REPO" --name atlas-five-provider-consolidated-40635823841 --dir atlas_audit_inputs/five
+          test -f atlas_audit_inputs/atlas1/atlas1_inventory_summary.json
+          test -f atlas_audit_inputs/atlas1/sha256_manifest.json
+          test -f atlas_audit_inputs/five/atlas-five-provider-metadata-run-40635823841.zip
+      - name: Compare source-family evidence to catalog records without implying data ingestion
+        shell: bash
+        run: |
+          python - --atlas1 atlas_audit_inputs/atlas1 --atlas5 atlas_audit_inputs/five/atlas-five-provider-metadata-run-40635823841.zip --out atlas_coverage_output <<'PY'
+          """Pinned-source, metadata-only gap audit. Does not infer value-level coverage.
+
+          Five-provider source catalogs are lists of metadata objects of different granularity.
+          Atlas 1 mappings are explicit partial warehouse-family evidence, not full ingestion.
+          """
+          from __future__ import annotations
+          import csv, hashlib, io, json, os, re, zipfile
+          from collections import Counter, defaultdict
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          EXPECTED = {'worldbank': 29533, 'eurostat': 7602, 'imf': 229, 'oecd': 1553, 'bis': 32}
+          RUNS = {'atlas1': 40631309627, 'atlas5': 40635823841}
+          ALLOWED = {'consolidation_summary.json', 'five_provider_catalog_records.csv', 'sha256_manifest.json'}
+          # Two genuinely explicit dataset codes in the 125-item baseline, only metadata matches.
+          EXPLICIT_CODES = {
+              'Eurostat enterprise AI adoption isoc_eb_ai': ('eurostat', 'isoc_eb_ai'),
+              'IMF World Economic Outlook (WEO)': ('imf', 'WEO'),
+          }
+          FIELDS = ['theme','priority','dataset','atlas1_warehouse_evidence','verified_source_family_ids',
+                    'provider_name_hint','provider_catalog_indexed','explicit_source_code',
+                    'exact_catalog_code_matches','evidence_interpretation','recommended_next_check']
+
+
+          def sha(raw):return hashlib.sha256(raw).hexdigest()
+
+
+          def rows_csv(data):
+              return list(csv.DictReader(io.StringIO(data.decode('utf-8-sig'))))
+
+
+          def verify_dir(root):
+              root=Path(root)
+              manifest=json.loads((root/'sha256_manifest.json').read_text())
+              assert set(manifest)=={'catalog_evidence_reconciliation.csv','verified_source_family_inventory.csv','atlas1_inventory_summary.json'}
+              assert {p.name for p in root.iterdir() if p.is_file()}==set(manifest)|{'sha256_manifest.json'}
+              for f,m in manifest.items():
+                  data=(root/f).read_bytes()
+                  assert len(data)==m['bytes'] and sha(data)==m['sha256'],f'Atlas1 checksum mismatch: {f}'
+              return (json.loads((root/'atlas1_inventory_summary.json').read_text()),
+                      rows_csv((root/'catalog_evidence_reconciliation.csv').read_bytes()),
+                      rows_csv((root/'verified_source_family_inventory.csv').read_bytes()))
+
+
+          def read_five_provider_archive(path):
+              with zipfile.ZipFile(path) as z:
+                  names=z.namelist()
+                  assert len(names)==len(set(names)), 'Duplicate files in consolidated archive'
+                  assert set(names)>=ALLOWED
+                  assert all(not x.startswith('/') and '..' not in Path(x).parts for x in names)
+                  assert z.testzip() is None, 'ZIP CRC mismatch'
+                  checks=json.loads(z.read('sha256_manifest.json'))
+                  assert set(checks)==set(names)-{'sha256_manifest.json'},'Consolidated manifest incomplete'
+                  for name,m in checks.items():
+                      b=z.read(name)
+                      assert len(b)==m['bytes'] and sha(b)==m['sha256'],f'Consolidated manifest mismatch: {name}'
+                  report=json.loads(z.read('consolidation_summary.json'))
+                  catalog=rows_csv(z.read('five_provider_catalog_records.csv'))
+              return report,catalog
+
+
+          def provider_hint(label):
+              v=label.casefold().strip()
+              for provider,prefixes in {
+                  'worldbank': ('world bank ',),
+                  'eurostat': ('eurostat ',),
+                  'imf': ('imf ',),
+                  'oecd': ('oecd ',),
+                  'bis': ('bis ',),
+              }.items():
+                  if any(v.startswith(x) for x in prefixes):return provider
+              return ''
+
+
+          def build(atlas1_dir, five_provider_archive, out_dir):
+              out=Path(out_dir)
+              if out.exists() and any(out.iterdir()):raise FileExistsError('Refusing to overwrite coverage audit snapshot')
+              a1, source_rows, families = verify_dir(atlas1_dir)
+              a5, catalog = read_five_provider_archive(five_provider_archive)
+              assert a1['catalog_entries']==len(source_rows)==125
+              assert a1['catalog_entries_with_explicit_partial_evidence']==24
+              assert a1['catalog_entries_without_manual_evidence_mapping']==101
+              assert a1['canonical_source_families']==24 and a1['additional_native_sources']==5
+              assert a1['canonical_observations']==2780117 and a1['additional_native_records']==2104609
+              assert not a1['all_source_data_integrated_to_common_gold_panel'] and not a1['causal_research_ready']
+              assert a5['catalog_entries_total']==len(catalog)==38949
+              assert a5['counts_by_provider']==EXPECTED and a5['economic_observations_ingested']==0
+              assert not a5['individual_time_series_enumerated'] and not a5['research_ready']
+              counts=Counter(x['provider'] for x in catalog)
+              assert dict(counts)==EXPECTED
+              assert len({(x['provider'],x['provider_record_key']) for x in catalog})==len(catalog)
+              codes=defaultdict(list)
+              for x in catalog:codes[(x['provider'],x['source_code'])].append(x)
+              assert all(x['research_ready']=='false' and x['full_dataset_scope_verified']=='false' for x in source_rows)
+              assert len(families)==29
+
+              audit=[]; exact=[]
+              for x in source_rows:
+                  dataset=x['dataset']; p=provider_hint(dataset)
+                  anchor=EXPLICIT_CODES.get(dataset)
+                  matches=codes.get(anchor,[]) if anchor else []
+                  if anchor:
+                      # Explicit source identifier match is an API catalog overlap, not proof of warehouse coverage.
+                      for m in matches:
+                          exact.append(dict(dataset=dataset, provider=m['provider'],source_code=m['source_code'],
+                                            provider_record_key=m['provider_record_key'],title=m['title'],
+                                            match_basis='EXPLICIT_SOURCE_CODE_EQUALITY',
+                                            warehouse_join_proven='false',
+                                            numeric_observation_coverage_proven='false'))
+                  partial=x['verified_evidence_status']=='PARTIAL_EVIDENCE_PRESENT'
+                  assert partial or x['verified_evidence_status']=='NO_EXPLICIT_FAMILY_MAPPING_YET'
+                  assert (bool(x['source_family_ids'])==partial)
+                  audit.append({
+                    'theme':x['theme'],'priority':x['priority'],'dataset':dataset,
+                    'atlas1_warehouse_evidence':x['verified_evidence_status'],
+                    'verified_source_family_ids':x['source_family_ids'],
+                    'provider_name_hint':p or 'UNASSIGNED_NOT_PROOF_OF_ABSENCE',
+                    'provider_catalog_indexed':'PROVIDER_DISCOVERY_ONLY' if p else 'NO_PROVIDER_NAME_LINK',
+                    'explicit_source_code':anchor[1] if anchor else '',
+                    'exact_catalog_code_matches':str(len(matches)) if anchor else 'NOT_TESTED',
+                    'evidence_interpretation':('Partial warehouse-family evidence; no complete dataset or key-wise match proven' if partial
+                                              else 'No explicit Atlas1 family mapping; not evidence of absence'),
+                    'recommended_next_check':('Compare exact source codes, geographies, units and vintages before ingesting' if p or anchor
+                                              else 'Review source family and provider lineage; then resolve source-specific key mapping'),
+                  })
+              audit.sort(key=lambda x:({'P0':0,'P1':1,'P2':2}[x['priority']], x['atlas1_warehouse_evidence']!='NO_EXPLICIT_FAMILY_MAPPING_YET',x['theme'],x['dataset']))
+              top=[x for x in audit if x['priority']=='P0' and x['atlas1_warehouse_evidence']=='NO_EXPLICIT_FAMILY_MAPPING_YET']
+              priorities=Counter((x['priority'],x['atlas1_warehouse_evidence']) for x in audit)
+              assert len(top)==48 and priorities['P0','PARTIAL_EVIDENCE_PRESENT']==23
+              family_linked=set(k for x in source_rows for k in x['source_family_ids'].split(';') if k)
+              unlinked=[x for x in families if x['source_family'] not in family_linked]
+              assert len({x['source_family'] for x in families})==29
+              assert len(unlinked)==7, f'Expected seven existing warehouse families without catalog mapping: {unlinked}'
+              assert a1['unmapped_verified_source_families']==sorted(x['source_family'] for x in unlinked)
+              out.mkdir(parents=True,exist_ok=True)
+              def write(file,rows,headers=None):
+                  with (out/file).open('w',newline='',encoding='utf-8') as f:
+                      w=csv.DictWriter(f,fieldnames=headers or list(rows[0]));w.writeheader();w.writerows(rows)
+              write('source_gap_audit_125.csv',audit,FIELDS)
+              write('priority_p0_unmapped_48.csv',top,FIELDS)
+              write('warehouse_families_not_mapped_in_atlas1.csv',unlinked,list(unlinked[0]))
+              write('exact_code_discovery_overlap.csv',exact,list(exact[0]) if exact else ['dataset','provider','source_code','provider_record_key','title','match_basis','warehouse_join_proven','numeric_observation_coverage_proven'])
+              summary={
+                 'classification':'SOURCE_FAMILY_AND_PROVIDER_CATALOG_METADATA_AUDIT_NO_NEW_DATA_INGESTED',
+                 'generated_utc':datetime.now(timezone.utc).isoformat(),
+                 'pinned_evidence_runs':RUNS,
+                 'provider_catalog_entries':dict(counts),
+                 'provider_catalog_entries_total':len(catalog),
+                 'provider_catalog_record_types_not_comparable':True,
+                 'atlas1_prioritized_source_catalog_entries':len(audit),
+                 'atlas1_partial_verified_source_family_evidence':sum(x['atlas1_warehouse_evidence']=='PARTIAL_EVIDENCE_PRESENT' for x in audit),
+                 'atlas1_no_explicit_family_mapping':sum(x['atlas1_warehouse_evidence']=='NO_EXPLICIT_FAMILY_MAPPING_YET' for x in audit),
+                 'priority_p0_total':sum(x['priority']=='P0' for x in audit),
+                 'priority_p0_no_explicit_family_mapping':len(top),
+                 'priority_p0_partial_source_family_evidence':priorities['P0','PARTIAL_EVIDENCE_PRESENT'],
+                 'verified_warehouse_families_across_layers':len(families),
+                 'verified_warehouse_families_without_atlas1_catalog_crosswalk':len(unlinked),
+                 'verified_canonical_observations_not_newly_checked':a1['canonical_observations'],
+                 'additional_unharmonized_source_records_not_additive':a1['additional_native_records'],
+                 'explicit_code_discovery_overlap_records':len(exact),
+                 'exact_catalog_codes_tested':len(EXPLICIT_CODES),
+                 'exact_catalog_codes_with_any_match':len({x['dataset'] for x in exact}),
+                 'underlying_time_series_compared':False,
+                 'warehouse_source_code_level_joins_performed':False,
+                 'numeric_observation_values_reexamined':False,
+                 'licenses_rechecked':False,
+                 'causal_research_ready':False,
+                 'next_priority':'Map 48 P0 items with no explicit family evidence, resolve 7 orphan warehouse families, then match provider-specific source IDs and coverage before downloading',
+                 'limitations':[
+                     'Absence of an Atlas 1 mapping is not evidence that a dataset is absent from the warehouse.',
+                     'Provider name hints and catalog discovery are not evidence of dataset-level or time-series-level data coverage.',
+                     'Two explicitly coded catalog matches are purely metadata cross-checks; they do not link to a stored value series.',
+                     'Already verified source family observations are not equal to five-provider catalog entries; dimensions differ.',
+                     'The same economic observation may appear in multiple native/canonical layers or provider sources.',
+                     'Individual observations and private datasets were not accessed. No new economic data downloaded.',
+                     'Atlas 1 family mapping is manually scoped partial evidence rather than proof of full datasets.',
+                 ]
+              }
+              (out/'coverage_audit_summary.json').write_text(json.dumps(summary,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+              manifest={x.name:{'bytes':x.stat().st_size,'sha256':sha(x.read_bytes())} for x in sorted(out.iterdir()) if x.is_file()}
+              (out/'sha256_manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
+              print('PASS: '+json.dumps({k:summary[k] for k in ['atlas1_prioritized_source_catalog_entries','atlas1_partial_verified_source_family_evidence','priority_p0_no_explicit_family_mapping','verified_warehouse_families_without_atlas1_catalog_crosswalk','explicit_code_discovery_overlap_records']}))
+              return summary
+
+          if __name__=='__main__':
+              import argparse
+              p=argparse.ArgumentParser();p.add_argument('--atlas1',required=True);p.add_argument('--atlas5',required=True);p.add_argument('--out',required=True)
+              a=p.parse_args();build(a.atlas1,a.atlas5,a.out)
+          PY
+      - name: Reverify all audit output hashes and package one durable metadata-only archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,os,zipfile
+          from pathlib import Path
+          root=Path('atlas_coverage_output')
+          m=json.loads((root/'sha256_manifest.json').read_text())
+          actual={x.name for x in root.iterdir() if x.is_file()}
+          assert actual==set(m)|{'sha256_manifest.json'}
+          for name,record in m.items():
+              raw=(root/name).read_bytes()
+              assert len(raw)==record['bytes'] and hashlib.sha256(raw).hexdigest()==record['sha256']
+          target=Path('atlas-coverage-audit-'+os.environ['GITHUB_RUN_ID']+'.zip')
+          with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED,compresslevel=8) as z:
+              for p in sorted(root.iterdir()):z.write(p,p.name)
+          with zipfile.ZipFile(target) as z:
+              assert z.testzip() is None and len(z.namelist())==len(m)+1
+          with open(os.environ['GITHUB_ENV'],'a') as f:f.write('AUDIT_ARCHIVE='+target.as_posix()+'\n')
+          print('PASS: verified audit archive',target,target.stat().st_size,'bytes')
+          PY
+      - name: Save independent GitHub audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-coverage-audit-${{ github.run_id }}
+          path: atlas-coverage-audit-${{ github.run_id }}.zip
+          if-no-files-found: error
+          retention-days: 90
+      - name: Install rclone and restore established private OneDrive credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64 secret' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Preserve audit in OneDrive and verify downloaded bytes match exactly
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="$REMOTE_BASE/$AUDIT_ARCHIVE"
+          rclone copyto "$AUDIT_ARCHIVE" "$remote" --retries 3 --low-level-retries 10
+          rclone copyto "$remote" "$RUNNER_TEMP/audit-restore-check.zip" --retries 3
+          cmp "$AUDIT_ARCHIVE" "$RUNNER_TEMP/audit-restore-check.zip"
+          hash=$(sha256sum "$AUDIT_ARCHIVE" | awk '{print $1}')
+          printf '%s  %s\n' "$hash" "$AUDIT_ARCHIVE" > "$RUNNER_TEMP/audit.sha256"
+          rclone copyto "$RUNNER_TEMP/audit.sha256" "$remote.sha256"
+          echo "PASS: coverage audit OneDrive archive restored and matched; SHA256=$hash; destination=$remote"
+      - name: Erase private credential from the job runner
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
