@@ -1,0 +1,64 @@
+name: Atlas 3 - Diagnose IMF data catalog HTTP response
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect IMF official data-portal metadata responses without downloading observations
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+          import urllib.error
+          from urllib.parse import urlsplit
+
+          # The IMF Data Portal SDMX 2.1 API, not SDMX Central (a separate catalog).
+          # Probe the current query and two SDMX-standard variants. Sample <= 256 KiB per response.
+          urls = {
+              'current_query': 'https://api.imf.org/external/sdmx/2.1/dataflow/IMF/all/latest?references=none',
+              'agency_all': 'https://api.imf.org/external/sdmx/2.1/dataflow/all/all/latest?references=none',
+              'stub_detail': 'https://api.imf.org/external/sdmx/2.1/dataflow/IMF/all/latest?references=none&detail=allstubs',
+          }
+          results = []
+          for label, url in urls.items():
+              d = {'probe': label, 'host': 'api.imf.org'}
+              try:
+                  req = urllib.request.Request(url, headers={
+                      'User-Agent': 'EconomicDataAtlas/0.3 public metadata diagnostics',
+                      'Accept': 'application/vnd.sdmx.structure+xml;version=2.1, application/xml;q=0.8',
+                  })
+                  with urllib.request.urlopen(req, timeout=35) as resp:
+                      resolved = urlsplit(resp.geturl())
+                      if resolved.scheme != 'https' or resolved.hostname != 'api.imf.org':
+                          raise ValueError('Unexpected redirect outside official IMF API')
+                      sample = resp.read(262145)
+                      d.update(http_status=resp.status,
+                               content_type=resp.headers.get('Content-Type'),
+                               declared_content_length=resp.headers.get('Content-Length'),
+                               content_encoding=resp.headers.get('Content-Encoding'),
+                               sampled_bytes=len(sample),
+                               sample_limit_exceeded=len(sample)>262144,
+                               xml_like=sample.lstrip().startswith(b'<?xml') or sample.lstrip().startswith(b'<'),
+                               dataflow_token_present=b'Dataflow' in sample)
+              except urllib.error.HTTPError as exc:
+                  d.update(http_status=exc.code,
+                           content_type=exc.headers.get('Content-Type'),
+                           error='HTTP error; body not logged')
+              except Exception as exc:
+                  d.update(error=type(exc).__name__ + ': ' + str(exc)[:160])
+              results.append(d)
+              print(json.dumps(d, sort_keys=True), flush=True)
+          if not any(x.get('sampled_bytes', 0)>0 for x in results):
+              print('DIAGNOSIS: all tested IMF Data Portal endpoints returned zero sampled bytes or errors.')
+          else:
+              print('DIAGNOSIS: at least one IMF Data Portal endpoint returned a nonempty response sample.')
+          print('No data or observation values were fetched; only metadata HTTP response samples.')
+          PY
