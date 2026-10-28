@@ -1,0 +1,410 @@
+name: Atlas - Ingest ILOSTAT full official bulk indicator archive into OneDrive
+
+on:
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: 'Number of source tables to attempt in this run (next unfinished tables)'
+        type: string
+        required: true
+        default: '20'
+      max_file_mib:
+        description: 'Maximum compressed MiB per source file; larger files are explicitly deferred'
+        type: string
+        required: true
+        default: '512'
+      max_run_mib:
+        description: 'Maximum compressed MiB to download this run'
+        type: string
+        required: true
+        default: '2048'
+  schedule:
+    - cron: '17 2,10,18 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-ilostat-bulk-ingestion-private
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      BATCH_SIZE: ${{ inputs.batch_size || '20' }}
+      MAX_FILE_MIB: ${{ inputs.max_file_mib || '512' }}
+      MAX_RUN_MIB: ${{ inputs.max_run_mib || '2048' }}
+    steps:
+      - name: Install private OneDrive credentials and rclone
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64 repository secret' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Run resumable official ILOSTAT bulk-source ingestion (numeric data only in private OneDrive)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYCODE'
+          """ILOSTAT indicator bulk ingestion into private OneDrive; standard-library only.
+          The official indicator bulk TOC differs from the 1,215 SDMX dataflows.
+          Each successfully verified compressed source is stored immutably with SHA256 in state.
+          """
+          from __future__ import annotations
+          import csv, gzip, hashlib, io, json, os, re, shutil, subprocess, tempfile, time
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from urllib.parse import urlencode, urlsplit
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError, URLError
+
+          HOST = 'rplumber.ilo.org'
+          TOC = 'https://rplumber.ilo.org/metadata/toc/indicator?format=.csv&lang=en'
+          DATA = 'https://rplumber.ilo.org/data/indicator'
+          DIC = 'https://rplumber.ilo.org/metadata/dic'
+          BASE = 'onedrive:Diego/economic research database/atlas/ilostat-bulk-v1'
+          TARGET = BASE + '/indicator-data'
+          MANIFEST = BASE + '/checkpoint/state.json'
+          NOW = datetime.now(timezone.utc).isoformat()
+          BATCH = int(os.environ.get('BATCH_SIZE', '20'))
+          MAX_FILE = int(os.environ.get('MAX_FILE_MIB', '512')) * 1024 * 1024
+          MAX_RUN = int(os.environ.get('MAX_RUN_MIB', '2048')) * 1024 * 1024
+          OUT = Path('ilostat_bulk_run_report')
+          VALID_ID = re.compile(r'[A-Za-z0-9_]{4,100}\Z')
+          MAX_TOC = 4_000_000
+          MIN_DELAY = 0.4
+
+
+          def run(command, check=True, capture=True):
+              cp = subprocess.run(command, check=False, capture_output=capture, text=True, timeout=1800)
+              if check and cp.returncode:
+                  raise RuntimeError(f'Command failed ({cp.returncode}): {command[0]} {command[1]} : {cp.stderr[-350:] if cp.stderr else ""}')
+              return cp
+
+
+          def digest(path):
+              h = hashlib.sha256()
+              with Path(path).open('rb') as f:
+                  for blob in iter(lambda: f.read(2**20), b''):
+                      h.update(blob)
+              return h.hexdigest()
+
+
+          def request(url, path, cap, attempts=3):
+              assert urlsplit(url).scheme == 'https' and urlsplit(url).hostname == HOST
+              path = Path(path)
+              last = None
+              for n in range(attempts):
+                  tmp = path.with_name(path.name + '.partial')
+                  tmp.unlink(missing_ok=True)
+                  try:
+                      req = Request(url, headers={'User-Agent': 'EconomicDataAtlas/1.0 public ILOSTAT bulk downloader (limited, reproducible)'})
+                      with urlopen(req, timeout=75) as resp:
+                          final = urlsplit(resp.geturl())
+                          if final.hostname != HOST or final.scheme != 'https' or resp.status != 200:
+                              raise ValueError('Non-200 or unexpected bulk provider redirect')
+                          claimed = resp.headers.get('Content-Length')
+                          if claimed and int(claimed) > cap:
+                              raise OverflowError(f'Advertised file size exceeds cap {cap} bytes')
+                          size = 0
+                          with tmp.open('wb') as out:
+                              while True:
+                                  part = resp.read(min(2**20, cap + 1 - size))
+                                  if not part:
+                                      break
+                                  size += len(part)
+                                  if size > cap:
+                                      raise OverflowError(f'Actual download exceeds cap {cap} bytes')
+                                  out.write(part)
+                          if size == 0:
+                              raise ValueError('Empty response')
+                          tmp.replace(path)
+                          return size
+                  except (HTTPError, URLError, TimeoutError, OverflowError, ValueError) as exc:
+                      last = exc
+                      tmp.unlink(missing_ok=True)
+                      if isinstance(exc, OverflowError):
+                          raise
+                      if isinstance(exc, HTTPError) and exc.code not in (408, 429, 500, 502, 503, 504):
+                          break
+                      if n < attempts - 1:
+                          time.sleep(2 ** n)
+              raise RuntimeError(f'{type(last).__name__}: {str(last)[:160]}')
+
+
+          def read_toc(path):
+              with Path(path).open('r', newline='', encoding='utf-8-sig') as fh:
+                  reader = csv.DictReader(fh)
+                  if not {'id','last.update','n.records','freq'}.issubset(set(reader.fieldnames or [])):
+                      raise ValueError(f'Unexpected ILOSTAT TOC schema {reader.fieldnames}')
+                  rows = list(reader)
+              if len(rows) < 200:
+                  raise ValueError('Official TOC unexpectedly short; refusing partial inventory')
+              found = {}
+              for row in rows:
+                  key = (row['id'] or '').strip()
+                  if not VALID_ID.fullmatch(key):
+                      raise ValueError(f'Unrecognized dataset ID in official TOC: {key[:120]}')
+                  if key in found:
+                      raise ValueError(f'Duplicate dataset identifier: {key}')
+                  found[key] = row
+              return found
+
+
+          def verify_gz(path, claimed_rows):
+              # Stream all rows: fully exercises gzip CRC and proves CSV is readable.
+              with gzip.open(path, 'rt', newline='', encoding='utf-8-sig', errors='strict') as f:
+                  reader = csv.reader(f)
+                  header = next(reader)
+                  needed = {'ref_area','time','obs_value'}
+                  if not needed.issubset(set(header)):
+                      raise ValueError(f'Bulk table missing expected observation fields: {header[:20]}')
+                  count = sum(1 for _ in reader)
+              if count < 1:
+                  raise ValueError('Dataset has header but zero rows')
+              expected = (claimed_rows or '').strip()
+              if expected.isdigit() and int(expected) != count:
+                  raise ValueError(f'TOC row-count mismatch: {expected} vs {count}')
+              return count, header
+
+
+          def verify_remote(local, remote, expected_hash):
+              # Recover from cloud storage and hash the entire copied object. Costly but auditable.
+              actual = subprocess.Popen(['rclone','cat',remote], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+              h = hashlib.sha256()
+              assert actual.stdout is not None
+              for part in iter(lambda: actual.stdout.read(2**20), b''):
+                  h.update(part)
+              error = actual.stderr.read()[-400:] if actual.stderr else b''
+              ret = actual.wait(timeout=150)
+              if ret or h.hexdigest() != expected_hash:
+                  raise RuntimeError(f'Cloud restored file did not match SHA256 ({ret}); {error.decode(errors="replace")}')
+
+
+          def load_checkpoint(tmp):
+              # mkdir of parent is the credential/provisioning check. A missing manifest is normal on first run.
+              run(['rclone', 'mkdir', BASE + '/checkpoint'])
+              ls = run(['rclone', 'lsjson', BASE + '/checkpoint', '--files-only'])
+              files = {x['Name'] for x in json.loads(ls.stdout)}
+              if 'state.json' not in files:
+                  return {'schema_version': 1, 'downloaded': {}, 'deferred': {}, 'failures': {}, 'last_run_utc': None}
+              path = tmp / 'prior-state.json'
+              run(['rclone','copyto',MANIFEST,str(path)])
+              state = json.loads(path.read_text())
+              if state.get('schema_version') != 1 or not isinstance(state.get('downloaded'), dict) or not isinstance(state.get('deferred'),dict):
+                  raise ValueError('Refusing to overwrite unknown/incompatible remote checkpoint')
+              return state
+
+
+          def save_checkpoint(state, tmp):
+              state['last_run_utc'] = NOW
+              local = tmp / 'state.json'
+              local.write_text(json.dumps(state,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+              run(['rclone','copyto',str(local),MANIFEST])
+              reread = tmp / 'state-verify.json'
+              run(['rclone','copyto',MANIFEST,str(reread)])
+              if digest(reread) != digest(local):
+                  raise RuntimeError('Uploaded manifest failed restored checksum check')
+
+
+          def upload_verified(path, remote, tmp):
+              remote_dir = remote.rsplit('/',1)[0]
+              run(['rclone','mkdir',remote_dir])
+              run(['rclone','copyto',str(path),remote,'--retries','3','--low-level-retries','5'])
+              verify_remote(path, remote, digest(path))
+
+
+          def load_dictionaries(tmp, state, report):
+              # Source dictionaries are stored alongside raw tables; no harmonization inferred.
+              kinds = ('cl_indicator','cl_ref_area','cl_source','cl_sex','cl_age','cl_gai',
+                       'cl_freq','cl_classif1','cl_classif2','cl_obs_status','cl_note_indicator',
+                       'cl_note_source','cl_note_classif')
+              dic_results = []
+              state.setdefault('dictionaries',{})
+              for kind in kinds:
+                  if kind in state['dictionaries']:
+                      continue
+                  url = DIC + '?' + urlencode({'format':'.csv','lang':'en','var':kind})
+                  local = tmp / (kind + '.csv')
+                  try:
+                      request(url,local,min(MAX_FILE,20_000_000),2)
+                      with local.open(encoding='utf-8-sig',newline='') as file:
+                          reader=csv.reader(file); head=next(reader); rows=sum(1 for _ in reader)
+                      if len(head)<2 or rows<1:
+                          raise ValueError('Dictionary CSV missing expected columns or rows')
+                      sha=digest(local)
+                      remote=BASE + '/dictionaries/' + kind + '-' + sha[:16] + '.csv'
+                      upload_verified(local,remote,tmp)
+                      state['dictionaries'][kind]={'sha256':sha,'rows':rows,'remote':remote,'source_url':url}
+                      save_checkpoint(state,tmp)
+                      dic_results.append({'dictionary':kind,'status':'verified','rows':rows})
+                  except Exception as e:
+                      dic_results.append({'dictionary':kind,'status':'failed','error':type(e).__name__+': '+str(e)[:150]})
+                  finally:
+                      local.unlink(missing_ok=True)
+                  time.sleep(MIN_DELAY)
+              report['dictionaries_attempted_this_run'] = dic_results
+
+
+          def main():
+              if not (1 <= BATCH <= 150 and 64 <= MAX_FILE//(1024*1024) <= 8192 and MAX_RUN>=MAX_FILE):
+                  raise ValueError('Unsafe batch size or file/run size caps')
+              OUT.mkdir(exist_ok=False)
+              work = Path(tempfile.mkdtemp(prefix='ilostat-run-'))
+              report={'version':1,'run_utc':NOW,'bulk_toc_url':TOC,
+                      'segmentation':'indicator', 'distinct_from_sdmx_dataflows':True,
+                      'classification':'SOURCE_NATIVE_GZIP_CSV_NO_CROSS_PROVIDER_HARMONIZATION',
+                      'limits':{'batch_attempts':BATCH,'max_file_mib':MAX_FILE//2**20,'max_run_mib':MAX_RUN//2**20},
+                      'attempted':[],'dictionaries_attempted_this_run':[]}
+              try:
+                  source = work / 'table_of_contents_en.csv'
+                  request(TOC,source,MAX_TOC)
+                  toc_hash = digest(source)
+                  toc = read_toc(source)
+                  state=load_checkpoint(work)
+                  state.setdefault('failures', {})
+                  report['official_toc_count']=len(toc)
+                  report['toc_sha256']=toc_hash
+                  # Make official catalog itself durable. Checksum-named snapshots avoid accidental overwrites.
+                  toc_remote=BASE+'/catalog/table_of_contents_en-'+toc_hash[:16]+'.csv'
+                  upload_verified(source,toc_remote,work)
+                  state['latest_toc']={'source_url':TOC,'sha256':toc_hash,'remote':toc_remote,'entries':len(toc)}
+                  save_checkpoint(state,work)
+                  load_dictionaries(work,state,report)
+                  # Prioritize three GenAI tables, then all other official bulk files.
+                  ids=sorted(toc,key=lambda k:(not ('_GAI_' in k),k))
+                  pending=[]; already=0; oversized=0; recent_failures=0
+                  for key in ids:
+                      r=toc[key]
+                      prior=state['downloaded'].get(key)
+                      if prior and prior.get('last_update') == r.get('last.update') and prior.get('toc_records') == r.get('n.records'):
+                          already+=1;continue
+                      deferred=state['deferred'].get(key)
+                      if deferred and deferred.get('last_update')==r.get('last.update') and deferred.get('max_file_mib')>=MAX_FILE//2**20:
+                          oversized+=1;continue
+                      recent=state['failures'].get(key, {})
+                      if recent.get('last_update')==r.get('last.update') and recent.get('date')==NOW[:10]:
+                          recent_failures+=1
+                          continue
+                      pending.append(key)
+                  report['recent_failures_skipped_until_next_day']=recent_failures
+                  report['unchanged_previously_verified']=already
+                  report['oversized_deferred_at_current_cap']=oversized
+                  report['pending_before_batch']=len(pending)
+                  byte_total=0
+                  for key in pending:
+                      if len(report['attempted'])>=BATCH:
+                          break
+                      r=toc[key]
+                      # TOC size is advisory; hard streaming guards enforce actual bytes.
+                      if byte_total >= MAX_RUN:
+                          break
+                      url=DATA+'?'+urlencode({'format':'.csv.gz','id':key})
+                      record={'id':key,'toc_last_update':r.get('last.update',''),'toc_records':r.get('n.records',''),
+                              'url':url,'result':'inconclusive'}
+                      local=work/(key+'.csv.gz')
+                      try:
+                          remaining=MAX_RUN-byte_total
+                          # Avoid misclassifying a run-budget limit as an oversized source file.
+                          if remaining < MAX_FILE:
+                              break
+                          bytes_downloaded=request(url,local,MAX_FILE,3)
+                          rows,header=verify_gz(local,r.get('n.records',''))
+                          sha=digest(local)
+                          last_tag=re.sub('[^0-9A-Za-z]','',r.get('last.update','unknown'))[:20] or 'unknown'
+                          remote=TARGET+'/'+key+'/'+key+'-'+last_tag+'-'+sha[:16]+'.csv.gz'
+                          upload_verified(local,remote,work)
+                          verified={'last_update':r.get('last.update',''),'toc_records':r.get('n.records',''),
+                                    'records_validated':rows,'compressed_bytes':bytes_downloaded,
+                                    'csv_header':header,'sha256':sha,'source_url':url,'remote':remote,
+                                    'verified_utc':NOW,'state':'NATIVE_NOT_HARMONIZED'}
+                          state['downloaded'][key]=verified
+                          state['deferred'].pop(key,None)
+                          state['failures'].pop(key,None)
+                          save_checkpoint(state,work)
+                          record.update(result='uploaded_verified',rows=rows,compressed_bytes=bytes_downloaded,sha256=sha)
+                          byte_total+=bytes_downloaded
+                      except OverflowError as exc:
+                          state['deferred'][key]={'last_update':r.get('last.update',''),
+                                                   'max_file_mib':MAX_FILE//2**20,'reason':'exceeded_size_cap'}
+                          save_checkpoint(state,work)
+                          record.update(result='deferred_size_cap',error=str(exc)[:160])
+                      except Exception as exc:
+                          state['failures'][key]={'last_update':r.get('last.update',''),'date':NOW[:10],
+                                                  'last_error':type(exc).__name__+': '+str(exc)[:120]}
+                          save_checkpoint(state,work)
+                          record.update(result='failed',error=type(exc).__name__+': '+str(exc)[:220])
+                      finally:
+                          local.unlink(missing_ok=True)
+                      report['attempted'].append(record)
+                      print('ILOSTAT_RESULT',json.dumps({k:record[k] for k in record if k in ('id','result','rows','compressed_bytes','error')}),flush=True)
+                      time.sleep(MIN_DELAY)
+                  downloaded=set(state['downloaded'])
+                  report['cumulative_downloaded_files']=sum(key in toc for key in downloaded)
+                  report['cumulative_verified_observations_by_bulk_file']=sum(
+                      int(v.get('records_validated',0)) for k,v in state['downloaded'].items() if k in toc)
+                  report['cumulative_total_bytes_by_bulk_file']=sum(
+                      int(v.get('compressed_bytes',0)) for k,v in state['downloaded'].items() if k in toc)
+                  report['total_available_bulk_files']=len(toc)
+                  report['remaining_not_verified']=len(toc)-report['cumulative_downloaded_files']
+                  report['newly_verified_this_run']=sum(x['result']=='uploaded_verified' for x in report['attempted'])
+                  report['failed_this_run']=sum(x['result']=='failed' for x in report['attempted'])
+                  report['deferred_this_run']=sum(x['result']=='deferred_size_cap' for x in report['attempted'])
+                  report['total_transfer_mib_this_run']=round(byte_total/2**20,2)
+                  report['checkpoint_remote']=MANIFEST
+                  report['source_native_readiness']='NOT_HARMONIZED_OR_CAUSALLY_VALIDATED'
+                  report['replication_note']='Raw ILOSTAT indicator CSV.gz datasets can overlap with existing warehouse records; do not add to canonical counts without keyed deduplication and QA.'
+                  (OUT/'summary.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+                  with (OUT/'batch_results.csv').open('w',encoding='utf-8',newline='') as f:
+                      cols=['id','toc_last_update','toc_records','result','rows','compressed_bytes','sha256','error','url']
+                      writer=csv.DictWriter(f,fieldnames=cols,extrasaction='ignore'); writer.writeheader();writer.writerows(report['attempted'])
+                  manifest={p.name:{'sha256':digest(p),'bytes':p.stat().st_size} for p in OUT.iterdir() if p.is_file()}
+                  (OUT/'sha256_manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+                  print('ILOSTAT_SUMMARY',json.dumps({k:report[k] for k in ('total_available_bulk_files','cumulative_downloaded_files','newly_verified_this_run','failed_this_run','remaining_not_verified')}),flush=True)
+              finally:
+                  shutil.rmtree(work,ignore_errors=True)
+
+
+          def test():
+              import tempfile
+              assert VALID_ID.fullmatch('EMP_TEMP_SEX_GAI_NB_A')
+              assert not VALID_ID.fullmatch('../etc/passwd')
+              with tempfile.TemporaryDirectory() as t:
+                  p=Path(t)/'toc.csv'
+                  with p.open('w',encoding='utf-8',newline='') as f:
+                      w=csv.DictWriter(f,fieldnames=['id','last.update','n.records','freq']);w.writeheader()
+                      for i in range(210):w.writerow({'id':f'EMP_TEST_{i:03d}_NB_A','last.update':'2026-10-25','n.records':'2','freq':'A'})
+                  assert len(read_toc(p))==210
+                  d=Path(t)/'test.csv.gz'
+                  with gzip.open(d,'wt',encoding='utf-8',newline='') as f:
+                      w=csv.writer(f);w.writerow(['ref_area','time','obs_value']);w.writerow(['NGA','2020','2']);w.writerow(['NGA','2021','3'])
+                  assert verify_gz(d,'2')[0]==2
+                  try:verify_gz(d,'3');raise AssertionError('Row count mismatch was not caught')
+                  except ValueError:pass
+              print('PASS: local safety, table of contents, and full gzip CRC/CSV row validation tests')
+
+          if __name__ == '__main__':
+              test()
+              if os.environ.get('SELF_TEST') != '1': main()
+          PYCODE
+      - name: Publish metadata-only ingestion status report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-ilostat-bulk-ingestion-report-${{ github.run_id }}
+          path: ilostat_bulk_run_report/*
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Remove transient OneDrive secret
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
