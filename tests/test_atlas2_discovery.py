@@ -34,6 +34,43 @@ class DiscoveryTests(unittest.TestCase):
     def test_world_bank_rejects_missing_database(self):
         with self.assertRaises(ValueError):m.parse_wb_page(wb(entries=[{'id':'A','name':'test'}]),1)
 
+    def test_world_bank_identical_duplicates_are_audited_not_overcounted(self):
+        entry={"id":"EXAMPLE","name":"Example rate", "source":{"id":"12","value":"Education"}}
+        response=wb(page=1,pages=1,total=2,entries=[entry,entry.copy()])
+        with patch.object(m,"WB_MIN_UNIQUE",1):
+            rows, report = m.discover_worldbank(lambda url: response)
+        self.assertEqual(len(rows),1)
+        self.assertEqual(report['raw_indicator_occurrences'],2)
+        self.assertEqual(report['source_reported_total_entries_including_duplicates'],2)
+        self.assertEqual(report['identical_duplicate_occurrences'],1)
+        self.assertEqual(report['distinct_source_indicator_keys'],1)
+        self.assertFalse(report['possible_pagination_instability'])
+
+    def test_world_bank_reports_cross_page_duplicate_without_hiding_it(self):
+        entry={"id":"EXAMPLE","name":"Example rate", "source":{"id":"12","value":"Education"}}
+        responses={1:wb(page=1,pages=2,total=2,entries=[entry]),
+                   2:wb(page=2,pages=2,total=2,entries=[entry])}
+        def fake_fetch(url):
+            return responses[int(url.rsplit("page=",1)[1])]
+        with patch.object(m,"WB_MIN_UNIQUE",1):
+            rows, report = m.discover_worldbank(fake_fetch)
+        self.assertEqual(len(rows),1)
+        self.assertEqual(report['cross_page_duplicate_occurrences'],1)
+        self.assertTrue(report['possible_pagination_instability'])
+
+    def test_world_bank_rejects_conflicting_duplicate_metadata(self):
+        x={"id":"EXAMPLE","name":"Example rate", "source":{"id":"12","value":"Education"}}
+        y={**x,"name":"Conflicting label"}
+        response=wb(page=1,pages=1,total=2,entries=[x,y])
+        with patch.object(m,"WB_MIN_UNIQUE",1), self.assertRaisesRegex(ValueError,"Conflicting"):
+            m.discover_worldbank(lambda url: response)
+
+    def test_world_bank_rejects_missing_occurrences(self):
+        response=wb(page=1,pages=1,total=3,entries=[{"id":"EXAMPLE","name":"Example",
+                            "source":{"id":"12","value":"Education"}}])
+        with patch.object(m,"WB_MIN_UNIQUE",1), self.assertRaisesRegex(ValueError,"page count mismatch"):
+            m.discover_worldbank(lambda url: response)
+
     def test_eurostat_parses_and_deduplicates_toc_placement(self):
         body='"    Real GDP"\t"nama_10_gdp"\t"dataset"\t"27.10.2026"\t"27.10.2026"\t"1950"\t"2026"\t1234\n'
         body += '"        Real GDP"\t"nama_10_gdp"\t"dataset"\t"27.10.2026"\t"27.10.2026"\t"1950"\t"2026"\t1234\n'
