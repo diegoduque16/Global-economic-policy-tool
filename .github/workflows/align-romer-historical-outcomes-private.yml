@@ -1,0 +1,160 @@
+name: Align Romer policy shocks with historical US outcomes privately (Phase 8)
+
+on:
+  workflow_dispatch:
+    inputs:
+      romer_export_run_id:
+        description: 'Successful Phase 7 private Romer source export run'
+        type: string
+        required: true
+        default: '40626561967'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: romer-historical-outcomes-private
+  cancel-in-progress: false
+
+jobs:
+  align-historical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ROMER_EXPORT_RUN: ${{ inputs.romer_export_run_id }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - name: Check out research scripts
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run strict source-alignment offline tests
+        run: python research/align_romer_historical_outcomes_private.py --self-test
+      - name: Verify actual Phase 7 source export and download only its public metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$ROMER_EXPORT_RUN" = '40626561967'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$ROMER_EXPORT_RUN" --jq '.conclusion')" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/$ROMER_EXPORT_RUN" --jq '.name')" = 'Export verified Romer tax measures to private research storage (Phase 7)'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$ROMER_EXPORT_RUN" --jq '.head_branch')" = main
+          test "$(gh api "repos/$GH_REPO/actions/runs/$ROMER_EXPORT_RUN" --jq '.head_repository.full_name')" = "$GH_REPO"
+          mkdir -p public_prior_audit
+          gh run download "$ROMER_EXPORT_RUN" --repo "$GH_REPO" \
+            --name "romer-private-export-metadata-$ROMER_EXPORT_RUN" \
+            --dir public_prior_audit
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path('public_prior_audit/romer_private_extraction_audit.json').read_text())
+          assert p['source_archive_sha256']=='c6c3b4888f3de596abf56bc136e2175ec5a4aa0dab137e79e261984a0a84701c'
+          assert p['source_workbook_sha256']=='e0803df2b6a541041ef80c9dee050fc65bd75ea5ac57926f67483d1ee94dadd3'
+          assert p['private_quarterly_rows']==756 and p['private_component_measurements']==2268
+          assert not p['numeric_source_data_in_public_artifact']
+          assert not p['causal_inference_ready']
+          print('PASS: previous source export metadata and lineage verified')
+          PY
+      - name: Set up private OneDrive access and fetch verified source CSVs
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing OneDrive credential secret' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/phase8-rclone" "$RUNNER_TEMP/phase7private"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/phase8-rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/phase8-rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/phase8-rclone/rclone.conf"
+          remote="$ONEDRIVE_TARGET/private-research-sources/romer-romer-2010/source-extract-$ROMER_EXPORT_RUN"
+          rclone copy "$remote" "$RUNNER_TEMP/phase7private" --retries 3 --low-level-retries 10
+          export PHASE7_PRIOR="$RUNNER_TEMP/phase7private"
+          python - <<'PY'
+          from pathlib import Path
+          import json,hashlib,os
+          old=json.loads(Path('public_prior_audit/romer_private_extraction_audit.json').read_text())
+          source=Path(os.environ['PHASE7_PRIOR'])
+          manifest=source/'private_file_manifest.json'
+          assert manifest.is_file()
+          assert hashlib.sha256(manifest.read_bytes()).hexdigest()==old['private_file_manifest_sha256']
+          data=json.loads(manifest.read_text())
+          assert len(data['files'])==3
+          for name,meta in data['files'].items():
+              p=source/name
+              assert p.is_file() and p.stat().st_size==meta['bytes']
+              assert hashlib.sha256(p.read_bytes()).hexdigest()==meta['sha256']
+          print('PASS: private source files exactly match prior verified export')
+          PY
+      - name: Download FRED outcome series and align historical quarters privately
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/private_phase8" 
+          python research/align_romer_historical_outcomes_private.py \
+            --private-source-dir "$RUNNER_TEMP/phase7private" \
+            --private-out "$RUNNER_TEMP/private_phase8" \
+            --public-out phase8_public_audit
+      - name: Check private counts, separation and public metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PRIVATE_PHASE8="$RUNNER_TEMP/private_phase8"
+          python - <<'PY'
+          from pathlib import Path
+          import os,csv,json,hashlib
+          src=Path(os.environ['PRIVATE_PHASE8']);pub=Path('phase8_public_audit')
+          assert {p.name for p in pub.iterdir()}=={'historical_outcome_alignment_audit.json'}
+          report=json.loads((pub/'historical_outcome_alignment_audit.json').read_text())
+          assert report['original_policy_rows']==756
+          assert report['joined_policy_outcome_rows']==756
+          assert report['outcome_measurements_present']==2940
+          assert report['outcome_missing_cells']=={'PAYEMS':0,'UNRATE':36,'GDPC1':24,'GPDIC1':24}
+          assert not report['causal_inference_ready']
+          assert not report['numeric_source_values_in_public_report']
+          manifest=src/'private_alignment_manifest.json'
+          assert hashlib.sha256(manifest.read_bytes()).hexdigest()==report['private_alignment_manifest_sha256']
+          data=json.loads(manifest.read_text())
+          joined=src/data['joined_private_csv']
+          assert hashlib.sha256(joined.read_bytes()).hexdigest()==data['joined_sha256']
+          with joined.open(newline='') as fd:
+              rows=list(csv.DictReader(fd))
+          assert len(rows)==756
+          assert len({(r['source_variant'],r['period']) for r in rows})==756
+          assert len(list(src.iterdir()))==6
+          for key,meta in data['outcome_sources'].items():
+              f=src/meta['raw_file']
+              assert hashlib.sha256(f.read_bytes()).hexdigest()==meta['raw_sha256']
+          print('PASS: 756 private aligned rows; 2,940 outcome cells; missingness documented; no numeric GitHub artifact')
+          PY
+      - name: Upload metadata-only research audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: romer-historical-outcome-alignment-metadata-${{ github.run_id }}
+          path: phase8_public_audit/historical_outcome_alignment_audit.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Back up private original and aligned outcome data to OneDrive and verify bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          export RCLONE_CONFIG="$RUNNER_TEMP/phase8-rclone/rclone.conf"
+          test -f "$RCLONE_CONFIG"
+          remote="$ONEDRIVE_TARGET/private-research-analysis/romer-romer-2010/outcome-alignment-run-$GITHUB_RUN_ID"
+          rclone copy "$RUNNER_TEMP/private_phase8/" "$remote" --retries 3 --low-level-retries 10
+          mkdir -p "$RUNNER_TEMP/verify-private-phase8"
+          rclone copy "$remote" "$RUNNER_TEMP/verify-private-phase8" --retries 3
+          diff -rq "$RUNNER_TEMP/private_phase8/" "$RUNNER_TEMP/verify-private-phase8/"
+          echo "Verified PRIVATE Phase 8 source-aligned research inputs under private-research-analysis/romer-romer-2010/outcome-alignment-run-$GITHUB_RUN_ID"
+      - name: Remove private local data and OneDrive credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/phase8-rclone/rclone.conf"
+          rm -rf "$RUNNER_TEMP/phase7private" "$RUNNER_TEMP/private_phase8" "$RUNNER_TEMP/verify-private-phase8"
