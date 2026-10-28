@@ -1,0 +1,208 @@
+name: Atlas P0 - Discover full ILOSTAT SDMX dataflow metadata
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-p0-ilostat-metadata
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Retrieve ILOSTAT dataflows, audit keyword matches, and hash source metadata
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+          import csv
+          import hashlib
+          import json
+          import re
+          import time
+          from collections import Counter
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from urllib.error import HTTPError, URLError
+          from urllib.parse import urlsplit
+          from urllib.request import Request, urlopen
+          import xml.etree.ElementTree as ET
+
+          URL = "https://sdmx.ilo.org/rest/v1/dataflow/ILO/all/latest?references=none"
+          MAX_BYTES = 64_000_000
+          OUT = Path("ilostat_catalog_output")
+          STATUS = "OFFICIAL_ILOSTAT_DATAFLOW_METADATA_NOT_INGESTED"
+          XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
+          FIELDS = ("provider", "agency_id", "dataflow_id", "version", "dataflow_key",
+                    "title", "description", "ai_keyword_match", "labor_keyword_match", "evidence_status")
+          AI_RX = re.compile(r"\b(?:gen(?:erative)?[ -]?ai|generative artificial intelligence|artificial intelligence|machine learning|automation|ai exposure)\b", re.I)
+          LABOR_RX = re.compile(r"\b(?:employment|unemployment|occupation(?:al|s)?|workforce|labou?r|wages?|earnings?|skills?|working time|jobs?|tasks?)\b", re.I)
+
+
+          def source_text(node, field):
+              items = []
+              for child in node:
+                  if child.tag.rsplit("}", 1)[-1] != field:
+                      continue
+                  value = " ".join("".join(child.itertext()).split())
+                  if value:
+                      items.append((child.attrib.get(XML_LANG, "").lower(), value))
+              return next((v for lang, v in items if lang.startswith("en")), items[0][1] if items else "")
+
+
+          def parse(raw):
+              if b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper():
+                  raise ValueError("Prohibited XML DTD or entity declaration")
+              try:
+                  root = ET.fromstring(raw)
+              except ET.ParseError as e:
+                  raise ValueError("Source was not valid SDMX XML") from e
+              results = []
+              seen = {}
+              duplicates = 0
+              for node in root.iter():
+                  if node.tag.rsplit("}", 1)[-1] != "Dataflow":
+                      continue
+                  agency = (node.get("agencyID") or "").strip()
+                  flow = (node.get("id") or "").strip()
+                  version = (node.get("version") or "unspecified").strip()
+                  if not agency or not flow or not version or any(len(x) > 160 for x in (agency, flow, version)):
+                      raise ValueError("Missing or invalid official SDMX dataflow identity")
+                  key = f"{agency}:{flow}:{version}"
+                  title, desc = source_text(node, "Name"), source_text(node, "Description")
+                  content = " ".join((flow, title, desc))
+                  row = {"provider": "ilostat", "agency_id": agency, "dataflow_id": flow,
+                         "version": version, "dataflow_key": key, "title": title,
+                         "description": desc, "ai_keyword_match": str(bool(AI_RX.search(content))).lower(),
+                         "labor_keyword_match": str(bool(LABOR_RX.search(content))).lower(),
+                         "evidence_status": STATUS}
+                  if key in seen:
+                      duplicates += 1
+                      if seen[key] != row:
+                          raise ValueError("Conflicting duplicate SDMX dataflow metadata: " + key)
+                      continue
+                  seen[key] = row
+                  results.append(row)
+              if not results:
+                  raise ValueError("No SDMX dataflows returned; inspect API endpoint and structure")
+              return results, duplicates
+
+
+          def fetch():
+              address = urlsplit(URL)
+              assert address.scheme == "https" and address.hostname == "sdmx.ilo.org"
+              last = None
+              for attempt in range(3):
+                  try:
+                      req = Request(URL, headers={"User-Agent": "EconomicDataAtlas/0.4 public catalog metadata audit",
+                                                  "Accept": "application/vnd.sdmx.structure+xml;version=2.1, application/xml;q=0.8"})
+                      with urlopen(req, timeout=90) as response:
+                          final = urlsplit(response.geturl())
+                          if final.scheme != "https" or final.hostname != "sdmx.ilo.org":
+                              raise ValueError("Unsafe redirect outside official ILO SDMX host")
+                          if response.status != 200:
+                              raise ValueError("Unexpected ILOSTAT metadata HTTP status: " + str(response.status))
+                          raw = response.read(MAX_BYTES + 1)
+                          if not raw:
+                              raise ValueError("Empty official ILOSTAT metadata response")
+                          if len(raw) > MAX_BYTES:
+                              raise ValueError("ILOSTAT metadata response exceeds 64 MB safety limit")
+                          content_type = response.headers.get("Content-Type", "")
+                          if "xml" not in content_type.lower():
+                              raise ValueError("Unexpected ILOSTAT structure MIME type: " + content_type)
+                          return raw, content_type
+                  except HTTPError as e:
+                      if e.code not in (408, 429, 500, 502, 503, 504):
+                          raise
+                      last = e
+                  except (URLError, TimeoutError) as e:
+                      last = e
+                  if attempt < 2:
+                      time.sleep(2 ** attempt)
+              raise RuntimeError("ILOSTAT structure API unreachable after bounded retries") from last
+
+
+          def sha(raw):
+              return hashlib.sha256(raw).hexdigest()
+
+
+          def offline_tests():
+              valid = b'''<mes:Structure xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" xmlns:str="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/structure" xmlns:com="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common"><mes:Structures><str:Dataflows><str:Dataflow agencyID="ILO" id="OCC_EXPOSURE" version="1.0"><com:Name xml:lang="fr">Metier</com:Name><com:Name xml:lang="en">Generative AI exposure by occupation</com:Name></str:Dataflow></str:Dataflows></mes:Structures></mes:Structure>'''
+              rows, n = parse(valid)
+              assert n == 0 and len(rows) == 1
+              assert rows[0]["dataflow_key"] == "ILO:OCC_EXPOSURE:1.0"
+              assert rows[0]["title"] == "Generative AI exposure by occupation"
+              assert rows[0]["ai_keyword_match"] == "true" and rows[0]["labor_keyword_match"] == "true"
+              # Check duplicate recognition using an independently assembled XML fixture.
+              part = valid.split(b"<str:Dataflow ", 1)[1].split(b"</str:Dataflow>", 1)[0]
+              repeated = valid.replace(b"</str:Dataflows>", b"<str:Dataflow " + part + b"</str:Dataflow></str:Dataflows>")
+              rows, n = parse(repeated)
+              assert len(rows) == 1 and n == 1
+              for bad in (b"no xml", b"<!DOCTYPE x [<!ENTITY y SYSTEM 'file:///etc/passwd'>]><x/>"):
+                  try:
+                      parse(bad)
+                      raise AssertionError("Unsafe fixture unexpectedly accepted")
+                  except ValueError:
+                      pass
+              print("PASS: offline schema, English label, keyword match, duplication and XML safety tests", flush=True)
+
+
+          def run():
+              offline_tests()
+              if OUT.exists() and any(OUT.iterdir()):
+                  raise FileExistsError("Refuse to overwrite existing metadata snapshot")
+              raw, mime = fetch()
+              rows, repeats = parse(raw)
+              OUT.mkdir(parents=True, exist_ok=False)
+              matches = [r for r in rows if r["ai_keyword_match"] == "true" or r["labor_keyword_match"] == "true"]
+              for name, records in (("ilostat_dataflows.csv", rows), ("ilostat_ai_labor_keyword_matches.csv", matches)):
+                  with (OUT / name).open("w", encoding="utf-8", newline="") as f:
+                      writer = csv.DictWriter(f, fieldnames=FIELDS)
+                      writer.writeheader()
+                      writer.writerows(records)
+              summary = {
+                  "provider": "ilostat", "official_endpoint": URL,
+                  "catalog_status": STATUS, "generated_utc": datetime.now(timezone.utc).isoformat(),
+                  "response_content_type": mime, "response_bytes": len(raw), "response_sha256": sha(raw),
+                  "distinct_dataflow_entries": len(rows), "identical_duplicate_entries": repeats,
+                  "metadata_keyword_matches": len(matches),
+                  "ai_keyword_matches": sum(r["ai_keyword_match"] == "true" for r in rows),
+                  "labor_keyword_matches": sum(r["labor_keyword_match"] == "true" for r in rows),
+                  "genai_exposure_dataflow_verified": any(r["ai_keyword_match"] == "true" and ("exposure" in (r["title"] + " " + r["description"]).lower()) for r in rows),
+                  "economic_observations_downloaded": 0, "individual_time_series_enumerated": False,
+                  "research_ready": False, "redistribution_license_verified": False,
+                  "limitations": "Keyword matches are catalog-title and description matches, not verified measure availability or numerical coverage. A missing keyword match is not proof of absence in the provider's data."
+              }
+              (OUT / "ilostat_catalog_summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+              manifest = {p.name: {"sha256": sha(p.read_bytes()), "bytes": p.stat().st_size} for p in sorted(OUT.iterdir()) if p.is_file()}
+              (OUT / "sha256_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+              with (OUT / "ilostat_dataflows.csv").open(encoding="utf-8", newline="") as f:
+                  assert len(list(csv.DictReader(f))) == len(rows)
+              assert len({r["dataflow_key"] for r in rows}) == len(rows)
+              assert all(r["evidence_status"] == STATUS for r in rows)
+              assert all(sha((OUT / name).read_bytes()) == data["sha256"] for name, data in manifest.items())
+              print("PASS: verified official ILOSTAT metadata-only catalog", json.dumps({
+                  "dataflows": len(rows), "identical_repeats": repeats,
+                  "ai_keyword_matches": summary["ai_keyword_matches"],
+                  "labor_keyword_matches": summary["labor_keyword_matches"],
+                  "genai_exposure_dataflow_verified": summary["genai_exposure_dataflow_verified"],
+                  "numeric_observations": 0}), flush=True)
+              for r in (r for r in rows if r["ai_keyword_match"] == "true"):
+                  print("AI-METADATA-KEYWORD-MATCH", r["dataflow_key"], r["title"][:120])
+
+
+          if __name__ == "__main__":
+              run()
+          PY
+      - name: Save verified metadata-only artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ilostat-sdmx-catalog-${{ github.run_id }}
+          path: ilostat_catalog_output/*
+          if-no-files-found: error
+          retention-days: 90
