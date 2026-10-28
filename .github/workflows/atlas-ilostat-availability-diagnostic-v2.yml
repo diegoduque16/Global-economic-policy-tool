@@ -1,0 +1,126 @@
+name: Atlas P0 - Diagnose ILOSTAT GenAI availability HTTP 500
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-ilostat-availability-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Compare small official ILOSTAT availability and series-key-only requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          """No economic values retained. Diagnostic JSON and SHA256 only."""
+          import hashlib
+          import json
+          import re
+          import time
+          import urllib.error
+          import urllib.request
+          import xml.etree.ElementTree as ET
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from urllib.parse import urlencode, urlsplit
+
+          HOST = 'sdmx.ilo.org'
+          FLOW = 'DF_EMP_TEMP_SEX_GAI_NB'
+          REF = 'ILO,' + FLOW + ',1.0'
+          KEY = 'NGA.A.EMP_TEMP_NB.SEX_T.GAI_GRADIENT_TOTAL'
+          PREFIX = 'https://' + HOST + '/rest'
+          MAX_BYTES = 2_000_000
+          headers = {'User-Agent': 'EconomicDataAtlas/0.6 ILOSTAT metadata-only diagnostic',
+                     'Accept': 'application/vnd.sdmx.structure+xml;version=2.1, application/xml;q=0.7'}
+          probes = [
+              ('availability_original_narrowed',f'{PREFIX}/v1/availableconstraint/{REF}/{KEY}/all/all?' + urlencode({'startPeriod':'2020','endPeriod':'2025','mode':'exact','references':'none'}),'structure'),
+              ('availability_without_period', f'{PREFIX}/v1/availableconstraint/{REF}/{KEY}/all/all','structure'),
+              ('availability_specific_dimension',f'{PREFIX}/v1/availableconstraint/{REF}/{KEY}/all/GAI','structure'),
+              ('availability_legacy_alias', f'{PREFIX}/availableconstraint/{REF}/{KEY}/all/GAI','structure'),
+              ('series_keys_only_fallback',f'{PREFIX}/v1/data/{REF}/{KEY}/all?' + urlencode({'detail':'serieskeysonly','startPeriod':'2020','endPeriod':'2025'}),'serieskeysonly'),
+          ]
+          assert len(KEY.split('.')) == 5
+          assert len({p[0] for p in probes}) == len(probes)
+          assert all(urlsplit(url).hostname == HOST and urlsplit(url).scheme == 'https' for _,url,_ in probes)
+          assert all('/data/' not in url or 'detail=serieskeysonly' in url for _,url,_ in probes)
+          assert all('/availableconstraint/' not in url or '/all/' in url for _,url,_ in probes)
+          output = []
+          for name, url, kind in probes:
+              rec = {'probe': name, 'endpoint': url, 'response_kind': kind,
+                     'status_code': None, 'response_bytes': 0,
+                     'response_sha256': None, 'content_type': None,
+                     'series_nodes': None, 'cube_regions': None, 'error': None,
+                     'country':'NGA','flow':FLOW,'numeric_observations_retained':0}
+              request = urllib.request.Request(url,headers={**headers,
+                  'Accept':'application/vnd.sdmx.genericdata+xml;version=2.1, application/xml;q=0.7' if kind=='serieskeysonly' else headers['Accept']})
+              raw = b''
+              try:
+                  with urllib.request.urlopen(request,timeout=35) as response:
+                      target = urlsplit(response.geturl())
+                      if target.scheme!='https' or target.hostname != HOST:
+                          raise ValueError('Rejected redirect outside official ILO host')
+                      rec['status_code'] = response.status
+                      rec['content_type'] = response.headers.get('Content-Type','')
+                      raw = response.read(MAX_BYTES+1)
+                      if len(raw)>MAX_BYTES:
+                          rec['error']='response_exceeds_2MB_limit';raw=b''
+              except urllib.error.HTTPError as e:
+                  rec['status_code']=e.code
+                  rec['content_type']=e.headers.get('Content-Type','')
+                  rec['error']='HTTP_'+str(e.code)
+              except Exception as e:
+                  rec['error']=type(e).__name__+': '+str(e)[:120]
+              if raw:
+                  rec['response_bytes']=len(raw)
+                  rec['response_sha256']=hashlib.sha256(raw).hexdigest()
+                  if b'<!DOCTYPE' in raw.upper() or b'<!ENTITY' in raw.upper():
+                      rec['error']='forbidden_XML_DTD'
+                  else:
+                      try:
+                          root=ET.fromstring(raw)
+                          nodes=[t.tag.rsplit('}',1)[-1] for t in root.iter()]
+                          observations=sum(tag in ('Obs','ObsValue','Observation') for tag in nodes)
+                          if observations:
+                              rec['error']='unexpected_observations_in_metadata_only_response'
+                          else:
+                              rec['series_nodes']=nodes.count('Series')
+                              rec['cube_regions']=nodes.count('CubeRegion')
+                      except ET.ParseError:
+                          rec['error']='unparseable_XML_or_non_XML'
+              output.append(rec)
+              print('PROBE',json.dumps({k:v for k,v in rec.items() if k not in ('endpoint','response_sha256')},sort_keys=True),flush=True)
+              time.sleep(.3)
+          target = Path('ilostat_availability_diagnostic_output')
+          target.mkdir(exist_ok=False)
+          summary={
+              'classification':'DIAGNOSTIC_ONLY_NOT_VERIFIED_ECONOMIC_COVERAGE',
+              'generated_utc':datetime.now(timezone.utc).isoformat(),
+              'preceding_failed_query_run_id':40638149572,
+              'official_documentation':'https://sdmx.ilo.org/swagger.json',
+              'dataflow':FLOW,'country':'NGA','queries':output,
+              'numeric_observations_retained':0,'country_year_data_coverage_verified':False,
+              'interpretation':'A 500 is an API or request failure, not evidence of missing data. A serieskeysonly response may report matching series keys without observations.'
+          }
+          path=target/'diagnostic_results.json'
+          path.write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          manifest={path.name:{'bytes':path.stat().st_size,'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}}
+          (target/'sha256_manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          succeeded=[x['probe'] for x in output if x['status_code']==200 and not x['error']]
+          print('DIAGNOSTIC_COMPLETE',json.dumps({'http_200_xml_probes':succeeded,'failed_or_inconclusive_probes':len(output)-len(succeeded),'numerical_values_preserved':0}),flush=True)
+          if not succeeded:print('WARNING: No usable metadata or series-key-only availability path identified; do not infer zero coverage.',flush=True)
+          PY
+      - name: Save bounded diagnostics for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-ilostat-availability-diagnostic-${{ github.run_id }}
+          path: ilostat_availability_diagnostic_output/*
+          if-no-files-found: error
+          retention-days: 90
