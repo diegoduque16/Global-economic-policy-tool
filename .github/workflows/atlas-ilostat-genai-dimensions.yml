@@ -1,0 +1,183 @@
+name: Atlas P0 - Inspect ILOSTAT GenAI SDMX dimensions and available codes
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-ilostat-genai-structure
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Verify three GenAI dataflows and inspect official structural metadata only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYCODE'
+          from __future__ import annotations
+          import csv
+          import hashlib
+          import json
+          import re
+          import time
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from urllib.parse import urlsplit
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError, URLError
+          import xml.etree.ElementTree as ET
+
+          HOST = "sdmx.ilo.org"
+          FLOWS = (
+              "DF_EMP_3EMP_SEX_AGE_GAI_NB",
+              "DF_EMP_TEMP_SEX_AGE_GAI_NB",
+              "DF_EMP_TEMP_SEX_GAI_NB",
+          )
+          OUTPUT = Path("ilostat_genai_structure_output")
+          MAX_BYTES = 24_000_000
+          BASE = "https://sdmx.ilo.org/rest/v1/dataflow/ILO/"
+          XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
+
+          def local(tag):
+              return tag.rsplit('}',1)[-1]
+
+          def label(node):
+              names = []
+              for c in node:
+                  if local(c.tag)=='Name':
+                      v=' '.join(''.join(c.itertext()).split())
+                      if v: names.append((c.attrib.get(XML_LANG,'').lower(),v))
+              return next((v for lang,v in names if lang.startswith('en')),names[0][1] if names else '')
+
+          def get(url):
+              u=urlsplit(url)
+              if u.scheme!='https' or u.hostname!=HOST or '/rest/v1/dataflow/ILO/' not in u.path:
+                  raise ValueError('Unapproved metadata URL')
+              for attempt in range(3):
+                  try:
+                      request=Request(url,headers={'User-Agent':'EconomicDataAtlas/0.5 official structural-metadata coverage pilot',
+                          'Accept':'application/vnd.sdmx.structure+xml;version=2.1, application/xml;q=0.7'})
+                      with urlopen(request, timeout=80) as response:
+                          final=urlsplit(response.geturl())
+                          if response.status!=200 or final.scheme!='https' or final.hostname!=HOST:
+                              raise ValueError('Unexpected metadata response/redirect')
+                          if 'xml' not in response.headers.get('Content-Type','').lower():
+                              raise ValueError('Unexpected XML content type')
+                          raw=response.read(MAX_BYTES+1)
+                          if not raw or len(raw)>MAX_BYTES: raise ValueError('Empty or over-limit metadata response')
+                          if b'<!DOCTYPE' in raw.upper() or b'<!ENTITY' in raw.upper():
+                              raise ValueError('Unsafe XML metadata')
+                          return raw
+                  except HTTPError as e:
+                      if e.code not in (429,500,502,503,504): raise
+                      if attempt==2:raise
+                  except (URLError,TimeoutError):
+                      if attempt==2:raise
+                  time.sleep(2**attempt)
+              raise RuntimeError('No metadata response')
+
+          def extract(raw,expected):
+              root=ET.fromstring(raw)
+              flows=[n for n in root.iter() if local(n.tag)=='Dataflow']
+              selected=[n for n in flows if n.get('id')==expected and n.get('agencyID')=='ILO']
+              if len(selected)!=1: raise ValueError(f'Expected one verified ILO dataflow {expected}, got {len(selected)}')
+              dsd=[n for n in root.iter() if local(n.tag)=='DataStructure']
+              codelists=[n for n in root.iter() if local(n.tag)=='Codelist']
+              dims=[]
+              for structure in dsd:
+                  for node in structure.iter():
+                      kind=local(node.tag)
+                      if kind not in ('Dimension','MeasureDimension','TimeDimension','FrequencyDimension'): continue
+                      refs=[]
+                      for c in node.iter():
+                          if local(c.tag)=='Ref':
+                              refs.append({'id':c.get('id',''),'agency_id':c.get('agencyID',''),'version':c.get('version','')})
+                      dims.append({'dataflow_id':expected,'dsd_id':structure.get('id',''),
+                          'dimension_id':node.get('id',''),'position':node.get('position',''),
+                          'dimension_kind':kind,'referenced_structures':json.dumps(refs,sort_keys=True)})
+              if not dims:
+                  raise ValueError('No inspectable DSD dimensions; try alternate metadata detail mode')
+              codes=[]
+              for cl in codelists:
+                  for node in cl:
+                      if local(node.tag)=='Code':
+                          codes.append({'dataflow_id':expected,'codelist_id':cl.get('id',''),
+                              'code':node.get('id',''),'label':label(node),
+                              'partial_codelist':str(cl.get('isPartial','false')).lower()})
+              summary={'dataflow_id':expected,'dataflow_title':label(selected[0]),
+                       'dsd_count':len(dsd),'dimension_count':len(dims),
+                       'codelist_count':len(codelists),'code_count':len(codes),
+                       'has_country_dimension':any(x['dimension_id'] in ('REF_AREA','COUNTRY') for x in dims),
+                       'has_exposure_dimension':any('GAI' in x['dimension_id'].upper() for x in dims),
+                       'available_time_periods_verified':False,
+                       'actual_country_year_data_coverage_verified':False,
+                       'actual_observations_downloaded':0}
+              return summary,dims,codes
+
+          def check_fixtures():
+              raw=b'''<mes:Structure xmlns:mes="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message" xmlns:str="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/structure" xmlns:com="http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common"><mes:Structures><str:Dataflows><str:Dataflow agencyID="ILO" id="DF_EMP_TEMP_SEX_GAI_NB" version="1.0"><com:Name xml:lang="en">Employment by GenAI exposure</com:Name></str:Dataflow></str:Dataflows><str:DataStructures><str:DataStructure id="DSD_EMP"><str:DataStructureComponents><str:DimensionList><str:Dimension id="REF_AREA" position="1"/><str:Dimension id="GAI" position="2"/></str:DimensionList></str:DataStructureComponents></str:DataStructure></str:DataStructures><str:Codelists><str:Codelist id="CL_GAI" isPartial="true"><str:Code id="G4"><com:Name xml:lang="en">Gradient 4</com:Name></str:Code></str:Codelist></str:Codelists></mes:Structures></mes:Structure>'''
+              summary,dims,codes=extract(raw,'DF_EMP_TEMP_SEX_GAI_NB')
+              assert summary['dimension_count']==2 and len(codes)==1 and codes[0]['partial_codelist']=='true'
+              try: extract(raw,'OTHER')
+              except ValueError: pass
+              else: raise AssertionError('Wrong dataflow accepted')
+              print('PASS: offline tests for ILO SDMX dataflow identity, dimensions and partial codelists')
+
+          def write_csv(path,rows,fields):
+              with path.open('w',newline='',encoding='utf-8') as fp:
+                  writer=csv.DictWriter(fp,fieldnames=fields);writer.writeheader();writer.writerows(rows)
+
+          check_fixtures()
+          OUTPUT.mkdir(exist_ok=False)
+          summaries=[];dimensions=[];codes=[]
+          for flow in FLOWS:
+              # ILO documentation distinguishes referencepartial codelists from full allowable codelists.
+              # Partial codes are *not* themselves proof of coverage by country or year.
+              attempts=[('referencepartial',BASE+flow+'/1.0?references=all&detail=referencepartial'),
+                        ('full',BASE+flow+'/1.0?references=all&detail=full')]
+              last=None
+              for mode,url in attempts:
+                  try:
+                      raw=get(url)
+                      summary,dd,cc=extract(raw,flow)
+                      summary.update(metadata_mode=mode,source_endpoint=url,
+                          response_sha256=hashlib.sha256(raw).hexdigest(),response_bytes=len(raw),
+                          partial_codelist_count=len({x['codelist_id'] for x in cc if x['partial_codelist']=='true'}))
+                      summaries.append(summary);dimensions+=dd;codes+=cc
+                      print('STRUCTURE',json.dumps(summary,sort_keys=True),flush=True)
+                      break
+                  except (HTTPError,URLError,TimeoutError,ET.ParseError,ValueError) as ex:
+                      last=type(ex).__name__+': '+str(ex)[:160]
+                      print(f'METADATA-MODE {mode} unavailable for {flow}: {last}',flush=True)
+              else: raise RuntimeError(f'No interpretable metadata for {flow}: {last}')
+          assert len(summaries)==3
+          write_csv(OUTPUT/'genai_sdmx_dimensions.csv',dimensions,
+                    ['dataflow_id','dsd_id','dimension_id','position','dimension_kind','referenced_structures'])
+          write_csv(OUTPUT/'genai_sdmx_codes.csv',codes,
+                    ['dataflow_id','codelist_id','code','label','partial_codelist'])
+          report={'source':'Official ILOSTAT SDMX structure metadata','generated_utc':datetime.now(timezone.utc).isoformat(),
+              'parent_catalog_run':40637045398,'consolidated_catalog_run':40637445875,
+              'dataflows':summaries,'total_dimension_rows':len(dimensions),'total_code_rows':len(codes),
+              'economic_observations_downloaded':0,'country_year_coverage_established':False,
+              'causal_research_ready':False,
+              'important_caveat':'Codelists specify valid or potentially available dimension codes. Even partial codelists do not establish that any specific country-year-exposure combination has numeric observations.'}
+          (OUTPUT/'genai_structure_summary.json').write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+          manifest={p.name:{'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()}
+                    for p in sorted(OUTPUT.iterdir()) if p.is_file()}
+          (OUTPUT/'sha256_manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
+          assert all(hashlib.sha256((OUTPUT/k).read_bytes()).hexdigest()==v['sha256'] for k,v in manifest.items())
+          print('PASS: validated GenAI dimensions and official code list metadata; 0 economic observations')
+          PYCODE
+      - name: Save SDMX structure discovery artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-ilostat-genai-dimensions-${{ github.run_id }}
+          path: ilostat_genai_structure_output/*
+          if-no-files-found: error
+          retention-days: 90
