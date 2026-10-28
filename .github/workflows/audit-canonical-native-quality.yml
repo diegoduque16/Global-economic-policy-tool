@@ -1,0 +1,108 @@
+name: Audit research quality of canonical-native data
+
+on:
+  workflow_dispatch:
+    inputs:
+      native_run_id:
+        description: 'Successful Phase 2 canonical-native run ID'
+        required: true
+        type: string
+        default: '40617910011'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: audit-canonical-native-quality-${{ inputs.native_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      NATIVE_RUN_ID: ${{ inputs.native_run_id }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run synthetic read-only audit regression checks
+        run: python research/audit_native_quality.py --self-test
+      - name: Validate source run and retrieve exact Phase 2 artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$NATIVE_RUN_ID" =~ ^[0-9]+$ ]]
+          test "$(gh api "repos/$GH_REPO/actions/runs/$NATIVE_RUN_ID" --jq '.conclusion')" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/$NATIVE_RUN_ID" --jq '.name')" = 'Materialize five source-native datasets in canonical warehouse'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$NATIVE_RUN_ID" --jq '.head_branch')" = main
+          test "$(gh api "repos/$GH_REPO/actions/runs/$NATIVE_RUN_ID" --jq '.head_repository.full_name')" = "$GH_REPO"
+          mkdir -p incoming
+          gh run download "$NATIVE_RUN_ID" --repo "$GH_REPO" \
+            --name "canonical-native-$NATIVE_RUN_ID" --dir incoming
+          mapfile -d '' -t archives < <(find incoming -maxdepth 2 -type f -name 'canonical-native-*.tar.gz' -print0)
+          test "${#archives[@]}" -eq 1 || { echo 'Expected exactly one derived archive' >&2; exit 1; }
+          if [ "$NATIVE_RUN_ID" = 40617910011 ]; then
+            # SHA256 verified by the original Phase 2 build log.
+            test "$(sha256sum "${archives[0]}" | awk '{print $1}')" = dfe43456207e8681c4a79470d39578718c51670ceeb43cf4c68a379fdc61d17b
+          fi
+          echo "SOURCE_ARCHIVE=${archives[0]}" >> "$GITHUB_ENV"
+      - name: Audit all source-native records without changing the warehouse
+        run: |
+          python research/audit_native_quality.py \
+            --archive "$SOURCE_ARCHIVE" \
+            --iso-codes research/iso3_country_codes.csv \
+            --out quality_output
+      - name: Verify accounting and explicitly unharmonized research status
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          doc=json.loads(Path('quality_output/native_quality_report.json').read_text())
+          assert doc['base_analytical_observations_unchanged']==2780117
+          assert doc['base_source_families_unchanged']==24
+          assert doc['queryable_source_native_rows_audited']==2104609
+          assert doc['sources_audited']==5
+          assert not doc['ready_for_cross_provider_harmonization']
+          assert not doc['ready_for_causal_inference']
+          assert sum(x['audited_rows'] for x in doc['source_reports'].values())==2104609
+          print('PASS: all five sources audited, original data unchanged, no false causal-readiness claim')
+          PY
+      - name: Store research-quality report as GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-native-quality-${{ github.run_id }}
+          path: quality_output/
+          retention-days: 90
+          if-no-files-found: error
+      - name: Save audit report in existing private OneDrive and verify it
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing existing RCLONE_CONFIG_B64 OneDrive secret' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/rclone/rclone.conf"
+          remote="$ONEDRIVE_TARGET/research-audits/native-$NATIVE_RUN_ID/quality-run-$GITHUB_RUN_ID"
+          rclone copy quality_output/ "$remote" --retries 3 --low-level-retries 10
+          mkdir -p "$RUNNER_TEMP/quality-verify"
+          rclone copy "$remote" "$RUNNER_TEMP/quality-verify" --retries 3
+          diff -rq quality_output "$RUNNER_TEMP/quality-verify"
+          echo "Verified research quality audit at $remote"
+      - name: Remove temporary OneDrive credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
