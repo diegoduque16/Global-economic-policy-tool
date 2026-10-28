@@ -1,0 +1,63 @@
+name: Atlas 2 - Discover World Bank and Eurostat data catalogs
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas2-metadata-discovery
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out official metadata discovery code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run offline safety and source-schema tests
+        run: python -m unittest discover -s tests -p 'test_atlas2_discovery.py' -v
+      - name: Discover official catalogs (metadata only, no numeric observations)
+        run: python research/atlas2_discover_provider_catalogs.py --provider both --out atlas2_output
+      - name: Validate counts, source isolation and manifest integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv, json, hashlib
+          from pathlib import Path
+          root=Path('atlas2_output')
+          report=json.loads((root/'atlas2_discovery_summary.json').read_text())
+          assert set(report['by_provider'])=={'worldbank','eurostat'}
+          assert report['by_provider']['worldbank']['catalog_entries']>=3000
+          assert report['by_provider']['eurostat']['catalog_entries']>=1000
+          assert report['discovered_catalog_entries']==sum(x['catalog_entries'] for x in report['by_provider'].values())
+          assert not report['research_ready']
+          assert report['economic_observations_ingested']==0
+          assert not report['observed_availability_verified_per_series']
+          with (root/'discovered_series_metadata.csv').open(encoding='utf-8',newline='') as f:
+              rows=list(csv.DictReader(f))
+          assert len(rows)==report['discovered_catalog_entries']
+          assert len(set((r['provider'],r['source_key']) for r in rows))==len(rows)
+          assert all(r['evidence_status']=='OFFICIAL_CATALOG_METADATA_NOT_INGESTED' for r in rows)
+          checks=json.loads((root/'sha256_manifest.json').read_text())
+          assert set(checks)=={'discovered_series_metadata.csv','atlas2_discovery_summary.json'}
+          for name,metadata in checks.items():
+              p=root/name
+              assert p.stat().st_size==metadata['bytes']
+              assert hashlib.sha256(p.read_bytes()).hexdigest()==metadata['sha256']
+          print('PASS: genuine provider catalogs discovered; 0 numeric observations downloaded or research-ready claims')
+          PY
+      - name: Save source-catalog metadata artifact, not bulk economic data
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas2-worldbank-eurostat-metadata-${{ github.run_id }}
+          path: atlas2_output/*
+          if-no-files-found: error
+          retention-days: 90
