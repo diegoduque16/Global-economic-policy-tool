@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0",
+  "basis": "Actual validated source-native WID share CSV files stored on private OneDrive; not a provider catalog",
+  "source_url": "https://wid.world/bulk_download/",
+  "source_remote_prefix": "onedrive:Diego/economic research database/atlas/wid-country-pilot-v1",
+  "input_filename": "wid_source_native_shares.csv",
+  "expected_country_count": 23,
+  "expected_numeric_values": 21430,
+  "expected_pretax_posttax_pairs": 4408,
+  "source_run_ids": [
+    "41006308764",
+    "41010751593"
+  ],
+  "population_definition": "WID source variable-specific adult equal split; review methodology",
+  "research_status": "raw_share_values_only_not_harmonized_or_causal",
+  "countries": [
+    {
+      "wid_area": "AU",
+      "iso3": "AUS",
+      "source_sha256": "9625c0d822d113199f559b7458f47ec02504f753c5e25ff5490a4a33f4a0331a",
+      "source_native_rows": 880,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "BR",
+      "iso3": "BRA",
+      "source_sha256": "a7bf5efd2ff174051a936529cf1ae8e3c85d98e976d1f27e94a48fff9eb97338",
+      "source_native_rows": 628,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "CA",
+      "iso3": "CAN",
+      "source_sha256": "2371a168e9e33a7c645faec7c27468f695c6bb83fb2d7f961e8933a63c2743d3",
+      "source_native_rows": 908,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "CL",
+      "iso3": "CHL",
+      "source_sha256": "18a4a2162a43550032dfece86ecaa9c60b420511f78a2ff7ab12bd6d1b649c7a",
+      "source_native_rows": 680,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "CO",
+      "iso3": "COL",
+      "source_sha256": "01e9b2bfb0cd883d1a661e298084d19766d1ab3b230ffa62bce6c4479d0aadc6",
+      "source_native_rows": 628,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41006308764"
+    },
+    {
+      "wid_area": "DE",
+      "iso3": "DEU",
+      "source_sha256": "64b1c4a6c486e54117afcc7d8dea53e15d1c16dea93e32fce9c67f5d2bcc5888",
+      "source_native_rows": 1148,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "DK",
+      "iso3": "DNK",
+      "source_sha256": "4b56e5fb519503cc99faa4aaf39809d5e842398d537591cb0fa87b388e2671a9",
+      "source_native_rows": 1040,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "ES",
+      "iso3": "ESP",
+      "source_sha256": "74f6c28605d1d8ea6c25ae40d1baef5c5c95619de436d61821ab66e1d8f6aa08",
+      "source_native_rows": 888,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "FR",
+      "iso3": "FRA",
+      "source_sha256": "64429f6bfd5fe834688e7a5051a2ae6dc01ad4c8bbc4ba5e1f59205070cbd5ff",
+      "source_native_rows": 1448,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41006308764"
+    },
+    {
+      "wid_area": "GB",
+      "iso3": "GBR",
+      "source_sha256": "49e464eea79658ed7f017e20989f86930bec8befbb9ec673354691e57084d665",
+      "source_native_rows": 1328,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "GH",
+      "iso3": "GHA",
+      "source_sha256": "04ce266c2c1bcd28644e560e82f4fc0ef84f835aa38d59ff3bfa4e7f6f0ce220",
+      "source_native_rows": 580,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "IN",
+      "iso3": "IND",
+      "source_sha256": "f6e0c5bcee23ebc9a9415f5f2bdd8a31b33d09020dfba1ca1341546412368858",
+      "source_native_rows": 840,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "IT",
+      "iso3": "ITA",
+      "source_sha256": "0ec85c523b029ec9a329057ae2941845f11a1f8ae5fcd3cd765b1f6531b01c03",
+      "source_native_rows": 888,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "JP",
+      "iso3": "JPN",
+      "source_sha256": "06f495d97600574fa4930427827e6e8982c16c4a5eebd55f068b93675dfbb36d",
+      "source_native_rows": 968,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "KE",
+      "iso3": "KEN",
+      "source_sha256": "b1d0a6a764a1efdba48a9a251c8f308aa5e97cd6ca211ebf5f98972724377712",
+      "source_native_rows": 716,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "KR",
+      "iso3": "KOR",
+      "source_sha256": "8440a83cdeebbc54ad7aa1c29a0de98d30637b33db7435f49e0134a213a9a6ea",
+      "source_native_rows": 800,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "MX",
+      "iso3": "MEX",
+      "source_sha256": "260362eb0e219bdac9cbbfafe6ec838247015d8534dc1583c13ceb0230c54098",
+      "source_native_rows": 628,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "NG",
+      "iso3": "NGA",
+      "source_sha256": "bb0969e8fd10c53d8d3597109b07844bfc2bfcafaa4bf59583825d34052979db",
+      "source_native_rows": 660,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "NL",
+      "iso3": "NLD",
+      "source_sha256": "4f5b2e3403d866ac9d5c979349d3d1608183da9934bde0b5d6c5cd471343e673",
+      "source_native_rows": 1208,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "NO",
+      "iso3": "NOR",
+      "source_sha256": "1d6ecf50f43ec200392e0937b831dc7036496b8642c63b9e03d909bb4544cc31",
+      "source_native_rows": 980,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "SE",
+      "iso3": "SWE",
+      "source_sha256": "03f2f99a4ca856a694e595df115ae63aa9334bb4c656aa335a0476261d523ca5",
+      "source_native_rows": 1052,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    },
+    {
+      "wid_area": "US",
+      "iso3": "USA",
+      "source_sha256": "276ed0585b0e6191dfa7ed983c7d223d69362b7df586e31d84cdbe91efc2a3f9",
+      "source_native_rows": 1714,
+      "pretax_posttax_pairs": 448,
+      "source_run": "41006308764"
+    },
+    {
+      "wid_area": "ZA",
+      "iso3": "ZAF",
+      "source_sha256": "c0fb79b36208833b034f66d40526c2235f1881bb9f58840940a8a26b737dfbd7",
+      "source_native_rows": 820,
+      "pretax_posttax_pairs": 180,
+      "source_run": "41010751593"
+    }
+  ]
+}
