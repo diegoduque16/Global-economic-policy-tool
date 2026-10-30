@@ -1,0 +1,692 @@
+name: Atlas - Install WID inequality research module (non-destructive)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/atlas-tax-inequality-installer.yml
+permissions:
+  contents: write
+concurrency:
+  group: atlas-wid-distribution-module-install
+  cancel-in-progress: false
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout existing repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install open_data/wid_distribution.py without overwriting existing content
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_new() {
+            target="$1"
+            mkdir -p "$(dirname "$target")"
+            candidate=$(mktemp)
+            cat > "$candidate"
+            if test -e "$target"; then
+              cmp -s "$target" "$candidate" || { echo "Conflict at $target: refusing overwrite"; exit 1; }
+            else
+              cp "$candidate" "$target"
+            fi
+            rm -f "$candidate"
+          }
+          install_new 'open_data/wid_distribution.py' <<'END_FILE_1'
+          #!/usr/bin/env python3
+          """Validate source-native WID income/wealth shares and build a NON-CAUSAL panel.
+          
+          Input: official WID.world CSV/TSV (or ZIP containing source-native CSV/TSV files).
+          No external libraries, API key, network access, interpolation or inferred tax shocks.
+          Use `--input` to point to a source download explicitly obtained from WID.world.
+          """
+          from __future__ import annotations
+          
+          import argparse
+          import csv
+          import datetime as dt
+          import hashlib
+          import io
+          import json
+          import math
+          import re
+          from collections import Counter, defaultdict
+          from pathlib import Path
+          import zipfile
+          
+          SOURCE = 'https://wid.world/data/'
+          METHODOLOGY = 'https://wid.world/codes-dictionary/'
+          # Adults age 20+, equal-split allocation. Do not pool unlike populations.
+          SERIES = {
+              'sptinc992j': 'pretax_national_income_share',
+              'sdiinc992j': 'posttax_national_income_share',
+              'scainc992j': 'posttax_disposable_income_share',
+              'shweal992j': 'personal_wealth_share',
+          }
+          PERCENTILES = {
+              'p0p50': 'bottom_50', 'p50p90': 'middle_40',
+              'p90p100': 'top_10', 'p99p100': 'top_1',
+          }
+          REQUIRED = ('country', 'variable', 'percentile', 'year', 'value')
+          FIELDS = ['wid_area_code', 'year', 'percentile', 'group_name', 'variable', 'concept',
+                    'value_fraction', 'age_code', 'population_unit', 'source_file',
+                    'source_sha256', 'observed_or_imputed', 'source_note', 'research_status']
+          JOIN_FIELDS = ['wid_area_code', 'year', 'percentile', 'group_name',
+                         'pretax_national_income_share', 'posttax_national_income_share',
+                         'posttax_disposable_income_share', 'personal_wealth_share',
+                         'posttax_minus_pretax_share_pp', 'income_redistribution_data_available',
+                         'research_status']
+          MAX_BYTES = 300 * 1024 * 1024
+          MAX_MEMBER_BYTES = 150 * 1024 * 1024
+          
+          
+          def sha256(data: bytes) -> str:
+              return hashlib.sha256(data).hexdigest()
+          
+          
+          def iter_sources(path: Path):
+              if not path.is_file() or path.stat().st_size > MAX_BYTES:
+                  raise ValueError('Input is not a file or exceeds 300 MB; stage in bounded batches')
+              if zipfile.is_zipfile(path):
+                  with zipfile.ZipFile(path) as archive:
+                      names = archive.namelist()
+                      if len(names) != len(set(names)):
+                          raise ValueError('Duplicate ZIP member path')
+                      count = 0
+                      total_bytes = 0
+                      for info in archive.infolist():
+                          if info.is_dir():
+                              continue
+                          if (info.filename.startswith('/') or '\\' in info.filename or
+                              '..' in Path(info.filename).parts):
+                              raise ValueError('Unsafe ZIP member path')
+                          if Path(info.filename).suffix.lower() not in ('.csv', '.tsv', '.txt'):
+                              continue  # Ignore WID metadata binaries and external documentation.
+                          if info.file_size > MAX_MEMBER_BYTES:
+                              raise ValueError('ZIP member exceeds safe uncompressed size')
+                          total_bytes += info.file_size
+                          if total_bytes > MAX_BYTES:
+                              raise ValueError('ZIP uncompressed total exceeds 300 MB; split the input')
+                          raw = archive.read(info)
+                          count += 1
+                          yield info.filename, raw
+                      if not count:
+                          raise ValueError('ZIP has no source-native CSV/TSV files')
+              else:
+                  if path.suffix.lower() not in ('.csv', '.tsv', '.txt'):
+                      raise ValueError('Expected CSV, TSV, or ZIP')
+                  yield path.name, path.read_bytes()
+          
+          
+          def parse_rows(name: str, raw: bytes):
+              try:
+                  contents = raw.decode('utf-8-sig')
+              except UnicodeDecodeError as exc:
+                  raise ValueError(f'{name}: expected UTF-8 input; avoid silently changing encoding') from exc
+              sample = contents[:8192]
+              # WID exports can use commas, tabs or semicolons; do not guess decimal separators.
+              first_line = sample.splitlines()[0] if sample.splitlines() else ''
+              delim = '\t' if '\t' in first_line else ';' if ';' in first_line else ','
+              reader = csv.DictReader(io.StringIO(contents), delimiter=delim)
+              fields = [str(f or '').strip().lower() for f in (reader.fieldnames or [])]
+              filename_area = ''
+              official_file = re.fullmatch(r'WID_data_([A-Z]{2})\.(csv|tsv|txt)', Path(name).name, re.I)
+              if official_file:
+                  filename_area = official_file.group(1).upper()
+              has_core = set(REQUIRED).difference({'country'}).issubset(fields)
+              if not has_core or ('country' not in fields and not filename_area):
+                  # WID metadata/dictionaries are not observations.
+                  return None
+              if fields != [str(f).strip().lower() for f in (reader.fieldnames or [])]:
+                  raise ValueError(f'{name}: ambiguous column names')
+          
+              def records():
+                  for ordinal, row in enumerate(reader, 2):
+                      if None in row or any(v is None for v in row.values()):
+                          raise ValueError(f'{name}:{ordinal}: malformed data row')
+                      rec = {str(k).strip().lower(): str(v).strip() for k, v in row.items()}
+                      if filename_area and 'country' not in rec:
+                          # Official country-file naming is a documented, explicit WID native code.
+                          rec['country'] = filename_area
+                      elif filename_area and rec['country'].strip().upper() != filename_area:
+                          raise ValueError(f'{name}:{ordinal}: country disagrees with WID filename')
+                      yield ordinal, rec
+              return records()
+          
+          
+          def normalize(rec, source_file: str, checksum: str):
+              variable = rec['variable']
+              pct = rec['percentile']
+              if variable not in SERIES or pct not in PERCENTILES:
+                  return None
+              area = rec['country'].strip().upper()
+              if not re.fullmatch(r'[A-Z]{2}(?:-[A-Z0-9]{1,8})?', area):
+                  raise ValueError(f'Invalid WID native area code {area!r}')
+              year = rec['year']
+              if not re.fullmatch(r'\d{4}', year) or not (1700 <= int(year) <= dt.date.today().year + 1):
+                  raise ValueError(f'Invalid year {year!r}')
+              try:
+                  value = float(rec['value'])
+              except ValueError as exc:
+                  raise ValueError(f'Non-numeric value for {area}/{variable}/{pct}/{year}') from exc
+              if not math.isfinite(value):
+                  raise ValueError('NaN/Inf is not an observation')
+              # Share series are SOURCE-UNIT FRACTIONS; allow negative wealth shares.
+              if value < -5 or value > 5:
+                  raise ValueError('Suspect share value: source units must be confirmed')
+              if rec.get('age') and rec['age'] != '992':
+                  raise ValueError('Age dimension disagrees with WID 992 code')
+              if rec.get('pop') and rec['pop'].lower() != 'j':
+                  raise ValueError('Population dimension disagrees with WID j code')
+              imputed = rec.get('imputation', '')
+              return {
+                  'wid_area_code': area, 'year': year, 'percentile': pct,
+                  'group_name': PERCENTILES[pct], 'variable': variable,
+                  'concept': SERIES[variable], 'value_fraction': format(value, '.17g'),
+                  'age_code': '992', 'population_unit': 'j', 'source_file': source_file,
+                  'source_sha256': checksum, 'observed_or_imputed': imputed or 'unknown_no_imputation_metadata',
+                  'source_note': rec.get('source', ''),
+                  'research_status': 'source_native_descriptive_only_not_causal',
+              }
+          
+          
+          def write_csv(path: Path, fields, records):
+              with path.open('w', newline='', encoding='utf-8') as f:
+                  writer = csv.DictWriter(f, fieldnames=fields, extrasaction='raise')
+                  writer.writeheader()
+                  writer.writerows(records)
+          
+          
+          def build(input_path: Path, output_dir: Path):
+              if output_dir.exists() and any(output_dir.iterdir()):
+                  raise FileExistsError('Output directory must not contain prior results')
+              output_dir.mkdir(parents=True, exist_ok=True)
+              measures = {}
+              skipped = []
+              sources = []
+              counts = Counter()
+              bad_share_examples = []
+              for name, raw in iter_sources(input_path):
+                  digest = sha256(raw)
+                  parsed = parse_rows(name, raw)
+                  if parsed is None:
+                      skipped.append({'file': name, 'reason': 'not_WID_observation_schema'})
+                      continue
+                  raw_rows = 0
+                  selected = 0
+                  for line, item in parsed:
+                      raw_rows += 1
+                      try:
+                          row = normalize(item, name, digest)
+                      except ValueError as exc:
+                          raise ValueError(f'{name}:{line}: {exc}') from exc
+                      if row is None:
+                          continue
+                      selected += 1
+                      key = (row['wid_area_code'], row['year'], row['percentile'], row['variable'])
+                      if key in measures:
+                          # Do not silently aggregate duplicate vintages or versions.
+                          raise ValueError(f'Duplicate WID observation key {key}: {name}')
+                      measures[key] = row
+                      counts[row['concept']] += 1
+                      if abs(float(row['value_fraction'])) > 1.5:
+                          bad_share_examples.append({'key': key, 'value': row['value_fraction']})
+                  sources.append({'name': name, 'sha256': digest, 'bytes': len(raw),
+                                  'raw_rows': raw_rows, 'selected_rows': selected})
+              if not measures:
+                  raise ValueError('No required WID share variables were found; check native variable codes')
+              ordered = [measures[k] for k in sorted(measures)]
+              write_csv(output_dir / 'wid_source_native_shares.csv', FIELDS, ordered)
+              matched = defaultdict(dict)
+              for record in ordered:
+                  matched[(record['wid_area_code'], record['year'], record['percentile'])][record['concept']] = float(record['value_fraction'])
+              joined_rows = []
+              matched_income = 0
+              for (area, year, percentile), values in sorted(matched.items()):
+                  pretax = values.get('pretax_national_income_share')
+                  posttax = values.get('posttax_national_income_share')
+                  full_pair = pretax is not None and posttax is not None
+                  if full_pair:
+                      matched_income += 1
+                  entry = dict(wid_area_code=area, year=year, percentile=percentile,
+                               group_name=PERCENTILES[percentile])
+                  for concept in SERIES.values():
+                      entry[concept] = format(values[concept], '.17g') if concept in values else ''
+                  entry.update(posttax_minus_pretax_share_pp=(format(100 * (posttax - pretax), '.15g') if full_pair else ''),
+                               income_redistribution_data_available=str(full_pair).lower(),
+                               research_status='matched_descriptive_gap_not_tax_reform_effect')
+                  joined_rows.append(entry)
+              write_csv(output_dir / 'wid_matched_distribution.csv', JOIN_FIELDS, joined_rows)
+              # Non-overlapping group accounting, if all pieces exist; do not sum top 1% again.
+              sum_warnings = []
+              by_concept = defaultdict(dict)
+              for row in ordered:
+                  by_concept[(row['wid_area_code'], row['year'], row['variable'])][row['percentile']] = float(row['value_fraction'])
+              for (area, year, variable), portions in by_concept.items():
+                  if {'p0p50', 'p50p90', 'p90p100'}.issubset(portions):
+                      total = sum(portions[x] for x in ('p0p50', 'p50p90', 'p90p100'))
+                      if abs(total - 1) > .02:
+                          sum_warnings.append({'wid_area_code': area, 'year': year,
+                                               'variable': variable, 'sum_of_nonoverlapping_shares': total})
+              report = dict(source='WID.World native data', source_url=SOURCE, methodology_url=METHODOLOGY,
+                            input_name=input_path.name, status='source_validated_not_warehouse_integrated',
+                            source_files=sources, metadata_files_skipped=skipped,
+                            retained_share_observations=len(ordered),
+                            distinct_area_year_percentile_rows=len(joined_rows),
+                            matched_pretax_posttax_pairs=matched_income,
+                            counts_by_concept=dict(sorted(counts.items())),
+                            unexpected_share_magnitude=bad_share_examples[:25],
+                            nonoverlapping_share_sum_warnings=sum_warnings[:100],
+                            notes=['WID regional and historical area codes remain native; not automatically ISO3 countries.',
+                                   'Posttax-minus-pretax is descriptive and is NOT the causal effect of a tax reform.',
+                                   'Post-tax national income includes cash and in-kind redistribution; do not relabel as disposable income.',
+                                   'WID revisions, imputation status and comparability require methodological review.',
+                                   'Data staged separately; no double count or overwrite of existing warehouse or OneDrive.'])
+              (output_dir / 'wid_qa_report.json').write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+              report['output_sha256'] = {p.name: sha256(p.read_bytes()) for p in sorted(output_dir.iterdir())}
+              # Freeze manifest, including QA report, after all outputs were written.
+              (output_dir / 'source_manifest.json').write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+              return report
+          
+          
+          def main():
+              p = argparse.ArgumentParser(description=__doc__)
+              p.add_argument('--input', required=True, type=Path, help='Original downloaded WID CSV/TSV or ZIP')
+              p.add_argument('--out', default='data/wid_staging', type=Path)
+              args = p.parse_args()
+              report = build(args.input, args.out)
+              print(json.dumps({k:report[k] for k in ('status','retained_share_observations',
+                    'distinct_area_year_percentile_rows','matched_pretax_posttax_pairs')}, indent=2))
+          
+          
+          if __name__ == '__main__':
+              main()
+          END_FILE_1
+      - name: Install research/audit_inequality_catalog.py without overwriting existing content
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_new() {
+            target="$1"
+            mkdir -p "$(dirname "$target")"
+            candidate=$(mktemp)
+            cat > "$candidate"
+            if test -e "$target"; then
+              cmp -s "$target" "$candidate" || { echo "Conflict at $target: refusing overwrite"; exit 1; }
+            else
+              cp "$candidate" "$target"
+            fi
+            rm -f "$candidate"
+          }
+          install_new 'research/audit_inequality_catalog.py' <<'END_FILE_2'
+          #!/usr/bin/env python3
+          """Read-only audit: catalog claims are NOT evidence of stored numeric observations.
+          
+          A snapshot-based data acquisition audit remains a separate step. Do not interpret
+          `LIVE` as verified, or a row in the catalog as downloaded or research-ready.
+          """
+          from __future__ import annotations
+          import argparse
+          import csv
+          import json
+          from collections import Counter, defaultdict
+          from pathlib import Path
+          
+          REQUIRED = {'dataset', 'theme', 'current_status', 'official_source_url'}
+          FOCUS = {
+              'WID': ('World Inequality Database WID',),
+              'OECD_IDD': ('OECD Income Distribution Database',),
+              'WORLD_BANK_PIP': ('World Bank Poverty & Inequality Platform',),
+              'SCF': ('Federal Reserve Survey of Consumer Finances',),
+          }
+          
+          
+          def audit(catalog: Path) -> dict:
+              with catalog.open('r', encoding='utf-8-sig', newline='') as f:
+                  reader = csv.DictReader(f)
+                  if not REQUIRED.issubset(reader.fieldnames or []):
+                      raise ValueError('Unexpected catalog schema')
+                  rows = list(reader)
+              if not rows:
+                  raise ValueError('Empty catalog')
+              names = defaultdict(list)
+              states = Counter()
+              for pos, row in enumerate(rows, start=2):
+                  if not row['dataset'].strip():
+                      raise ValueError(f'Empty catalog entry on line {pos}')
+                  names[' '.join(row['dataset'].lower().split())].append(pos)
+                  states[row['current_status'].strip()] += 1
+              duplicates = {name: indexes for name, indexes in names.items() if len(indexes) > 1}
+              focused = {}
+              for code, options in FOCUS.items():
+                  matches = [r for r in rows if r['dataset'].strip() in options]
+                  focused[code] = [dict(dataset=r['dataset'], reported_status=r['current_status'],
+                                        official_source_url=r['official_source_url'],
+                                        actual_numeric_observations='not_verified_by_catalog') for r in matches]
+              return dict(registry_entries=len(rows), distinct_dataset_names=len(names),
+                          duplicate_dataset_names=duplicates,
+                          reported_catalog_statuses=dict(sorted(states.items())),
+                          inequality_focus=focused,
+                          limitation='Cannot determine actual downloads/OneDrive archive/quality/causal readiness from the catalog')
+          
+          
+          def main():
+              p = argparse.ArgumentParser(description=__doc__)
+              p.add_argument('--catalog', type=Path, default=Path('open_data/expanded_source_catalog.csv'))
+              p.add_argument('--out', type=Path, default=Path('research/inequality_catalog_audit.json'))
+              args = p.parse_args()
+              result = audit(args.catalog)
+              args.out.parent.mkdir(parents=True, exist_ok=True)
+              args.out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+              print(json.dumps(result, indent=2, ensure_ascii=False))
+          
+          if __name__ == '__main__':
+              main()
+          END_FILE_2
+      - name: Install research/tax_reform_events_TEMPLATE.csv without overwriting existing content
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_new() {
+            target="$1"
+            mkdir -p "$(dirname "$target")"
+            candidate=$(mktemp)
+            cat > "$candidate"
+            if test -e "$target"; then
+              cmp -s "$target" "$candidate" || { echo "Conflict at $target: refusing overwrite"; exit 1; }
+            else
+              cp "$candidate" "$target"
+            fi
+            rm -f "$candidate"
+          }
+          install_new 'research/tax_reform_events_TEMPLATE.csv' <<'END_FILE_3'
+          event_id,country_iso3,jurisdiction_level,jurisdiction_code,policy_family,policy_instrument,announcement_date,enactment_date,effective_date,repeal_date,legislation_citation,official_source_url,tax_base,affected_income_groups,estimated_fiscal_effect,estimated_fiscal_effect_unit,estimated_fiscal_effect_horizon,pre_reform_rate,post_reform_rate,rate_unit,identified_policy_motivation,causal_design_status,quality_status,notes
+          END_FILE_3
+      - name: Install research/tax_reform_event_data_dictionary.json without overwriting existing content
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_new() {
+            target="$1"
+            mkdir -p "$(dirname "$target")"
+            candidate=$(mktemp)
+            cat > "$candidate"
+            if test -e "$target"; then
+              cmp -s "$target" "$candidate" || { echo "Conflict at $target: refusing overwrite"; exit 1; }
+            else
+              cp "$candidate" "$target"
+            fi
+            rm -f "$candidate"
+          }
+          install_new 'research/tax_reform_event_data_dictionary.json' <<'END_FILE_4'
+          {
+            "schema_version": "1.0-draft",
+            "dataset": "Candidate tax-reform events (no events recorded)",
+            "data_status": "empty_schema_not_evidence",
+            "event_key": "event_id",
+            "required_fields_before_review": ["event_id", "country_iso3", "jurisdiction_level", "policy_family", "policy_instrument", "effective_date", "legislation_citation", "official_source_url", "quality_status"],
+            "dates": {"announcement_date": "YYYY-MM-DD or blank", "enactment_date": "YYYY-MM-DD or blank", "effective_date": "YYYY-MM-DD", "repeal_date": "YYYY-MM-DD or blank"},
+            "suggested_values": {
+              "jurisdiction_level": ["national", "state", "regional", "local"],
+              "policy_family": ["personal_income_tax", "corporate_income_tax", "capital_gains_tax", "inheritance_estate_tax", "wealth_tax", "consumption_tax", "payroll_tax", "property_tax", "tax_credit", "other"],
+              "causal_design_status": ["unknown", "narrative_candidate", "quasi_experimental_candidate", "verified_identified_shock", "not_identified"],
+              "quality_status": ["candidate_unverified", "official_source_verified", "peer_reviewed_replication", "exclude"]
+            },
+            "cautions": [
+              "Tax policies and transfer policies must be separately classified",
+              "A statutory rate change is not equivalent to effective burden or actual revenue",
+              "Dates of announcement, enactment, implementation, and repeal differ",
+              "No causal inference merely from before-after trend differences",
+              "Currency, price base, tax unit, geography, and horizon require validation",
+              "Do not join to WID 2-letter area codes without verified ISO3 crosswalk"
+            ]
+          }
+          END_FILE_4
+      - name: Install docs/TAX_INEQUALITY_RESEARCH_PHASE1.md without overwriting existing content
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_new() {
+            target="$1"
+            mkdir -p "$(dirname "$target")"
+            candidate=$(mktemp)
+            cat > "$candidate"
+            if test -e "$target"; then
+              cmp -s "$target" "$candidate" || { echo "Conflict at $target: refusing overwrite"; exit 1; }
+            else
+              cp "$candidate" "$target"
+            fi
+            rm -f "$candidate"
+          }
+          install_new 'docs/TAX_INEQUALITY_RESEARCH_PHASE1.md' <<'END_FILE_5'
+          # Tax Policy, Inequality, and Shared Prosperity
+          
+          **Phase 1 (30 October 2026): source-native WID staging and research design.**
+          
+          This phase extends the existing Global Economic Policy Tool; it **does not** rebuild the registry, warehouse, GitHub Actions pipelines, or OneDrive storage. The existing `open_data/expanded_source_catalog.csv` already lists World Inequality Database (WID), OECD Income Distribution Database (IDD), World Bank Poverty and Inequality Platform (PIP), U.S. Survey of Consumer Finances (SCF), and tax data. **Catalogued is not downloaded; downloaded is not validated; validated is not causal-ready.** The current file set includes importer code for U.S. BEA state GDP/income, but the status of live BEA data needs a separate workflow check.
+          
+          ## Research questions
+          
+          1. How do different tax policies affect the real incomes and wealth of the bottom 50%, middle 40%, top 10%, and top 1%?
+          2. How do changes in tax progressivity, capital taxation, social transfers, and consumption taxation interact with wages, employment, investment, output, and fiscal sustainability?
+          3. Which conclusions hold under credible quasi-experimental or narrative policy-shock designs, and which are only descriptive associations?
+          4. Do those policy effects differ with AI exposure/adoption, pre-reform inequality, and labor-market institutions? Historical policy estimates **cannot** by themselves identify modern generative AI effects.
+          
+          ## Official source and variable definitions
+          
+          Download actual source-native files from the official [WID data interface](https://wid.world/data/) or its official bulk export. See the [official codes dictionary](https://wid.world/codes-dictionary/) and [methodology](https://wid.world/methodology/).
+          
+          - `sptinc992j`: share of **pre-tax national income** for adults, equal-split allocation.
+          - `sdiinc992j`: share of **post-tax national income** (including in-kind redistribution), same population.
+          - `scainc992j`: **post-tax disposable income** share, same population; keep separate from national income.
+          - `shweal992j`: **personal wealth** share; not an income variable.
+          - Percentiles: `p0p50` (bottom 50%), `p50p90` (middle 40%), `p90p100` (top 10%), `p99p100` (top 1%). **Top 1% is nested inside top 10%; never add them together.**
+          
+          WID country codes are *native two-letter area codes*, not verified ISO3 geography. WID has regional/historical areas, so exclude them from pooled national causal analyses until mapped and verified. Monetary amounts would require price/base-year and purchasing-power parity checks; Phase 1 ingests only **shares (fractions)**.
+          
+          ## Usage — source files must actually exist
+          
+          This importer never invents numeric observations, guesses WID private API routes, or tries to silently fetch source files. Obtain genuine CSV/TSV downloads or an official ZIP from WID and stage them locally or in a private approved storage. Inputs are bounded to 300 MB per archive; split larger bulk downloads by country or batch.
+          
+          ```bash
+          python -m unittest discover -s tests -p 'test_wid_distribution.py' -v
+          python open_data/wid_distribution.py --input /path/to/WID_source.zip --out data/wid_staging
+          ```
+          
+          The run creates four source-separated files:
+          
+          - `wid_source_native_shares.csv`: validated native WID areas, codes, years, percentile, values, checksums and available source/imputation notes.
+          - `wid_matched_distribution.csv`: each area/year/percentile, with separate pretax, posttax, disposable-income and wealth shares, and a **descriptive** posttax-minus-pretax difference where both shares exist.
+          - `wid_qa_report.json`: retained counts, coverage gaps, suspicious magnitudes, non-overlapping income/wealth share sum anomalies and skipped dictionary files.
+          - `source_manifest.json`: source hashes and output hashes for provenance; follow existing OneDrive durable backup policy before production use.
+          
+          No file is added to the canonical warehouse automatically. A later integration must independently validate geography, source version, imputation assumptions, household allocation, metric definitions, archival continuity, and keyed deduplication against existing families. Raw bulk data must not be committed into a public GitHub repo before reviewing license/redistribution terms.
+          
+          ## No premature causal claims
+          
+          For example, `(posttax bottom50 share - pretax bottom50 share) * 100` yields **percentage points of difference between distribution concepts**. It does *not* estimate the contribution of one tax law, because taxes, transfers, social insurance, imputation, and economic conditions all matter. Compare policy reforms only using a separately validated event calendar and defensible counterfactual strategy.
+          
+          The accompanying `research/tax_reform_events_TEMPLATE.csv` specifies the data fields required to start a candidate dated tax-policy event registry. It contains headers only, **no fabricated tax reforms**. The intended workflow is: source a law and government fiscal estimates; independently verify enactment and effective dates; record policy base/rate, affected groups and fiscal scale; pre-register identification assumptions; finally join to verified, temporally aligned outcomes. Treat endogenous policy changes as descriptive unless a research design justifies causal inference.
+          
+          ## Next stages
+          
+          1. Inventory actual **numeric** WID/IDD/PIP/SCF observations already stored in existing OneDrive snapshots (without rebuilding the warehouse); record catalogued/acquired/validated/integrated counts and duplication flags.
+          2. Import official WID source CSVs with this validator, retain checksums and metadata, and store validated outputs durably through the existing backup mechanism.
+          3. Add verified country-year and US state income/wealth metrics to a provenance-aware panel, comparing definitions (pretax vs disposable, equivalized households vs equal-split adults), vintages and imputation.
+          4. Compile dated tax reforms and social protection changes from IRS, OECD, IMF, national legislation and state official archives; compare enactment vs effective dates and identify plausible exogenous variation.
+          5. Only after (1)–(4), conduct causal studies with sensitivity tests, lag structures, pre-trends, heterogeneity, placebo leads, alternative specifications, multiple-testing checks and documented limitations.
+          END_FILE_5
+      - name: Install tests/test_wid_distribution.py without overwriting existing content
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_new() {
+            target="$1"
+            mkdir -p "$(dirname "$target")"
+            candidate=$(mktemp)
+            cat > "$candidate"
+            if test -e "$target"; then
+              cmp -s "$target" "$candidate" || { echo "Conflict at $target: refusing overwrite"; exit 1; }
+            else
+              cp "$candidate" "$target"
+            fi
+            rm -f "$candidate"
+          }
+          install_new 'tests/test_wid_distribution.py' <<'END_FILE_6'
+          """Deterministic synthetic fixtures. No artificial observation is real WID data."""
+          from __future__ import annotations
+          import csv
+          import json
+          import sys
+          import tempfile
+          import unittest
+          import zipfile
+          from pathlib import Path
+          
+          sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+          from open_data.wid_distribution import build, normalize, parse_rows
+          
+          
+          class WIDDistributionTests(unittest.TestCase):
+              def test_code_population_and_fraction(self):
+                  row = normalize(dict(country='US', variable='sptinc992j', percentile='p99p100',
+                                       year='2023', value='0.2', age='992', pop='j'), 'x.csv', 'hash')
+                  self.assertEqual(row['age_code'], '992')
+                  self.assertEqual(row['population_unit'], 'j')
+                  self.assertEqual(row['value_fraction'], '0.20000000000000001')
+          
+              def test_preserves_negative_wealth_share(self):
+                  row = normalize(dict(country='US', variable='shweal992j', percentile='p0p50',
+                                       year='2023', value='-0.01'), 'x.csv', 'hash')
+                  self.assertEqual(float(row['value_fraction']), -0.01)
+          
+              def test_invalid_age_fails(self):
+                  with self.assertRaisesRegex(ValueError, 'Age dimension'):
+                      normalize(dict(country='US', variable='sptinc992j', percentile='p99p100',
+                                     year='2023', value='0.2', age='999'), 'x.csv', 'hash')
+          
+              def test_export_and_descriptive_join(self):
+                  fixture = 'country,variable,percentile,year,value\n' + '\n'.join([
+                      'US,sptinc992j,p0p50,2020,0.15', 'US,sdiinc992j,p0p50,2020,0.23',
+                      'US,sptinc992j,p50p90,2020,0.35', 'US,sptinc992j,p90p100,2020,0.50',
+                      'US,shweal992j,p0p50,2020,-0.01',
+                      'US,sptinc992j,p99p100,2020,0.22',
+                      'US,sptinc999i,p99p100,2020,0.40',
+                  ]) + '\n'
+                  with tempfile.TemporaryDirectory() as tmp:
+                      base = Path(tmp); source = base / 'wid.csv';source.write_text(fixture)
+                      output = base / 'out'
+                      result = build(source, output)
+                      self.assertEqual(result['retained_share_observations'], 6)
+                      self.assertEqual(result['matched_pretax_posttax_pairs'], 1)
+                      with (output / 'wid_matched_distribution.csv').open() as f:
+                          rows = list(csv.DictReader(f))
+                      matched = next(x for x in rows if x['percentile']=='p0p50')
+                      self.assertAlmostEqual(float(matched['posttax_minus_pretax_share_pp']), 8.0)
+                      self.assertEqual(matched['income_redistribution_data_available'], 'true')
+                      self.assertFalse(result['nonoverlapping_share_sum_warnings'])
+                      self.assertEqual(json.loads((output/'wid_qa_report.json').read_text())['status'],
+                                       'source_validated_not_warehouse_integrated')
+          
+              def test_zip_and_skipped_metadata(self):
+                  with tempfile.TemporaryDirectory() as tmp:
+                      root=Path(tmp); source=root/'wid.zip'
+                      with zipfile.ZipFile(source, 'w') as z:
+                          z.writestr('WID_data_US.csv', 'variable\tpercentile\tyear\tvalue\nsptinc992j\tp99p100\t2020\t0.25\n')
+                          z.writestr('WID_metadata_US.csv', 'code,description\nabc,description\n')
+                      out=build(source,root/'out')
+                      self.assertEqual(out['retained_share_observations'],1)
+                      self.assertEqual(len(out['metadata_files_skipped']),1)
+          
+              def test_duplicate_keys_fail_closed(self):
+                  with tempfile.TemporaryDirectory() as tmp:
+                      root=Path(tmp);source=root/'dup.csv'
+                      source.write_text('country,variable,percentile,year,value\nUS,sptinc992j,p0p50,2020,0.1\nUS,sptinc992j,p0p50,2020,0.2\n')
+                      with self.assertRaisesRegex(ValueError,'Duplicate WID observation'):
+                          build(source,root/'output')
+          
+              def test_unsafe_zip_path(self):
+                  with tempfile.TemporaryDirectory() as tmp:
+                      root=Path(tmp);source=root/'bad.zip'
+                      with zipfile.ZipFile(source,'w') as z:
+                          z.writestr('../WID_data_US.csv','country,variable,percentile,year,value\n')
+                      with self.assertRaisesRegex(ValueError,'Unsafe ZIP'):
+                          build(source,root/'out')
+          
+              def test_unsupported_schema_not_transformed(self):
+                  parsed=parse_rows('metadata.csv',b'code,description\nabc,something\n')
+                  self.assertIsNone(parsed)
+          
+          if __name__=='__main__':unittest.main()
+          END_FILE_6
+      - name: Install tests/test_inequality_catalog.py without overwriting existing content
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_new() {
+            target="$1"
+            mkdir -p "$(dirname "$target")"
+            candidate=$(mktemp)
+            cat > "$candidate"
+            if test -e "$target"; then
+              cmp -s "$target" "$candidate" || { echo "Conflict at $target: refusing overwrite"; exit 1; }
+            else
+              cp "$candidate" "$target"
+            fi
+            rm -f "$candidate"
+          }
+          install_new 'tests/test_inequality_catalog.py' <<'END_FILE_7'
+          """Read-only catalog audit regression tests."""
+          import tempfile
+          import unittest
+          from pathlib import Path
+          import sys
+          
+          sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+          from research.audit_inequality_catalog import audit
+          
+          
+          class CatalogAuditTest(unittest.TestCase):
+              def test_duplicate_and_presence(self):
+                  with tempfile.TemporaryDirectory() as tmp:
+                      p = Path(tmp) / 'catalog.csv'
+                      p.write_text('theme,dataset,current_status,official_source_url\n'
+                                   'Inequality,World Inequality Database WID,CATALOGUED,https://wid.world/data/\n'
+                                   'Inequality,World Inequality Database WID,CATALOGUED,https://wid.world/data/\n'
+                                   'Other,Historical V-Dem,NOT INGESTED,https://example.org/\n')
+                      d = audit(p)
+                      self.assertEqual(d['registry_entries'], 3)
+                      self.assertEqual(d['distinct_dataset_names'], 2)
+                      self.assertIn('world inequality database wid', d['duplicate_dataset_names'])
+                      self.assertEqual(d['inequality_focus']['WID'][0]['actual_numeric_observations'],
+                                       'not_verified_by_catalog')
+          
+          if __name__ == '__main__': unittest.main()
+          END_FILE_7
+      - name: Test, audit existing catalog, and commit validated module
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_*inequality*.py' -v
+          python -m unittest discover -s tests -p 'test_wid_distribution.py' -v
+          python research/audit_inequality_catalog.py --catalog open_data/expanded_source_catalog.csv --out research/inequality_catalog_audit.json
+          python -m py_compile open_data/wid_distribution.py research/audit_inequality_catalog.py
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add open_data/wid_distribution.py research/audit_inequality_catalog.py research/tax_reform_events_TEMPLATE.csv research/tax_reform_event_data_dictionary.json docs/TAX_INEQUALITY_RESEARCH_PHASE1.md tests/test_wid_distribution.py tests/test_inequality_catalog.py research/inequality_catalog_audit.json
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'Already installed; no repository changes'
+            exit 0
+          fi
+          git commit -m 'Install validated source-native WID income and wealth research staging'
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
