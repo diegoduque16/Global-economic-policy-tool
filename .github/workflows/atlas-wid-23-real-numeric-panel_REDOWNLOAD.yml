@@ -1,0 +1,733 @@
+name: Atlas - Materialize verified WID 23-country REAL numeric research panel
+'on':
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/atlas-wid-23-real-numeric-panel.yml'
+permissions:
+  contents: write
+concurrency:
+  group: atlas-wid-23-real-numeric-materialize
+  cancel-in-progress: false
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+    steps:
+      - name: Check out exact source branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install fail-closed real numeric panel builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p research
+          cat > research/build_wid_numeric_panel.py <<'PY_REAL_NUMERIC_BUILDER'
+          #!/usr/bin/env python3
+          """Build a private, REAL-NUMERIC 23-country WID SQLite staging panel.
+          
+          Input: only SHA-pinned source-native WID data CSV files already verified in
+          private OneDrive, plus repository manifest. No metadata-only rows count as data.
+          No imputation, causal effect estimates, canonical warehouse mutation, or
+          unreviewed cross-provider harmonization. Python stdlib only.
+          """
+          from __future__ import annotations
+          import argparse
+          import csv
+          import datetime as dt
+          import hashlib
+          import json
+          import math
+          import re
+          import sqlite3
+          from collections import Counter, defaultdict
+          from pathlib import Path
+          
+          SERIES = {
+              'ptinc': 'pretax_national_income_share',
+              'diinc': 'posttax_national_income_share',
+              'cainc': 'posttax_disposable_income_share',
+              'hweal': 'personal_wealth_share',
+          }
+          PERCENTILES = ('p0p50', 'p50p90', 'p90p100', 'p99p100')
+          CONCEPTS = tuple(SERIES.values())
+          REQUIRED_FIELDS = ('wid_area','year','percentile','concept','source_variable',
+                             'share_fraction','source_file_sha256','research_status')
+          COUNTRY_FIELDS = ('wid_area','iso3','source_sha256','source_native_rows',
+                            'pretax_posttax_pairs','source_run')
+          DB_SCHEMA = '''
+          PRAGMA foreign_keys=ON;
+          CREATE TABLE source_files (
+              wid_area TEXT PRIMARY KEY, iso3 TEXT NOT NULL UNIQUE,
+              original_source_sha256 TEXT NOT NULL, staged_csv_sha256 TEXT NOT NULL,
+              source_rows INTEGER NOT NULL CHECK(source_rows > 0),
+              matched_pretax_posttax_pairs INTEGER NOT NULL,
+              original_github_run_id TEXT NOT NULL,
+              data_status TEXT NOT NULL CHECK (data_status='VERIFIED_NUMERIC_STAGING_NOT_CANONICAL')
+          );
+          CREATE TABLE wid_numeric_observations (
+              wid_area TEXT NOT NULL REFERENCES source_files(wid_area),
+              iso3 TEXT NOT NULL, year INTEGER NOT NULL,
+              percentile TEXT NOT NULL, concept TEXT NOT NULL,
+              value_fraction REAL NOT NULL,
+              source_variable TEXT NOT NULL, original_source_sha256 TEXT NOT NULL,
+              quality_grade TEXT NOT NULL,
+              research_status TEXT NOT NULL,
+              PRIMARY KEY (wid_area,year,percentile,concept),
+              CHECK (year BETWEEN 1700 AND 2200),
+              CHECK (value_fraction >= -5 AND value_fraction <= 5),
+              CHECK (percentile IN ('p0p50','p50p90','p90p100','p99p100'))
+          ) WITHOUT ROWID;
+          CREATE INDEX wid_values_by_iso3_year ON wid_numeric_observations (iso3,year,concept);
+          CREATE TABLE wid_distribution_panel (
+              wid_area TEXT NOT NULL REFERENCES source_files(wid_area),
+              iso3 TEXT NOT NULL, year INTEGER NOT NULL, percentile TEXT NOT NULL,
+              pretax_national_income_share REAL,
+              posttax_national_income_share REAL,
+              posttax_disposable_income_share REAL,
+              personal_wealth_share REAL,
+              posttax_minus_pretax_percentage_points REAL,
+              research_status TEXT NOT NULL CHECK (research_status='DESCRIPTIVE_NOT_CAUSAL'),
+              PRIMARY KEY (wid_area,year,percentile)
+          ) WITHOUT ROWID;
+          '''
+          
+          
+          def digest(path):
+              h = hashlib.sha256()
+              with Path(path).open('rb') as f:
+                  for block in iter(lambda: f.read(1024*1024), b''):
+                      h.update(block)
+              return h.hexdigest()
+          
+          
+          def parse_variable(v):
+              for part, name in SERIES.items():
+                  if v in ('s'+part+'992j','s'+part+'j992'):
+                      return name
+              return None
+          
+          
+          def verified_manifest(path):
+              manifest=json.loads(Path(path).read_text(encoding='utf-8'))
+              required=('countries','expected_country_count','expected_numeric_values',
+                        'expected_pretax_posttax_pairs','source_remote_prefix')
+              if any(k not in manifest for k in required):
+                  raise ValueError('Incomplete source manifest')
+              countries=manifest['countries']
+              if not countries or len(countries)!=int(manifest['expected_country_count']):
+                  raise ValueError('Country-count mismatch in source manifest')
+              codes=set(); iso_codes=set()
+              for entry in countries:
+                  if not set(COUNTRY_FIELDS).issubset(entry):
+                      raise ValueError('Manifest missing country source-evidence fields')
+                  code=entry['wid_area']; iso=entry['iso3']
+                  if not re.fullmatch('[A-Z]{2}', code) or not re.fullmatch('[A-Z]{3}',iso):
+                      raise ValueError('Invalid WID or reviewed ISO3 country code')
+                  if code in codes or iso in iso_codes:
+                      raise ValueError('Duplicate manifest country/ISO3')
+                  codes.add(code);iso_codes.add(iso)
+                  if not re.fullmatch('[a-f0-9]{64}',entry['source_sha256']):
+                      raise ValueError('Invalid pinned original source SHA256')
+                  if int(entry['source_native_rows'])<1 or int(entry['pretax_posttax_pairs'])<0:
+                      raise ValueError('Invalid pinned source row/pair count')
+              if sum(int(e['source_native_rows']) for e in countries)!=int(manifest['expected_numeric_values']):
+                  raise ValueError('Manifest source-native numeric row totals disagree')
+              if sum(int(e['pretax_posttax_pairs']) for e in countries)!=int(manifest['expected_pretax_posttax_pairs']):
+                  raise ValueError('Manifest pre/post matched pair totals disagree')
+              return manifest
+          
+          
+          def read_values(path, entry):
+              # Strictly require a physical numeric field, not just dataset metadata.
+              with path.open(newline='',encoding='utf-8-sig') as f:
+                  reader=csv.DictReader(f)
+                  fields=reader.fieldnames or []
+                  if len(fields)!=len(set(fields)) or not set(REQUIRED_FIELDS).issubset(fields):
+                      raise ValueError(f'{entry["wid_area"]}: missing/duplicated *numeric* CSV columns')
+                  seen=set(); rows=[]
+                  counts=Counter();years=set();warnings=[]
+                  for line,row in enumerate(reader,2):
+                      if None in row or any(v is None for v in row.values()):
+                          raise ValueError(f'{entry["wid_area"]}:{line}: malformed row')
+                      if row['wid_area']!=entry['wid_area'] or row['source_file_sha256']!=entry['source_sha256']:
+                          raise ValueError(f'{entry["wid_area"]}:{line}: source country/hash mismatch')
+                      if row['research_status']!='source_native_descriptive_not_causal':
+                          raise ValueError('Source-native/noncausal status changed unexpectedly')
+                      name=parse_variable(row['source_variable'])
+                      if name is None or name!=row['concept']:
+                          raise ValueError(f'{entry["wid_area"]}:{line}: WID definition code disagreement')
+                      if row['percentile'] not in PERCENTILES:
+                          raise ValueError('Unsupported percentile; cannot mix population definitions')
+                      if not re.fullmatch(r'\d{4}',row['year']) or not (1700<=int(row['year'])<=dt.date.today().year+1):
+                          raise ValueError('Invalid/unsupported observation year')
+                      if not row['share_fraction'].strip():
+                          raise ValueError('Missing *data value*; metadata rows do not count')
+                      try:value=float(row['share_fraction'])
+                      except (ValueError,OverflowError) as exc:
+                          raise ValueError('Non-numeric observation; metadata is not an imported value') from exc
+                      if not math.isfinite(value) or not (-5<=value<=5):
+                          raise ValueError('Non-finite or out-of-range source-native share')
+                      k=(int(row['year']),row['percentile'],row['concept'])
+                      if k in seen:
+                          raise ValueError('Duplicate WID numeric key')
+                      seen.add(k)
+                      rows.append((entry['wid_area'],entry['iso3'],k[0],k[1],k[2],value,
+                                   row['source_variable'],entry['source_sha256'],
+                                   row.get('quality_grade',''),row['research_status']))
+                      counts[name]+=1;years.add(k[0])
+                      if abs(value)>1.05:
+                          warnings.append(f'{entry["wid_area"]} {k}: unusually large share {value}')
+              if len(rows)!=int(entry['source_native_rows']):
+                  raise ValueError(f'{entry["wid_area"]}: REAL numeric rows {len(rows)} != pinned {entry["source_native_rows"]}')
+              return rows,counts,years,warnings
+          
+          
+          def build(manifest_path, source_root, output_dir):
+              m=verified_manifest(manifest_path)
+              root=Path(source_root); out=Path(output_dir)
+              if out.exists() and any(out.iterdir()):
+                  raise FileExistsError('Refusing to overwrite a prior numeric panel')
+              out.mkdir(parents=True,exist_ok=True)
+              dbpath=out/'wid_23country_values.sqlite'
+              country_report=[]
+              risk=[];row_count=0;matched_pairs=0
+              try:
+                  with sqlite3.connect(dbpath) as db:
+                      db.executescript(DB_SCHEMA)
+                      for entry in m['countries']:
+                          area=entry['wid_area']
+                          csvfile=root/area/'wid_source_native_shares.csv'
+                          if not csvfile.is_file() or csvfile.stat().st_size==0:
+                              raise FileNotFoundError(f'NO NUMERIC SOURCE FILE for {area}')
+                          rows,counts,years,warnings=read_values(csvfile,entry)
+                          filehash=digest(csvfile)
+                          db.execute('INSERT INTO source_files VALUES (?,?,?,?,?,?,?,?)',
+                              (area,entry['iso3'],entry['source_sha256'],filehash,len(rows),
+                               entry['pretax_posttax_pairs'],entry['source_run'],
+                               'VERIFIED_NUMERIC_STAGING_NOT_CANONICAL'))
+                          db.executemany('''INSERT INTO wid_numeric_observations
+                            (wid_area,iso3,year,percentile,concept,value_fraction,source_variable,
+                             original_source_sha256,quality_grade,research_status)
+                            VALUES (?,?,?,?,?,?,?,?,?,?)''',rows)
+                          matched=defaultdict(dict)
+                          for row in rows:
+                              matched[(row[2],row[3])][row[4]]=row[5]
+                          pairs=sum(int(CONCEPTS[0] in values and CONCEPTS[1] in values)
+                                    for values in matched.values())
+                          if pairs!=int(entry['pretax_posttax_pairs']):
+                              raise ValueError(f'{area}: computed matched income pairs {pairs} != source report {entry["pretax_posttax_pairs"]}')
+                          derived=[]
+                          for (year,pct),values in sorted(matched.items()):
+                              before=values.get('pretax_national_income_share')
+                              after=values.get('posttax_national_income_share')
+                              diff=100*(after-before) if before is not None and after is not None else None
+                              derived.append((area,entry['iso3'],year,pct,*[values.get(k) for k in CONCEPTS],diff,'DESCRIPTIVE_NOT_CAUSAL'))
+                          db.executemany('INSERT INTO wid_distribution_panel VALUES (?,?,?,?,?,?,?,?,?,?)',derived)
+                          row_count+=len(rows);matched_pairs+=pairs
+                          country_report.append({'wid_area':area,'iso3':entry['iso3'],
+                              'validated_numeric_values':len(rows), 'distinct_years':len(years),
+                              'earliest_year':min(years),'latest_year':max(years),
+                              'matched_income_pairs':pairs,'counts_by_concept':dict(counts),
+                              'original_source_sha256':entry['source_sha256'],
+                              'staged_numeric_csv_sha256':filehash})
+                          risk.extend(warnings[:10])
+                      db_count=db.execute('SELECT COUNT(*) FROM wid_numeric_observations').fetchone()[0]
+                      groups=db.execute('SELECT COUNT(*) FROM wid_distribution_panel').fetchone()[0]
+                      if db_count!=row_count or row_count!=m['expected_numeric_values']:
+                          raise ValueError('SQLITE HAS FEWER ACTUAL NUMERIC OBSERVATIONS THAN VERIFIED SOURCE COUNTS')
+                      if matched_pairs!=m['expected_pretax_posttax_pairs']:
+                          raise ValueError('SQLITE source-matched pairs differ from expected')
+                      if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok':
+                          raise ValueError('SQLite integrity check failed')
+                      # Show users actual native measures for 2024, not metadata counts.
+                      preview=list(db.execute('''SELECT wid_area,iso3,percentile,
+                               pretax_national_income_share,posttax_national_income_share,
+                               posttax_disposable_income_share,personal_wealth_share,
+                               posttax_minus_pretax_percentage_points
+                               FROM wid_distribution_panel WHERE year=2024 ORDER BY wid_area,percentile'''))
+                      db.commit()
+                  with (out/'value_evidence_2024.csv').open('w',newline='',encoding='utf-8') as f:
+                      wr=csv.writer(f)
+                      wr.writerow(['wid_area','iso3','percentile','pretax_share','posttax_share','disposable_income_share','wealth_share','descriptive_gap_pp'])
+                      wr.writerows(preview)
+                  report={'status':'REAL_NUMERIC_VALUES_IMPORTED_INTO_PRIVATE_RESEARCH_SQLITE_NOT_CANONICAL',
+                      'created_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
+                      'country_count':len(country_report),'actual_numeric_observation_rows_in_sqlite':db_count,
+                      'actual_derived_country_year_percentile_rows':groups,
+                      'actual_matched_pretax_posttax_pairs':matched_pairs,
+                      'real_value_preview_rows_2024':len(preview),
+                      'source_dataset':'WID source-native numeric share CSV files',
+                      'source_manifest_sha256':digest(manifest_path),
+                      'country_evidence':country_report,
+                      'large_share_warnings_count':len(risk),
+                      'large_share_warnings':risk[:30],
+                      'canonical_warehouse_modified':False,
+                      'data_counting_policy':'Only finite REAL numbers inserted in SQLite count; metadata-only source catalog does NOT count',
+                      'research_status':'SOURCE_NATIVE_DESCRIPTIVE_NOT_CAUSAL_NOT_CROSS_PROVIDER_HARMONIZED',
+                      'notes':['WID original area codes and explicit ISO3 crosswalk are stored separately.',
+                               'Source values are WID share fractions; do not interpret as currency or person counts.',
+                               'Income group top 1% is nested in top 10%: never add those together.',
+                               'Posttax-minus-pretax share is descriptive, NOT a causal effect of any tax law.',
+                               'Any tax policy/event and GDP/employment merge must pass separate source and definition audits.']}
+                  (out/'numeric_value_validation.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+                  (out/'sha256_manifest.json').write_text(json.dumps({name:digest(out/name) for name in
+                      ['wid_23country_values.sqlite','value_evidence_2024.csv','numeric_value_validation.json']},indent=2)+'\n')
+                  return report
+              except Exception:
+                  # Fail closed: do not leave a misleading partial-looking panel.
+                  if dbpath.exists():dbpath.unlink()
+                  raise
+          
+          
+          def main():
+              p=argparse.ArgumentParser(description=__doc__)
+              p.add_argument('--manifest',required=True,type=Path)
+              p.add_argument('--input-dir',required=True,type=Path)
+              p.add_argument('--out',required=True,type=Path)
+              a=p.parse_args()
+              res=build(a.manifest,a.input_dir,a.out)
+              print(json.dumps({k:res[k] for k in ('status','country_count','actual_numeric_observation_rows_in_sqlite',
+                  'actual_derived_country_year_percentile_rows','actual_matched_pretax_posttax_pairs')},indent=2))
+          
+          if __name__=='__main__':main()
+          PY_REAL_NUMERIC_BUILDER
+      - name: Install 23-country SHA-pinned source manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p research
+          cat > research/wid_23_source_manifest.json <<'JSON_23_PINNED_SOURCES'
+          {
+            "schema_version": "1.0",
+            "basis": "Actual validated source-native WID share CSV files stored on private OneDrive; not a provider catalog",
+            "source_url": "https://wid.world/bulk_download/",
+            "source_remote_prefix": "onedrive:Diego/economic research database/atlas/wid-country-pilot-v1",
+            "input_filename": "wid_source_native_shares.csv",
+            "expected_country_count": 23,
+            "expected_numeric_values": 21430,
+            "expected_pretax_posttax_pairs": 4408,
+            "source_run_ids": [
+              "41006308764",
+              "41010751593"
+            ],
+            "population_definition": "WID source variable-specific adult equal split; review methodology",
+            "research_status": "raw_share_values_only_not_harmonized_or_causal",
+            "countries": [
+              {
+                "wid_area": "AU",
+                "iso3": "AUS",
+                "source_sha256": "9625c0d822d113199f559b7458f47ec02504f753c5e25ff5490a4a33f4a0331a",
+                "source_native_rows": 880,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "BR",
+                "iso3": "BRA",
+                "source_sha256": "a7bf5efd2ff174051a936529cf1ae8e3c85d98e976d1f27e94a48fff9eb97338",
+                "source_native_rows": 628,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "CA",
+                "iso3": "CAN",
+                "source_sha256": "2371a168e9e33a7c645faec7c27468f695c6bb83fb2d7f961e8933a63c2743d3",
+                "source_native_rows": 908,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "CL",
+                "iso3": "CHL",
+                "source_sha256": "18a4a2162a43550032dfece86ecaa9c60b420511f78a2ff7ab12bd6d1b649c7a",
+                "source_native_rows": 680,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "CO",
+                "iso3": "COL",
+                "source_sha256": "01e9b2bfb0cd883d1a661e298084d19766d1ab3b230ffa62bce6c4479d0aadc6",
+                "source_native_rows": 628,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41006308764"
+              },
+              {
+                "wid_area": "DE",
+                "iso3": "DEU",
+                "source_sha256": "64b1c4a6c486e54117afcc7d8dea53e15d1c16dea93e32fce9c67f5d2bcc5888",
+                "source_native_rows": 1148,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "DK",
+                "iso3": "DNK",
+                "source_sha256": "4b56e5fb519503cc99faa4aaf39809d5e842398d537591cb0fa87b388e2671a9",
+                "source_native_rows": 1040,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "ES",
+                "iso3": "ESP",
+                "source_sha256": "74f6c28605d1d8ea6c25ae40d1baef5c5c95619de436d61821ab66e1d8f6aa08",
+                "source_native_rows": 888,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "FR",
+                "iso3": "FRA",
+                "source_sha256": "64429f6bfd5fe834688e7a5051a2ae6dc01ad4c8bbc4ba5e1f59205070cbd5ff",
+                "source_native_rows": 1448,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41006308764"
+              },
+              {
+                "wid_area": "GB",
+                "iso3": "GBR",
+                "source_sha256": "49e464eea79658ed7f017e20989f86930bec8befbb9ec673354691e57084d665",
+                "source_native_rows": 1328,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "GH",
+                "iso3": "GHA",
+                "source_sha256": "04ce266c2c1bcd28644e560e82f4fc0ef84f835aa38d59ff3bfa4e7f6f0ce220",
+                "source_native_rows": 580,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "IN",
+                "iso3": "IND",
+                "source_sha256": "f6e0c5bcee23ebc9a9415f5f2bdd8a31b33d09020dfba1ca1341546412368858",
+                "source_native_rows": 840,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "IT",
+                "iso3": "ITA",
+                "source_sha256": "0ec85c523b029ec9a329057ae2941845f11a1f8ae5fcd3cd765b1f6531b01c03",
+                "source_native_rows": 888,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "JP",
+                "iso3": "JPN",
+                "source_sha256": "06f495d97600574fa4930427827e6e8982c16c4a5eebd55f068b93675dfbb36d",
+                "source_native_rows": 968,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "KE",
+                "iso3": "KEN",
+                "source_sha256": "b1d0a6a764a1efdba48a9a251c8f308aa5e97cd6ca211ebf5f98972724377712",
+                "source_native_rows": 716,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "KR",
+                "iso3": "KOR",
+                "source_sha256": "8440a83cdeebbc54ad7aa1c29a0de98d30637b33db7435f49e0134a213a9a6ea",
+                "source_native_rows": 800,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "MX",
+                "iso3": "MEX",
+                "source_sha256": "260362eb0e219bdac9cbbfafe6ec838247015d8534dc1583c13ceb0230c54098",
+                "source_native_rows": 628,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "NG",
+                "iso3": "NGA",
+                "source_sha256": "bb0969e8fd10c53d8d3597109b07844bfc2bfcafaa4bf59583825d34052979db",
+                "source_native_rows": 660,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "NL",
+                "iso3": "NLD",
+                "source_sha256": "4f5b2e3403d866ac9d5c979349d3d1608183da9934bde0b5d6c5cd471343e673",
+                "source_native_rows": 1208,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "NO",
+                "iso3": "NOR",
+                "source_sha256": "1d6ecf50f43ec200392e0937b831dc7036496b8642c63b9e03d909bb4544cc31",
+                "source_native_rows": 980,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "SE",
+                "iso3": "SWE",
+                "source_sha256": "03f2f99a4ca856a694e595df115ae63aa9334bb4c656aa335a0476261d523ca5",
+                "source_native_rows": 1052,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              },
+              {
+                "wid_area": "US",
+                "iso3": "USA",
+                "source_sha256": "276ed0585b0e6191dfa7ed983c7d223d69362b7df586e31d84cdbe91efc2a3f9",
+                "source_native_rows": 1714,
+                "pretax_posttax_pairs": 448,
+                "source_run": "41006308764"
+              },
+              {
+                "wid_area": "ZA",
+                "iso3": "ZAF",
+                "source_sha256": "c0fb79b36208833b034f66d40526c2235f1881bb9f58840940a8a26b737dfbd7",
+                "source_native_rows": 820,
+                "pretax_posttax_pairs": 180,
+                "source_run": "41010751593"
+              }
+            ]
+          }
+          JSON_23_PINNED_SOURCES
+      - name: Install synthetic numeric validation regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tests
+          cat > tests/test_wid_numeric_panel.py <<'PY_REAL_NUMERIC_TESTS'
+          """Synthetic data only. These are regression tests, NOT real WID observations."""
+          from __future__ import annotations
+          import csv
+          import json
+          import sqlite3
+          import sys
+          import tempfile
+          import unittest
+          from pathlib import Path
+          
+          sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+          from research.build_wid_numeric_panel import build, parse_variable, verified_manifest
+          
+          class NumericValueTests(unittest.TestCase):
+              def seed(self, root, bad=None):
+                  root=Path(root)
+                  (root/'input'/'US').mkdir(parents=True)
+                  original='a'*64
+                  rows=[
+                      dict(wid_area='US',year='2024',percentile='p0p50',concept='pretax_national_income_share',
+                           source_variable='sptincj992',share_fraction='0.15',source_file_sha256=original,
+                           research_status='source_native_descriptive_not_causal',quality_grade='3'),
+                      dict(wid_area='US',year='2024',percentile='p0p50',concept='posttax_national_income_share',
+                           source_variable='sdiinc992j',share_fraction='0.23',source_file_sha256=original,
+                           research_status='source_native_descriptive_not_causal',quality_grade='3'),
+                      dict(wid_area='US',year='2024',percentile='p99p100',concept='personal_wealth_share',
+                           source_variable='shwealj992',share_fraction='0.35',source_file_sha256=original,
+                           research_status='source_native_descriptive_not_causal',quality_grade='2'),
+                  ]
+                  if bad=='text':rows[0]['share_fraction']='not a number'
+                  if bad=='duplicate':rows[1]=rows[0].copy()
+                  if bad=='bad_sha':rows[0]['source_file_sha256']='b'*64
+                  p=root/'input'/'US'/'wid_source_native_shares.csv'
+                  with p.open('w',newline='') as f:
+                      w=csv.DictWriter(f,fieldnames=list(rows[0]));w.writeheader();w.writerows(rows)
+                  manifest={'schema_version':'1.0','source_remote_prefix':'onedrive:Somewhere',
+                            'expected_country_count':1,'expected_numeric_values':3,
+                            'expected_pretax_posttax_pairs':1,
+                            'countries':[{'wid_area':'US','iso3':'USA',
+                                          'source_sha256':original,'source_native_rows':3,
+                                          'pretax_posttax_pairs':1,'source_run':'12345'}]}
+                  (root/'manifest.json').write_text(json.dumps(manifest))
+                  return root/'manifest.json',root/'input',root/'out'
+          
+              def test_real_numbers_materialized_in_sqlite(self):
+                  with tempfile.TemporaryDirectory() as t:
+                      m,s,o=self.seed(t)
+                      report=build(m,s,o)
+                      self.assertEqual(report['actual_numeric_observation_rows_in_sqlite'],3)
+                      self.assertEqual(report['actual_matched_pretax_posttax_pairs'],1)
+                      with sqlite3.connect(o/'wid_23country_values.sqlite') as db:
+                          total=db.execute('SELECT COUNT(*) FROM wid_numeric_observations').fetchone()[0]
+                          value=db.execute('''SELECT value_fraction FROM wid_numeric_observations
+                              WHERE concept='pretax_national_income_share' ''').fetchone()[0]
+                          difference=db.execute('''SELECT posttax_minus_pretax_percentage_points
+                              FROM wid_distribution_panel WHERE percentile='p0p50' ''').fetchone()[0]
+                          self.assertEqual(total,3)
+                          self.assertAlmostEqual(value,0.15)
+                          self.assertAlmostEqual(difference,8)
+                      self.assertTrue((o/'sha256_manifest.json').exists())
+                      self.assertEqual(report['status'],'REAL_NUMERIC_VALUES_IMPORTED_INTO_PRIVATE_RESEARCH_SQLITE_NOT_CANONICAL')
+          
+              def test_reject_metadata_only_non_numeric(self):
+                  with tempfile.TemporaryDirectory() as t:
+                      m,s,o=self.seed(t,'text')
+                      with self.assertRaisesRegex(ValueError,'Non-numeric observation'):
+                          build(m,s,o)
+          
+              def test_reject_duplicate_measurement(self):
+                  with tempfile.TemporaryDirectory() as t:
+                      m,s,o=self.seed(t,'duplicate')
+                      with self.assertRaisesRegex(ValueError,'Duplicate WID numeric key'):
+                          build(m,s,o)
+          
+              def test_reject_wrong_source_hash(self):
+                  with tempfile.TemporaryDirectory() as t:
+                      m,s,o=self.seed(t,'bad_sha')
+                      with self.assertRaisesRegex(ValueError,'source country/hash mismatch'):
+                          build(m,s,o)
+          
+              def test_reject_missing_source(self):
+                  with tempfile.TemporaryDirectory() as t:
+                      m,s,o=self.seed(t)
+                      (s/'US'/'wid_source_native_shares.csv').unlink()
+                      with self.assertRaisesRegex(FileNotFoundError,'NO NUMERIC SOURCE FILE'):
+                          build(m,s,o)
+          
+              def test_reject_false_manifest_counts(self):
+                  with tempfile.TemporaryDirectory() as t:
+                      m,s,o=self.seed(t)
+                      obj=json.loads(m.read_text());obj['expected_numeric_values']=4;m.write_text(json.dumps(obj))
+                      with self.assertRaisesRegex(ValueError,'Manifest source-native numeric row totals disagree'):
+                          verified_manifest(m)
+          
+              def test_supported_definition_codes(self):
+                  self.assertEqual(parse_variable('sptinc992j'),'pretax_national_income_share')
+                  self.assertEqual(parse_variable('sptincj992'),'pretax_national_income_share')
+                  self.assertEqual(parse_variable('shwealj992'),'personal_wealth_share')
+                  self.assertIsNone(parse_variable('sptinc999i'))
+          
+          if __name__=='__main__':unittest.main()
+          PY_REAL_NUMERIC_TESTS
+      - name: Run seven offline tests and commit code plus source manifest only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_wid_numeric_panel.py' -v
+          python -m py_compile research/build_wid_numeric_panel.py
+          python - <<'PY_VERIFY'
+          import json
+          m=json.load(open('research/wid_23_source_manifest.json'))
+          assert len(m['countries'])==m['expected_country_count']==23
+          assert sum(z['source_native_rows'] for z in m['countries'])==m['expected_numeric_values']==21430
+          assert sum(z['pretax_posttax_pairs'] for z in m['countries'])==m['expected_pretax_posttax_pairs']==4408
+          print('Source manifest checked: 23 countries, 21,430 real expected values, 4,408 pairs')
+          PY_VERIFY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add research/build_wid_numeric_panel.py research/wid_23_source_manifest.json tests/test_wid_numeric_panel.py
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'Code and pinned manifest already committed'
+          else
+            git commit -m 'Add fail-closed WID 23-country numeric SQLite materialization'
+            git fetch origin main
+            git rebase origin/main
+            git push origin HEAD:main
+          fi
+      - name: Configure pre-existing private OneDrive credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Required OneDrive connection secret missing' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/atlas-wid-rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/atlas-wid-rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/atlas-wid-rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/atlas-wid-rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Retrieve 23 real numeric source CSVs by pinned SHA country paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wid-pinned-input"
+          python - <<'PY_COUNTRY_PATHS' > "$RUNNER_TEMP/wid_sources.txt"
+          import json
+          m=json.load(open('research/wid_23_source_manifest.json'))
+          for row in m['countries']:
+            print(row['wid_area'],row['source_sha256'][:24])
+          PY_COUNTRY_PATHS
+          BASE='onedrive:Diego/economic research database/atlas/wid-country-pilot-v1'
+          while read -r country pin; do
+            mkdir -p "$RUNNER_TEMP/wid-pinned-input/$country"
+            rclone copyto "$BASE/$country/$pin/wid_source_native_shares.csv" "$RUNNER_TEMP/wid-pinned-input/$country/wid_source_native_shares.csv" --retries 3
+            test -s "$RUNNER_TEMP/wid-pinned-input/$country/wid_source_native_shares.csv"
+          done < "$RUNNER_TEMP/wid_sources.txt"
+          echo 'Retrieved 23 physical CSV files; numeric validations will run next'
+      - name: Physically insert numeric WID values into independent SQLite and verify counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/build_wid_numeric_panel.py \
+            --manifest research/wid_23_source_manifest.json \
+            --input-dir "$RUNNER_TEMP/wid-pinned-input" \
+            --out "$RUNNER_TEMP/wid-numeric-panel"
+          python - <<'PY_SQL_GUARD'
+          import json,sqlite3,os,pathlib
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'wid-numeric-panel'
+          r=json.loads((root/'numeric_value_validation.json').read_text())
+          with sqlite3.connect(root/'wid_23country_values.sqlite') as db:
+            count=db.execute("SELECT COUNT(*) FROM wid_numeric_observations WHERE typeof(value_fraction)='real'").fetchone()[0]
+            actual=db.execute('SELECT COUNT(*) FROM wid_numeric_observations').fetchone()[0]
+            assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+          assert count==actual==r['actual_numeric_observation_rows_in_sqlite']==21430
+          assert r['actual_matched_pretax_posttax_pairs']==4408
+          assert r['country_count']==23
+          assert r['canonical_warehouse_modified'] is False
+          print('VERIFIED SQL REAL NUMERIC OBSERVATIONS:',count,'MATCHED PRE/POST PAIRS:',4408)
+          PY_SQL_GUARD
+      - name: Back up actual numeric SQLite and output values privately with SHA256 round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOCAL="$RUNNER_TEMP/wid-numeric-panel"
+          REMOTE="onedrive:Diego/economic research database/atlas/wid-23-numeric-panels-v1/run-$GITHUB_RUN_ID"
+          for name in wid_23country_values.sqlite value_evidence_2024.csv numeric_value_validation.json sha256_manifest.json; do
+            rclone copyto "$LOCAL/$name" "$REMOTE/$name" --retries 3
+            localsha="$(sha256sum "$LOCAL/$name" | awk '{print $1}')"
+            remotesha="$(rclone cat "$REMOTE/$name" | sha256sum | awk '{print $1}')"
+            test "$localsha" = "$remotesha" || { echo "Backup checksum mismatch: $name" >&2; exit 1; }
+          done
+          printf 'PRIVATE_NUMERIC_SQLITE_VERIFIED=true\n' > "$RUNNER_TEMP/wid-numeric-panel/backup-status.txt"
+          echo 'Verified actual SQLite bytes and 2024 value evidence in PRIVATE OneDrive'
+      - name: Publish only count/checksum evidence, not numeric records
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p numeric-panel-evidence
+          cp "$RUNNER_TEMP/wid-numeric-panel/numeric_value_validation.json" numeric-panel-evidence/
+          cp "$RUNNER_TEMP/wid-numeric-panel/backup-status.txt" numeric-panel-evidence/
+      - name: Publish evidence report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wid-23-real-numeric-verified-${{ github.run_number }}
+          path: numeric-panel-evidence/
+          retention-days: 90
+          if-no-files-found: error
+      - name: Erase temporary credentials and raw numeric source files
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/atlas-wid-rclone/rclone.conf"
+          rm -rf "$RUNNER_TEMP/wid-pinned-input" "$RUNNER_TEMP/wid-numeric-panel" "$RUNNER_TEMP/wid_sources.txt"
