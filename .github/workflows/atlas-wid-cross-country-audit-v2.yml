@@ -1,0 +1,284 @@
+name: Atlas - WID cross-country distribution audit v2 (corrected source schema)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/atlas-wid-cross-country-audit-v2.yml
+permissions:
+  contents: read
+concurrency:
+  group: atlas-wid-cross-country-audit-v2
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Install corrected audit and run regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/atlas-wid-audit-v2
+          cat > /tmp/atlas-wid-audit-v2/audit_wid.py <<'PY_AUDIT_V2'
+          #!/usr/bin/env python3
+          """Reconcile source-native WID pilot data with matched panels; descriptive only.
+          
+          Uses official WID CSV records previously stored (and SHA256 verified) in private OneDrive.
+          Never infers causality from the pretax/posttax arithmetic difference.
+          """
+          from __future__ import annotations
+          import argparse
+          import csv
+          import json
+          import math
+          from collections import Counter, defaultdict
+          from pathlib import Path
+          
+          CONCEPTS=('pretax_national_income_share','posttax_national_income_share',
+                    'posttax_disposable_income_share','personal_wealth_share')
+          GROUPS={'p0p50':'bottom_50','p50p90':'middle_40','p90p100':'top_10','p99p100':'top_1'}
+          YEARS=(1990,2000,2010,2020,2024)
+          SNAPSHOTS={
+              'US': {'sha':'276ed0585b0e6191dfa7ed983c7d223d69362b7df586e31d84cdbe91efc2a3f9','rows':1714,'pairs':448},
+              'FR': {'sha':'64429f6bfd5fe834688e7a5051a2ae6dc01ad4c8bbc4ba5e1f59205070cbd5ff','rows':1448,'pairs':180},
+              'CO': {'sha':'01e9b2bfb0cd883d1a661e298084d19766d1ab3b230ffa62bce6c4479d0aadc6','rows':628,'pairs':180},
+          }
+          
+          
+          def read_csv(path,fields):
+              with path.open(newline='',encoding='utf-8-sig') as file:
+                  rd=csv.DictReader(file)
+                  headers=rd.fieldnames or []
+                  if len(headers)!=len(set(headers)) or not set(fields).issubset(headers):
+                      raise ValueError(f'{path}: source schema mismatch; headers={headers}')
+                  data=list(rd)
+              if not data or any(None in row or any(v is None for v in row.values()) for row in data):
+                  raise ValueError(f'{path}: empty or malformed source')
+              return data
+          
+          
+          def num(s):
+              if s=='':return None
+              v=float(s)
+              if not math.isfinite(v) or not -5 <= v <= 5:
+                  raise ValueError('Nonfinite or implausible WID share')
+              return v
+          
+          
+          def emit(path,columns,records):
+              with path.open('w',encoding='utf-8',newline='') as f:
+                  w=csv.DictWriter(f,fieldnames=columns,extrasaction='raise')
+                  w.writeheader();w.writerows(records)
+          
+          
+          def audit(root,out,checks=SNAPSHOTS):
+              if out.exists() and any(out.iterdir()):
+                  raise FileExistsError('Refusing to overwrite prior audit results')
+              out.mkdir(parents=True,exist_ok=True)
+              coverage=[]; selected=[]; warnings=[]; metrics={}; keys={}
+              for area,expected in checks.items():
+                  native=read_csv(root/area/'wid_source_native_shares.csv',
+                                  ('wid_area','year','percentile','group','concept','share_fraction','source_file_sha256'))
+                  matched=read_csv(root/area/'wid_matched_distribution.csv',
+                                   ('wid_area','year','percentile','group','posttax_minus_pretax_pp')+CONCEPTS)
+                  if len(native)!=expected['rows']:
+                      raise ValueError(f'{area}: wrong native count {len(native)} not {expected["rows"]}')
+                  seen={}; by_concept=defaultdict(lambda:{'years':set(),'groups':set(),'count':0})
+                  for row in native:
+                      if row['wid_area']!=area or row['source_file_sha256']!=expected['sha']:
+                          raise ValueError(f'{area}: unexpected area/source SHA')
+                      year=row['year']; p=row['percentile']; concept=row['concept']
+                      if not year.isdigit() or not 1700 <= int(year) <= 2027:
+                          raise ValueError(f'{area}: invalid year')
+                      if p not in GROUPS or row['group']!=GROUPS[p] or concept not in CONCEPTS:
+                          raise ValueError(f'{area}: unexpected group/concept')
+                      key=(year,p,concept)
+                      if key in seen:
+                          raise ValueError(f'{area}: duplicated native key {key}')
+                      val=num(row['share_fraction'])
+                      if val is None:raise ValueError(f'{area}: native value missing')
+                      seen[key]=val
+                      by_concept[concept]['count']+=1
+                      by_concept[concept]['years'].add(int(year))
+                      by_concept[concept]['groups'].add(p)
+                  matchedkeys={};pairs=0
+                  for row in matched:
+                      year=row['year'];p=row['percentile']
+                      if row['wid_area']!=area or p not in GROUPS or row['group']!=GROUPS[p] or not year.isdigit():
+                          raise ValueError(f'{area}: malformed matched key')
+                      key=(year,p)
+                      if key in matchedkeys:raise ValueError(f'{area}: repeated matched row')
+                      matchedkeys[key]=row
+                      vals={concept:num(row[concept]) for concept in CONCEPTS}
+                      for concept,value in vals.items():
+                          native_val=seen.get((year,p,concept))
+                          if (value is None)!=(native_val is None) or (value is not None and abs(value-native_val)>1e-10):
+                              raise ValueError(f'{area}: matched/native disagreement at {key}/{concept}')
+                      pretax=vals[CONCEPTS[0]];posttax=vals[CONCEPTS[1]]
+                      expected_gap=100*(posttax-pretax) if pretax is not None and posttax is not None else None
+                      found_gap=float(row['posttax_minus_pretax_pp']) if row['posttax_minus_pretax_pp'] else None
+                      if (expected_gap is None)!=(found_gap is None) or (expected_gap is not None and abs(expected_gap-found_gap)>1e-6):
+                          raise ValueError(f'{area}: pretax/posttax share difference invalid')
+                      if expected_gap is not None:pairs+=1
+                      if int(year) in YEARS:
+                          for concept,value in vals.items():
+                              if value is not None:
+                                  selected.append(dict(area=area,year=year,group=GROUPS[p],percentile=p,
+                                                       concept=concept,share_percent=format(value*100,'.6g'),
+                                                       interpretation='descriptive_not_causal'))
+                  if len(seen)!=sum(sum(row[c]!='' for c in CONCEPTS) for row in matched):
+                      raise ValueError(f'{area}: unmatched native key missing from summary')
+                  if pairs!=expected['pairs']:
+                      raise ValueError(f'{area}: wrong matched pair count {pairs} not {expected["pairs"]}')
+                  for concept in CONCEPTS:
+                      d=by_concept[concept]
+                      coverage.append(dict(area=area,concept=concept,observations=d['count'],
+                                           distinct_years=len(d['years']),first_year=min(d['years']) if d['years'] else '',
+                                           last_year=max(d['years']) if d['years'] else '',
+                                           groups=';'.join(sorted(d['groups']))))
+                  for year in {yr for yr,p in matchedkeys}:
+                      for concept in CONCEPTS:
+                          pieces=[num(matchedkeys.get((year,p),{}).get(concept,'')) for p in ('p0p50','p50p90','p90p100')]
+                          if all(x is not None for x in pieces) and abs(sum(pieces)-1)>.03:
+                              warnings.append(dict(area=area,year=year,concept=concept,share_sum=sum(pieces)))
+                  metrics[area]={'native_rows':len(native),'matched_pairs':pairs,
+                                 'matched_area_year_percentiles':len(matchedkeys),'source_sha256':expected['sha']}
+              bykey={(z['area'],z['year'],z['percentile'],z['concept']):z['share_percent'] for z in selected}
+              common=[]
+              for year in YEARS:
+                  for p in GROUPS:
+                      for concept in CONCEPTS:
+                          q=[bykey.get((area,str(year),p,concept)) for area in checks]
+                          if all(x is not None for x in q):
+                              common.append(dict(year=year,percentile=p,group=GROUPS[p],concept=concept,
+                                                 **{area+'_share_percent':bykey[(area,str(year),p,concept)] for area in checks}))
+              emit(out/'coverage.csv',['area','concept','observations','distinct_years','first_year','last_year','groups'],coverage)
+              emit(out/'selected_year_values.csv',['area','year','group','percentile','concept','share_percent','interpretation'],selected)
+              emit(out/'common_three_country_comparisons.csv',
+                   ['year','percentile','group','concept']+[area+'_share_percent' for area in checks],common)
+              report={'status':'validated_descriptive_only_not_causal','official_source':'https://wid.world/data/',
+                      'snapshot_run':'https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/41006308764',
+                      'countries':metrics,'validated_share_observations':sum(v['native_rows'] for v in metrics.values()),
+                      'matched_pretax_posttax_pairs':sum(v['matched_pairs'] for v in metrics.values()),
+                      'selected_year_values':len(selected),'common_country_comparison_cells':len(common),
+                      'nonoverlapping_share_warnings':warnings[:100],
+                      'notes':['Uses verified OneDrive source-native share_fraction column, not value_fraction.',
+                               'Statistics are not causal tax-policy effects; no missing data imputation.',
+                               'The three countries do not necessarily cover all series in every selected year.',
+                               'Do not add counts to the canonical warehouse without deduplication.']}
+              (out/'audit_report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+              return report
+          
+          
+          def main():
+              p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--out',type=Path,required=True)
+              a=p.parse_args()
+              print(json.dumps(audit(a.root,a.out),indent=2))
+          
+          if __name__=='__main__':main()
+          PY_AUDIT_V2
+          cat > /tmp/atlas-wid-audit-v2/test_audit.py <<'PY_TEST_V2'
+          import csv, sys, tempfile, unittest
+          from pathlib import Path
+          sys.path.insert(0,str(Path(__file__).parent))
+          from audit_wid import audit, CONCEPTS
+          
+          class TestAudit(unittest.TestCase):
+              def seed(self,root):
+                  checks={}
+                  for country in ('US','FR','CO'):
+                      area=root/country;area.mkdir()
+                      sha=(country[0]*64)
+                      vals={('2020','p0p50','pretax_national_income_share'):'.15',
+                            ('2020','p0p50','posttax_national_income_share'):'.23',
+                            ('2020','p0p50','personal_wealth_share'):'-.01'}
+                      with (area/'wid_source_native_shares.csv').open('w',newline='') as f:
+                          w=csv.DictWriter(f,fieldnames=['wid_area','year','percentile','group','concept','share_fraction','source_file_sha256']);w.writeheader()
+                          for (year,p,c),value in vals.items():w.writerow({'wid_area':country,'year':year,'percentile':p,'group':'bottom_50','concept':c,'share_fraction':value,'source_file_sha256':sha})
+                      with (area/'wid_matched_distribution.csv').open('w',newline='') as f:
+                          w=csv.DictWriter(f,fieldnames=['wid_area','year','percentile','group']+list(CONCEPTS)+['posttax_minus_pretax_pp']);w.writeheader()
+                          w.writerow(dict(wid_area=country,year='2020',percentile='p0p50',group='bottom_50',
+                                          pretax_national_income_share='.15',posttax_national_income_share='.23',
+                                          posttax_disposable_income_share='',personal_wealth_share='-.01',posttax_minus_pretax_pp='8'))
+                      checks[country]={'sha':sha,'rows':3,'pairs':1}
+                  return checks
+              def test_source_native_share_fraction_schema(self):
+                  with tempfile.TemporaryDirectory() as temp:
+                      root=Path(temp);checks=self.seed(root)
+                      res=audit(root,root/'out',checks)
+                      assert res['validated_share_observations']==9
+                      assert res['matched_pretax_posttax_pairs']==3
+                      assert res['common_country_comparison_cells']==3
+                      assert (root/'out'/'selected_year_values.csv').is_file()
+              def test_wrong_share_fraction_rejected(self):
+                  with tempfile.TemporaryDirectory() as temp:
+                      root=Path(temp);checks=self.seed(root)
+                      f=root/'US'/'wid_source_native_shares.csv'
+                      f.write_text(f.read_text().replace('share_fraction','value_fraction'))
+                      with self.assertRaisesRegex(ValueError,'schema mismatch'):
+                          audit(root,root/'out',checks)
+              def test_bad_difference_rejected(self):
+                  with tempfile.TemporaryDirectory() as temp:
+                      root=Path(temp);checks=self.seed(root)
+                      f=root/'FR'/'wid_matched_distribution.csv';f.write_text(f.read_text().replace(',8\n',',9\n'))
+                      with self.assertRaisesRegex(ValueError,'difference invalid'):
+                          audit(root,root/'out',checks)
+              def test_source_sha_rejected(self):
+                  with tempfile.TemporaryDirectory() as temp:
+                      root=Path(temp);checks=self.seed(root)
+                      checks['CO']['sha']='wrong'
+                      with self.assertRaisesRegex(ValueError,'source SHA'):
+                          audit(root,root/'out',checks)
+          
+          if __name__=='__main__':unittest.main()
+          PY_TEST_V2
+          python -m unittest discover -s /tmp/atlas-wid-audit-v2 -p 'test_*.py' -v
+      - name: Configure private OneDrive authentication
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64 secret' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/wid-rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/wid-rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/wid-rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/wid-rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Retrieve pinned private WID shares (US, FR, CO)
+        shell: bash
+        run: |
+          set -euo pipefail
+          REMOTE='onedrive:Diego/economic research database/atlas/wid-country-pilot-v1'
+          mkdir -p /tmp/atlas-wid-audit-v2/data
+          for entry in 'US:276ed0585b0e6191dfa7ed98' 'FR:64429f6bfd5fe834688e7a50' 'CO:01e9b2bfb0cd883d1a661e29'; do
+            country="${entry%%:*}"
+            pin="${entry#*:}"
+            mkdir -p "/tmp/atlas-wid-audit-v2/data/$country"
+            for item in wid_source_native_shares.csv wid_matched_distribution.csv; do
+              rclone copyto "$REMOTE/$country/$pin/$item" "/tmp/atlas-wid-audit-v2/data/$country/$item" --retries 3
+            done
+          done
+      - name: Validate the downloaded shares and produce matched country comparisons
+        shell: bash
+        run: |
+          set -euo pipefail
+          python /tmp/atlas-wid-audit-v2/audit_wid.py --root /tmp/atlas-wid-audit-v2/data --out wid_audit_v2_report
+          test -s wid_audit_v2_report/audit_report.json
+          test -s wid_audit_v2_report/common_three_country_comparisons.csv
+      - name: Upload small descriptive outputs only (not raw source rows)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wid-three-country-comparison-v2-${{ github.run_number }}
+          path: wid_audit_v2_report/
+          retention-days: 90
+          if-no-files-found: error
+      - name: Remove temporary credentials and WID source files
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/wid-rclone/rclone.conf"
+          rm -rf /tmp/atlas-wid-audit-v2/data
