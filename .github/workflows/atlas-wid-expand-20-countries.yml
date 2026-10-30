@@ -1,0 +1,182 @@
+name: Atlas - Expand verified WID country coverage (20 countries, private OneDrive)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/atlas-wid-expand-20-countries.yml'
+  schedule:
+    - cron: '23 5 3 * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-wid-expanded-coverage-private
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: WID ${{ matrix.batch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - batch: europe-a
+            countries: GB,DE,SE,IT
+          - batch: europe-b
+            countries: ES,NL,DK,NO
+          - batch: americas
+            countries: BR,MX,CA,CL
+          - batch: asia-pacific
+            countries: AU,JP,KR,IN
+          - batch: africa
+            countries: ZA,NG,KE,GH
+    env:
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      COUNTRY_CODES: ${{ matrix.countries }}
+      BATCH_NAME: ${{ matrix.batch }}
+    steps:
+      - name: Checkout existing validated WID importer
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify the importer and existing regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f open_data/wid_live_pilot.py
+          test -f tests/test_wid_live_pilot.py
+          python -m unittest discover -s tests -p 'test_wid_live_pilot.py' -v
+          python -m compileall -q open_data/wid_live_pilot.py
+      - name: Configure private OneDrive connection
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64 secret' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/wid-rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/wid-rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/wid-rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/wid-rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Download and validate official WID country files independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYTHON'
+          from __future__ import annotations
+          import datetime as dt
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import time
+
+          batch = os.environ['BATCH_NAME']
+          countries = [v.strip() for v in os.environ['COUNTRY_CODES'].split(',')]
+          if len(countries) != 4 or any(not (len(x) == 2 and x.isupper() and x.isalpha()) for x in countries):
+              raise ValueError('Unexpected country list; expected exactly four two-letter WID codes')
+          out = Path('wid_expansion_metadata')
+          out.mkdir(exist_ok=True)
+          work = Path(os.environ['RUNNER_TEMP']) / 'wid-private-data'
+          work.mkdir(exist_ok=True)
+          report = {
+              'title': 'Official WID source-native expansion, private cloud verified',
+              'batch': batch,
+              'run_timestamp_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
+              'country_codes': countries,
+              'successful': [],
+              'failed': [],
+              'source_rows_added_to_canonical_warehouse': 0,
+              'causal_estimates_produced': 0,
+              'raw_wid_data_published_to_github': False,
+              'source': 'https://wid.world/data/',
+              'notes': [
+                  'Results are source-native and descriptive, not cross-country causal estimates.',
+                  'Do not sum with canonical warehouse totals before cross-source keyed deduplication.',
+                  'A SHA256-verification run against private OneDrive must succeed before counting rows.',
+                  'Ranges need not indicate continuous annual coverage or non-imputed values.'
+              ],
+          }
+          try:
+              for country in countries:
+                  target = work / country
+                  # Run one country at a time: one failure never prevents the other three.
+                  cmd = [sys.executable, 'open_data/wid_live_pilot.py',
+                         '--countries', country, '--out', str(target)]
+                  try:
+                      process = subprocess.run(cmd, text=True, capture_output=True, timeout=2400)
+                      if process.returncode:
+                          raise RuntimeError((process.stderr or process.stdout)[-650:])
+                      metadata = json.loads((target / 'public_summary.json').read_text('utf-8'))
+                      if metadata.get('numeric_values_retrieved', 0) < 1 or not metadata.get('onedrive_verified'):
+                          raise ValueError('No verified source-native observations backed up to OneDrive')
+                      item = metadata['countries'][0]
+                      if item['area'] != country or not item['backed_up_to_private_onedrive']:
+                          raise ValueError('Unverified country/source identifier in completed report')
+                      report['successful'].append({
+                          'area': country,
+                          'retained_source_shares': item['retained_source_shares'],
+                          'matched_pretax_posttax_pairs': item['matched_pretax_posttax_pairs'],
+                          'first_observed_year': item['year_min'],
+                          'last_observed_year': item['year_max'],
+                          'source_file_sha256': item['source_sha256'],
+                          'source_bytes': item['source_bytes'],
+                          'onedrive_verified': True,
+                          'counts_by_concept': item['counts_by_concept'],
+                      })
+                      print('WID_BATCH_SUCCESS', json.dumps({
+                          'area': country,
+                          'rows': item['retained_source_shares'],
+                          'matched_pairs': item['matched_pretax_posttax_pairs'],
+                          'onedrive_verified': True,
+                      }), flush=True)
+                  except Exception as exc:
+                      reason = str(exc).replace('\n', ' ')
+                      report['failed'].append({
+                          'area': country, 'error_type': type(exc).__name__,
+                          'diagnostic_truncated': reason[-500:]
+                      })
+                      print(f'WID_BATCH_FAILED area={country} kind={type(exc).__name__} diagnostic={reason[-200:]}', flush=True)
+                  # Bound requests to the public WID service.
+                  time.sleep(2)
+          finally:
+              report['completed_utc'] = dt.datetime.now(dt.timezone.utc).isoformat()
+              report['count_successful_countries'] = len(report['successful'])
+              report['count_failed_countries'] = len(report['failed'])
+              report['verified_share_observations'] = sum(x['retained_source_shares'] for x in report['successful'])
+              (out / f'{batch}.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+              print('WID_EXPANSION_SUMMARY', json.dumps({
+                  'batch': batch, 'success': report['count_successful_countries'],
+                  'failed': report['count_failed_countries'],
+                  'verified_share_observations': report['verified_share_observations']
+              }), flush=True)
+          # Fail the job if there are failures, but leave its metadata artifact and
+          # any successfully backed-up countries available for an independent rerun.
+          if report['failed']:
+              sys.exit(1)
+          PYTHON
+      - name: Publish metadata-only ingestion audit (never raw WID observations)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wid-expansion-${{ matrix.batch }}-${{ github.run_number }}
+          path: wid_expansion_metadata/*.json
+          retention-days: 90
+          if-no-files-found: warn
+      - name: Remove private OneDrive credentials and temporary source rows
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/wid-rclone/rclone.conf"
+          rm -rf "$RUNNER_TEMP/wid-private-data"
