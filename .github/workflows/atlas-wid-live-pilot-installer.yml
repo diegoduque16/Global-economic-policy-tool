@@ -1,0 +1,418 @@
+name: Atlas - Install and pilot official WID inequality data to OneDrive
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/atlas-wid-live-pilot-installer.yml
+permissions:
+  contents: write
+concurrency:
+  group: atlas-wid-live-pilot-source-native
+  cancel-in-progress: false
+jobs:
+  install-and-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install tested pilot importer (do not replace current WID importer)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p open_data
+          if test -f open_data/wid_live_pilot.py; then echo 'Importer already present; reusing existing version'; else
+          cat > open_data/wid_live_pilot.py <<'PY_WID_LIVE_PILOT'
+          #!/usr/bin/env python3
+          """Bounded official WID country-CSV ingestion and private OneDrive verification.
+          
+          No country-series substitution, synthetic interpolation, or causal effect claims.
+          Only source-native WID country exports; source files never committed to GitHub.
+          """
+          from __future__ import annotations
+          import argparse
+          import csv
+          import datetime as dt
+          import hashlib
+          import io
+          import json
+          import math
+          import re
+          import subprocess
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from collections import Counter, defaultdict
+          from pathlib import Path
+          
+          OFFICIAL_TEMPLATE = 'https://wid.world/bulk_download/WID_data_{country}.csv'
+          STORE = 'onedrive:Diego/economic research database/atlas/wid-country-pilot-v1'
+          MAX_FILE = 190 * 1024 * 1024
+          MAX_TOTAL = 450 * 1024 * 1024
+          GROUPS = {'p0p50': 'bottom_50', 'p50p90': 'middle_40',
+                    'p90p100': 'top_10', 'p99p100': 'top_1'}
+          CONCEPTS = {'ptinc': 'pretax_national_income_share',
+                      'diinc': 'posttax_national_income_share',
+                      'cainc': 'posttax_disposable_income_share',
+                      'hweal': 'personal_wealth_share'}
+          FIELDS = ['wid_area', 'year', 'percentile', 'group', 'concept',
+                    'source_variable', 'share_fraction', 'quality_grade',
+                    'source_file_sha256', 'research_status']
+          MATCH_FIELDS = ['wid_area', 'year', 'percentile', 'group'] + list(CONCEPTS.values()) + [
+              'posttax_minus_pretax_pp', 'research_status']
+          
+          
+          def sha(data):
+              return hashlib.sha256(data).hexdigest()
+          
+          
+          def parse_code(raw):
+              """Support both documented sptinc992j and live-bulk sptincj992 code layouts."""
+              if not raw or raw[0] != 's':
+                  return None
+              for concept in CONCEPTS:
+                  if raw == 's' + concept + '992j' or raw == 's' + concept + 'j992':
+                      return CONCEPTS[concept]
+              return None
+          
+          
+          def validate_csv(raw, country, source_sha):
+              try:
+                  txt = raw.decode('utf-8-sig')
+              except UnicodeDecodeError as exc:
+                  raise ValueError('WID CSV not UTF-8') from exc
+              head = txt.splitlines()[0] if txt.splitlines() else ''
+              delim = '\t' if '\t' in head else (';' if ';' in head else ',')
+              reader = csv.DictReader(io.StringIO(txt), delimiter=delim)
+              cols = [k.strip().lower() for k in (reader.fieldnames or [])]
+              if not {'variable', 'year', 'percentile', 'value'}.issubset(cols) or len(cols) != len(set(cols)):
+                  raise ValueError(f'Unexpected WID CSV headers: {cols[:20]}')
+              if cols != (reader.fieldnames or []):
+                  raise ValueError('Noncanonical or ambiguous WID CSV header casing')
+              rows = []
+              counts = Counter()
+              keys = set()
+              year_min = None
+              year_max = None
+              for idx, rec in enumerate(reader, 2):
+                  if None in rec or any(v is None for v in rec.values()):
+                      raise ValueError(f'Malformed CSV at source line {idx}')
+                  concept = parse_code(rec['variable'].strip())
+                  pct = rec['percentile'].strip()
+                  if not concept or pct not in GROUPS:
+                      continue
+                  native_area = rec.get('country', '').strip().upper() or country
+                  if native_area != country:
+                      raise ValueError(f'Source area {native_area} differs from requested {country} at line {idx}')
+                  if rec.get('age', '').strip() not in ('', '992') or rec.get('pop', '').strip() not in ('', 'j'):
+                      raise ValueError('WID series code and explicit population/age dimensions disagree')
+                  yr = rec['year'].strip()
+                  if not re.fullmatch(r'\d{4}', yr) or not (1700 <= int(yr) <= dt.date.today().year + 1):
+                      raise ValueError(f'Invalid year at source line {idx}')
+                  raw_value = rec['value'].strip()
+                  if not raw_value:
+                      counts['missing_source_value_skipped'] += 1
+                      continue
+                  try:
+                      value = float(raw_value)
+                  except ValueError as exc:
+                      raise ValueError(f'Non-numeric value at source line {idx}') from exc
+                  if not math.isfinite(value) or not (-5 <= value <= 5):
+                      raise ValueError(f'Nonfinite or suspect source share at line {idx}')
+                  k = (native_area, yr, pct, concept)
+                  if k in keys:
+                      raise ValueError(f'Duplicate country/year/percentile/concept: {k}')
+                  keys.add(k)
+                  q = rec.get('quality', rec.get('quality_grade', rec.get('quality_score', ''))).strip()
+                  if q and q not in ('0','1','2','3','4','5'):
+                      q = 'unparsed_source_quality:' + q[:32]
+                  rows.append({'wid_area': native_area, 'year': yr, 'percentile': pct,
+                               'group': GROUPS[pct], 'concept': concept,
+                               'source_variable': rec['variable'].strip(),
+                               'share_fraction': format(value, '.17g'),
+                               'quality_grade': q or 'not_provided_in_source',
+                               'source_file_sha256': source_sha,
+                               'research_status': 'source_native_descriptive_not_causal'})
+                  counts[concept] += 1
+                  if abs(value) > 1.05:
+                      counts['fraction_magnitude_warning'] += 1
+                  year_min = min(year_min, int(yr)) if year_min is not None else int(yr)
+                  year_max = max(year_max, int(yr)) if year_max is not None else int(yr)
+              if not rows:
+                  raise ValueError(f'{country}: no target WID shares found in official country CSV')
+              return rows, dict(counts), year_min, year_max
+          
+          
+          def csv_bytes(fields, rows):
+              stream = io.StringIO(newline='')
+              writer = csv.DictWriter(stream, fieldnames=fields, extrasaction='raise')
+              writer.writeheader()
+              writer.writerows(rows)
+              return stream.getvalue().encode('utf-8')
+          
+          
+          def summarize(rows):
+              by_key = defaultdict(dict)
+              for row in rows:
+                  by_key[(row['wid_area'], row['year'], row['percentile'])][row['concept']] = float(row['share_fraction'])
+              out = []
+              matched = 0
+              for (area, yr, pct), vals in sorted(by_key.items()):
+                  item = {'wid_area': area, 'year': yr, 'percentile': pct, 'group': GROUPS[pct]}
+                  for concept in CONCEPTS.values():
+                      item[concept] = format(vals[concept], '.17g') if concept in vals else ''
+                  if 'pretax_national_income_share' in vals and 'posttax_national_income_share' in vals:
+                      item['posttax_minus_pretax_pp'] = format(100 * (vals['posttax_national_income_share'] - vals['pretax_national_income_share']), '.15g')
+                      matched += 1
+                  else:
+                      item['posttax_minus_pretax_pp'] = ''
+                  item['research_status'] = 'descriptive_gap_not_tax_reform_effect'
+                  out.append(item)
+              return out, matched
+          
+          
+          def official_url(country):
+              if not re.fullmatch(r'[A-Z]{2}', country):
+                  raise ValueError('Pilot requires two-letter uppercase WID country code')
+              return OFFICIAL_TEMPLATE.format(country=country)
+          
+          
+          def fetch(country, attempts=3):
+              url = official_url(country)
+              last = None
+              for n in range(attempts):
+                  try:
+                      req = urllib.request.Request(url, headers={
+                          'User-Agent': 'GlobalEconomicPolicyTool/0.1 (WID official data research pilot)',
+                          'Accept': 'text/csv,*/*', 'Accept-Encoding': 'identity'})
+                      with urllib.request.urlopen(req, timeout=120) as response:
+                          final = urllib.parse.urlsplit(response.geturl())
+                          if final.scheme != 'https' or (final.hostname or '') not in ('wid.world', 'www.wid.world'):
+                              raise ValueError(f'Unexpected WID download redirect: {final.hostname}')
+                          if response.status != 200:
+                              raise ValueError(f'WID HTTP {response.status}')
+                          size = response.headers.get('Content-Length')
+                          if size and int(size) > MAX_FILE:
+                              raise ValueError('Source CSV exceeds per-file cap')
+                          raw = response.read(MAX_FILE + 1)
+                          if len(raw) == 0 or len(raw) > MAX_FILE:
+                              raise ValueError('Empty or oversized WID source file')
+                          return raw, url
+                  except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+                      last = exc
+                      if n < attempts - 1:
+                          time.sleep(min(2 ** n, 8))
+                  except Exception:
+                      raise
+              raise RuntimeError(f'WID {country} unavailable: {last}')
+          
+          
+          def rclone_verify(local_path, remote_path):
+              def cmd(args):
+                  ret = subprocess.run(args, text=True, capture_output=True, timeout=600)
+                  if ret.returncode:
+                      raise RuntimeError(f'rclone failure ({ret.returncode}): {ret.stderr[-500:]}')
+              # Never overwrite an existing cloud object with mismatched data.
+              check = subprocess.run(['rclone', 'lsf', remote_path], capture_output=True, text=True, timeout=90)
+              if check.returncode == 0 and check.stdout.strip():
+                  existing = subprocess.run(['rclone', 'cat', remote_path], stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE, timeout=600)
+                  if existing.returncode or sha(existing.stdout) != sha(local_path.read_bytes()):
+                      raise RuntimeError(f'Cloud hash conflict: {remote_path}')
+                  return
+              cmd(['rclone', 'copyto', str(local_path), remote_path, '--retries', '3'])
+              copy = subprocess.run(['rclone', 'cat', remote_path], stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, timeout=600)
+              if copy.returncode or sha(copy.stdout) != sha(local_path.read_bytes()):
+                  raise RuntimeError(f'Cloud roundtrip checksum mismatch: {remote_path}')
+          
+          
+          def run(countries, out_dir, backup=True, downloader=fetch):
+              if out_dir.exists() and any(out_dir.iterdir()):
+                  raise FileExistsError('Output directory must be new/empty')
+              out_dir.mkdir(parents=True, exist_ok=True)
+              report = {'source': 'WID.world official country bulk CSV',
+                        'source_url_template': OFFICIAL_TEMPLATE,
+                        'run_timestamp_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
+                        'research_status': 'noncausal_source_staging_not_canonical_warehouse',
+                        'countries': [], 'numeric_values_retrieved': 0,
+                        'raw_published_to_github': False, 'onedrive_verified': False}
+              total = 0
+              try:
+                  for country in countries:
+                      raw, url = downloader(country)
+                      total += len(raw)
+                      if total > MAX_TOTAL:
+                          raise ValueError('Exceeded overall compressed/uncompressed download budget')
+                      h = sha(raw)
+                      rows, counts, lo, hi = validate_csv(raw, country, h)
+                      matched, pairs = summarize(rows)
+                      country_dir = out_dir / 'private' / country
+                      country_dir.mkdir(parents=True, exist_ok=True)
+                      raw_file = country_dir / f'WID_data_{country}.csv'
+                      raw_file.write_bytes(raw)
+                      clean_file = country_dir / 'wid_source_native_shares.csv'
+                      clean_file.write_bytes(csv_bytes(FIELDS, rows))
+                      joined_file = country_dir / 'wid_matched_distribution.csv'
+                      joined_file.write_bytes(csv_bytes(MATCH_FIELDS, matched))
+                      files = [raw_file, clean_file, joined_file]
+                      remote_base = f'{STORE}/{country}/{h[:24]}'
+                      if backup:
+                          for path in files:
+                              rclone_verify(path, remote_base + '/' + path.name)
+                      report['countries'].append({'area': country, 'source_url': url,
+                        'source_sha256': h, 'source_bytes': len(raw),
+                        'retained_source_shares': len(rows), 'matched_pretax_posttax_pairs': pairs,
+                        'year_min': lo, 'year_max': hi, 'counts_by_concept': counts,
+                        'backed_up_to_private_onedrive': backup, 'snapshot_base': remote_base if backup else None})
+                      report['numeric_values_retrieved'] += len(rows)
+                  report['onedrive_verified'] = backup
+                  return report
+              finally:
+                  # Public GitHub Actions artifact gets only metadata (no source rows).
+                  (out_dir / 'public_summary.json').write_text(json.dumps(report, indent=2)+'\n')
+          
+          
+          def main():
+              ap = argparse.ArgumentParser(description=__doc__)
+              ap.add_argument('--countries', default='US,FR,CO')
+              ap.add_argument('--out', type=Path, default=Path('wid_live_pilot_output'))
+              ap.add_argument('--no-backup', action='store_true', help='Local test only; never used in CI')
+              args = ap.parse_args()
+              countries = [s.strip().upper() for s in args.countries.split(',')]
+              if len(countries) != len(set(countries)) or not 1 <= len(countries) <= 5:
+                  ap.error('Choose 1 to 5 unique countries')
+              for country in countries:
+                  official_url(country)
+              summary = run(countries, args.out, not args.no_backup)
+              print(json.dumps({'countries': len(summary['countries']), 'retained_share_rows': summary['numeric_values_retrieved'],
+                                'onedrive_verified': summary['onedrive_verified']}, indent=2))
+          
+          if __name__ == '__main__':
+              main()
+          PY_WID_LIVE_PILOT
+          fi
+      - name: Install synthetic pilot tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tests
+          if test -f tests/test_wid_live_pilot.py; then echo 'Tests already exist'; else
+          cat > tests/test_wid_live_pilot.py <<'PY_WID_LIVE_TEST'
+          """Synthetic fixtures, no invented observation is a real WID datapoint."""
+          import io
+          import json
+          import sys
+          import tempfile
+          import unittest
+          from pathlib import Path
+          sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+          from open_data.wid_live_pilot import parse_code, validate_csv, summarize, run, official_url
+          
+          class WidCountryPilotTests(unittest.TestCase):
+              def test_both_version_orderings(self):
+                  self.assertEqual(parse_code('sptinc992j'), 'pretax_national_income_share')
+                  self.assertEqual(parse_code('sptincj992'), 'pretax_national_income_share')
+                  self.assertEqual(parse_code('sdiincj992'), 'posttax_national_income_share')
+                  self.assertEqual(parse_code('shwealj992'), 'personal_wealth_share')
+                  self.assertIsNone(parse_code('sptinc999i'))
+              def test_semicolon_country_csv_and_match(self):
+                  csv = ('variable;percentile;year;value;quality\n'
+                         'sptincj992;p0p50;2021;0.13;3\n'
+                         'sdiinc992j;p0p50;2021;0.21;4\n'
+                         'shwealj992;p0p50;2021;-0.01;2\n').encode()
+                  rows, counts, lo, hi = validate_csv(csv, 'US', 'hash123')
+                  self.assertEqual((len(rows), lo, hi), (3, 2021, 2021))
+                  self.assertEqual(rows[0]['quality_grade'], '3')
+                  matched, pairs = summarize(rows)
+                  self.assertEqual(pairs, 1)
+                  self.assertAlmostEqual(float(matched[0]['posttax_minus_pretax_pp']), 8.0)
+              def test_untrusted_country_rejected(self):
+                  raw = b'country,variable,year,percentile,value\nFR,sptincj992,2021,p0p50,0.1\n'
+                  with self.assertRaisesRegex(ValueError, 'differs'):
+                      validate_csv(raw, 'US', 'hash')
+              def test_duplicate_legacy_and_current_rejected(self):
+                  raw = b'variable,percentile,year,value\nsptincj992,p0p50,2020,0.1\nsptinc992j,p0p50,2020,0.1\n'
+                  with self.assertRaisesRegex(ValueError, 'Duplicate'):
+                      validate_csv(raw, 'US', 'hash')
+              def test_missing_skipped_and_country_only(self):
+                  raw = b'variable\tpercentile\tyear\tvalue\nsptincj992\tp0p50\t2020\t\nsptincj992\tp0p50\t2021\t0.11\n'
+                  rows, counts, _, _ = validate_csv(raw, 'FR', 'hash')
+                  self.assertEqual(len(rows), 1)
+                  self.assertEqual(counts['missing_source_value_skipped'], 1)
+              def test_fake_end_to_end_no_backup(self):
+                  def fake(country):
+                      return b'variable,percentile,year,value\nsptincj992,p99p100,2020,0.21\n', official_url(country)
+                  with tempfile.TemporaryDirectory() as folder:
+                      result = run(['US','FR'], Path(folder)/'out', backup=False, downloader=fake)
+                      self.assertEqual(result['numeric_values_retrieved'],2)
+                      self.assertFalse(result['onedrive_verified'])
+                      pub = json.loads((Path(folder)/'out/public_summary.json').read_text())
+                      self.assertNotIn('share_fraction', str(pub))
+              def test_bad_year_fails(self):
+                  raw = b'variable,percentile,year,value\nsptincj992,p0p50,notayear,0.1\n'
+                  with self.assertRaisesRegex(ValueError, 'Invalid year'):
+                      validate_csv(raw,'US','hash')
+              def test_url_validation(self):
+                  with self.assertRaises(ValueError): official_url('..')
+                  self.assertEqual(official_url('US'), 'https://wid.world/bulk_download/WID_data_US.csv')
+          
+          if __name__=='__main__': unittest.main()
+          PY_WID_LIVE_TEST
+          fi
+      - name: Validate tests and commit code only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_wid_live_pilot.py' -v
+          python -m compileall -q open_data/wid_live_pilot.py
+           git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add open_data/wid_live_pilot.py tests/test_wid_live_pilot.py
+          git diff --cached --check
+          if git diff --cached --quiet; then echo 'No code commit necessary'; else
+            git commit -m 'Add bounded official WID live country pilot with private SHA256 backups'
+            git fetch origin main
+            git rebase origin/main
+            git push origin HEAD:main
+          fi
+      - name: Configure existing private OneDrive connection
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          if test -z "$RCLONE_CONFIG_B64"; then echo 'Missing existing RCLONE_CONFIG_B64 secret' >&2; exit 1; fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/wid-rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/wid-rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/wid-rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/wid-rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Stage official WID data in OneDrive and checksum-verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          python open_data/wid_live_pilot.py --countries US,FR,CO --out wid_live_pilot_output
+      - name: Upload metadata-only pilot report (never raw data)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wid-live-pilot-summary-${{ github.run_number }}
+          path: wid_live_pilot_output/public_summary.json
+          retention-days: 90
+          if-no-files-found: warn
+      - name: Cleanup private OneDrive credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/wid-rclone/rclone.conf"
