@@ -1,0 +1,48 @@
+{
+  "registry_entries": 125,
+  "distinct_dataset_names": 125,
+  "duplicate_dataset_names": {},
+  "reported_catalog_statuses": {
+    "CATALOGUED": 16,
+    "IMPORT CODE ONLY": 1,
+    "LIVE - historical estimates": 1,
+    "LIVE - selected indicators": 1,
+    "LIVE - selected series": 2,
+    "NOT INGESTED": 104
+  },
+  "inequality_focus": {
+    "WID": [
+      {
+        "dataset": "World Inequality Database WID",
+        "reported_status": "CATALOGUED",
+        "official_source_url": "https://wid.world/data/",
+        "actual_numeric_observations": "not_verified_by_catalog"
+      }
+    ],
+    "OECD_IDD": [
+      {
+        "dataset": "OECD Income Distribution Database",
+        "reported_status": "NOT INGESTED",
+        "official_source_url": "https://www.oecd.org/social/income-distribution-database.htm",
+        "actual_numeric_observations": "not_verified_by_catalog"
+      }
+    ],
+    "WORLD_BANK_PIP": [
+      {
+        "dataset": "World Bank Poverty & Inequality Platform",
+        "reported_status": "CATALOGUED",
+        "official_source_url": "https://pip.worldbank.org/",
+        "actual_numeric_observations": "not_verified_by_catalog"
+      }
+    ],
+    "SCF": [
+      {
+        "dataset": "Federal Reserve Survey of Consumer Finances",
+        "reported_status": "NOT INGESTED",
+        "official_source_url": "https://www.federalreserve.gov/econres/scfindex.htm",
+        "actual_numeric_observations": "not_verified_by_catalog"
+      }
+    ]
+  },
+  "limitation": "Cannot determine actual downloads/OneDrive archive/quality/causal readiness from the catalog"
+}

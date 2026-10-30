@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0-draft",
+  "dataset": "Candidate tax-reform events (no events recorded)",
+  "data_status": "empty_schema_not_evidence",
+  "event_key": "event_id",
+  "required_fields_before_review": ["event_id", "country_iso3", "jurisdiction_level", "policy_family", "policy_instrument", "effective_date", "legislation_citation", "official_source_url", "quality_status"],
+  "dates": {"announcement_date": "YYYY-MM-DD or blank", "enactment_date": "YYYY-MM-DD or blank", "effective_date": "YYYY-MM-DD", "repeal_date": "YYYY-MM-DD or blank"},
+  "suggested_values": {
+    "jurisdiction_level": ["national", "state", "regional", "local"],
+    "policy_family": ["personal_income_tax", "corporate_income_tax", "capital_gains_tax", "inheritance_estate_tax", "wealth_tax", "consumption_tax", "payroll_tax", "property_tax", "tax_credit", "other"],
+    "causal_design_status": ["unknown", "narrative_candidate", "quasi_experimental_candidate", "verified_identified_shock", "not_identified"],
+    "quality_status": ["candidate_unverified", "official_source_verified", "peer_reviewed_replication", "exclude"]
+  },
+  "cautions": [
+    "Tax policies and transfer policies must be separately classified",
+    "A statutory rate change is not equivalent to effective burden or actual revenue",
+    "Dates of announcement, enactment, implementation, and repeal differ",
+    "No causal inference merely from before-after trend differences",
+    "Currency, price base, tax unit, geography, and horizon require validation",
+    "Do not join to WID 2-letter area codes without verified ISO3 crosswalk"
+  ]
+}
