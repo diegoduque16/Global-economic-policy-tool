@@ -1,0 +1,420 @@
+name: Atlas - Repair WID and WDI country-year research panel
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/atlas-first-wid-wdi-research-repair.yml'
+permissions:
+  contents: write
+concurrency:
+  group: atlas-first-wid-wdi-research-repair
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 135
+    env:
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+    steps:
+      - name: Checkout research repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Configure Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install actual-value country-year analytical code
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p $(dirname 'research/build_first_economic_panel.py')
+          cat > research/build_first_economic_panel.py <<'PY_REAL_ANALYSIS'
+          #!/usr/bin/env python3
+          """Combine *real* existing WID SQLite and canonical WDI SQLite values in a
+          source-audited, descriptive country-year research panel. No causal estimation.
+
+          All inputs remain unchanged; outputs are new and versioned by caller.
+          Stdlib only. Does NOT use catalog/metadata as data values.
+          """
+          from __future__ import annotations
+          import argparse, csv, datetime as dt, hashlib, json, math, sqlite3
+          from collections import Counter, defaultdict
+          from pathlib import Path
+
+          WID_EXPECTED=21430
+          WID_COUNTRIES=23
+          CANONICAL_EXPECTED=2780117
+          WDI_TARGETS={
+           'NY.GDP.MKTP.KD.ZG': ('gdp_growth_pct', 'annual_pct'),
+           'NY.GDP.PCAP.KD.ZG': ('gdp_per_capita_growth_pct', 'annual_pct'),
+           'NY.GDP.PCAP.PP.KD': ('gdp_per_capita_ppp_constant', 'constant_international_dollar_source_vintage'),
+           'SL.UEM.TOTL.ZS': ('unemployment_modelled_ilo_pct', 'pct_labor_force'),
+           'SL.EMP.TOTL.SP.ZS': ('employment_population_ratio_pct', 'pct_age_15plus'),
+           'GC.TAX.TOTL.GD.ZS': ('tax_revenue_pct_gdp', 'pct_gdp_source_defined_scope'),
+           'GC.XPN.TOTL.GD.ZS': ('government_expense_pct_gdp', 'pct_gdp_source_defined_scope'),
+           'SI.POV.GINI': ('world_bank_survey_gini', 'index_0_100'),
+          }
+          WID_TARGETS={
+           ('p99p100','pretax_national_income_share'): 'top1_pretax_income_share',
+           ('p99p100','personal_wealth_share'): 'top1_wealth_share',
+           ('p0p50','pretax_national_income_share'): 'bottom50_pretax_income_share',
+           ('p0p50','posttax_national_income_share'): 'bottom50_posttax_income_share',
+           ('p0p50','posttax_disposable_income_share'): 'bottom50_disposable_income_share',
+           ('p90p100','pretax_national_income_share'): 'top10_pretax_income_share',
+          }
+          WID_NAMES=tuple(WID_TARGETS.values())
+          WDI_NAMES=tuple(v[0] for v in WDI_TARGETS.values())
+          FIELDS=['iso3','year']+list(WID_NAMES)+list(WDI_NAMES)
+
+
+          def digest(p):
+           h=hashlib.sha256()
+           with Path(p).open('rb') as f:
+            for chunk in iter(lambda:f.read(1024*1024),b''):h.update(chunk)
+           return h.hexdigest()
+
+
+          def check_whitelist(p):
+           obj=json.loads(Path(p).read_text())
+           codes=set()
+           for group in obj.values():
+            if isinstance(group,dict): codes.update(group)
+           if not set(WDI_TARGETS).issubset(codes):raise ValueError('Selected WDI source indicator definitions missing from reviewed catalog')
+
+
+          def load_wid(con):
+           n=con.execute('SELECT COUNT(*) FROM wid_numeric_observations').fetchone()[0]
+           if n!=WID_EXPECTED:raise ValueError(f'WID numeric row-count regression: {n}')
+           valid=con.execute("SELECT COUNT(*) FROM wid_numeric_observations WHERE typeof(value_fraction)='real' AND value_fraction IS NOT NULL").fetchone()[0]
+           if valid!=n:raise ValueError('WID contains non-REAL numeric records')
+           countries=con.execute('SELECT COUNT(*) FROM source_files').fetchone()[0]
+           if countries!=WID_COUNTRIES:raise ValueError('WID source country count regression')
+           if con.execute('PRAGMA integrity_check').fetchone()[0]!='ok':raise ValueError('WID SQLite integrity failure')
+           out=defaultdict(dict); coverage=Counter();seen=set()
+           for iso,y,pct,concept,v in con.execute('SELECT iso3,year,percentile,concept,value_fraction FROM wid_numeric_observations ORDER BY iso3,year'):
+            key=(pct,concept)
+            if key not in WID_TARGETS:continue
+            if not iso or len(iso)!=3 or not 1700<=y<=2100 or not math.isfinite(v):raise ValueError('Invalid WID source keys/values')
+            name=WID_TARGETS[key];k=(iso,y,name)
+            if k in seen:raise ValueError('Duplicate WID key')
+            seen.add(k);out[(iso,y)][name]=v*100 # percent, explicitly converted from source fraction
+            coverage[name]+=1
+           if not any(out.values()):raise ValueError('No real WID measures found')
+           return out,coverage,n,countries
+
+
+          def load_wdi(con,iso_codes):
+           base=con.execute('SELECT COUNT(*) FROM observations').fetchone()[0]
+           if base!=CANONICAL_EXPECTED:raise ValueError(f'Canonical warehouse count regression: {base}')
+           families=con.execute('SELECT COUNT(*) FROM source_files').fetchone()[0]
+           if families<24:raise ValueError('Canonical warehouse source family regression')
+           if con.execute('PRAGMA integrity_check').fetchone()[0]!='ok':raise ValueError('Canonical SQLite integrity failed')
+           selected=tuple(WDI_TARGETS)
+           q=('SELECT country_or_polity_code,year,series,value,provider,period,unit,source_status '
+              'FROM observations WHERE family=? AND series IN ('+','.join('?'*len(selected))+') AND country_or_polity_code IN ('+','.join('?'*len(iso_codes))+')')
+           out=defaultdict(dict);coverage=Counter();repeated=Counter();seen={}
+           rows=con.execute(q,('wdi',*selected,*sorted(iso_codes)))
+           for iso,year,series,v,provider,period,unit,status in rows:
+            if not math.isfinite(v):raise ValueError('Non-finite WDI source data')
+            if str(period)!=str(year):raise ValueError(f'Unexpected WDI frequency/period: {iso},{series},{year},{period}')
+            if not provider or not unit:raise ValueError('WDI missing provenance/units')
+            name=WDI_TARGETS[series][0];key=(iso,year,name)
+            if key in seen:
+             if abs(seen[key]-v)>1e-10:raise ValueError(f'Conflicting WDI numeric duplicates: {key}')
+             repeated[name]+=1
+             continue
+            seen[key]=v;out[(iso,year)][name]=v;coverage[name]+=1
+           if not out:raise ValueError('No numeric WDI values for WID countries found in canonical snapshot')
+           return out,coverage,repeated,base,families
+
+
+          def pearson(vals):
+           if len(vals)<6:return None
+           x=[v[0] for v in vals];y=[v[1] for v in vals]
+           mx=sum(x)/len(x);my=sum(y)/len(y)
+           xx=sum((a-mx)**2 for a in x);yy=sum((b-my)**2 for b in y)
+           if xx<1e-20 or yy<1e-20:return None
+           return sum((a-mx)*(b-my) for a,b in vals)/math.sqrt(xx*yy)
+
+
+          def compute_exploration(rows):
+           # These are exploratory correlations between values at the SAME observation year;
+           # nothing is imputed, aggregated over missing years or interpreted as causal.
+           out=[]
+           for y in (2000,2010,2020,2024):
+            subset=[r for r in rows if r['year']==y]
+            for w in ('top1_pretax_income_share','top1_wealth_share','bottom50_posttax_income_share'):
+             for m in ('gdp_per_capita_growth_pct','gdp_per_capita_ppp_constant','unemployment_modelled_ilo_pct','tax_revenue_pct_gdp'):
+              pairs=[(r[w],r[m]) for r in subset if r[w] is not None and r[m] is not None]
+              if len(pairs)>=6:
+               out.append({'year':y,'inequality_measure':w,'macroeconomic_measure':m,
+                           'matched_countries':len(pairs),'pearson_r_exploratory':pearson(pairs),
+                           'interpretation':'DESCRIPTIVE_CORRELATION_NOT_CAUSAL'})
+           return out
+
+
+          def write_csv(p,rows,fields):
+           with Path(p).open('w',newline='',encoding='utf-8') as f:
+            w=csv.DictWriter(f,fieldnames=fields,extrasaction='ignore');w.writeheader()
+            for r in rows:w.writerow({k:('' if r.get(k) is None else r.get(k)) for k in fields})
+
+
+          def build(wid_db,canonical_db,wdi_dictionary,outdir):
+           outdir=Path(outdir)
+           if outdir.exists() and any(outdir.iterdir()):raise FileExistsError('Refuse overwrite of existing research outputs')
+           outdir.mkdir(parents=True,exist_ok=True)
+           check_whitelist(wdi_dictionary)
+           with sqlite3.connect(f'file:{Path(wid_db).resolve()}?mode=ro',uri=True) as w:
+            wid,wcov,wtotal,wcount=load_wid(w)
+           with sqlite3.connect(f'file:{Path(canonical_db).resolve()}?mode=ro',uri=True) as c:
+            wdi,mcov,duplicates,total,families=load_wdi(c,{k[0] for k in wid})
+           paired_keys=sorted(set(wid)&set(wdi))
+           if not paired_keys:raise ValueError('No country-year WID/WDI overlap: stop rather than mark as integrated')
+           countries={k[0] for k in paired_keys}
+           rows=[]
+           for iso,yr in paired_keys:
+            a=wid[(iso,yr)];b=wdi[(iso,yr)]
+            row={'iso3':iso,'year':yr,**{name:a.get(name) for name in WID_NAMES},**{name:b.get(name) for name in WDI_NAMES}}
+            if not any(row[n] is not None for n in WID_NAMES) or not any(row[n] is not None for n in WDI_NAMES):raise ValueError('A joined row lacks actual data values')
+            rows.append(row)
+           if len(rows)<100 or len(countries)<10:raise ValueError('Insufficient actual joined numeric coverage: investigate source completeness')
+           # Metadata stays in JSON; analytical table is actual measured values only.
+           write_csv(outdir/'wid_wdi_country_year_numeric.csv',rows,FIELDS)
+           coverage=[]
+           for name in (*WID_NAMES,*WDI_NAMES):
+            coverage.append({'measure':name,'source':'WID' if name in WID_NAMES else 'WorldBank_WDI',
+                             'original_numeric_values_in_23countries':wcov[name] if name in WID_NAMES else mcov[name],
+                             'paired_country_year_values':sum(r[name] is not None for r in rows),
+                             'unit':'percentage_points_of_total' if name in WID_NAMES else next(v[1] for v in WDI_TARGETS.values() if v[0]==name),
+                             'data_status':'REAL_NUMERIC_OBSERVATIONS_NOT_CAUSAL'})
+           write_csv(outdir/'joined_measure_coverage.csv',coverage,['measure','source','original_numeric_values_in_23countries','paired_country_year_values','unit','data_status'])
+           exp=compute_exploration(rows)
+           write_csv(outdir/'exploratory_country_correlations.csv',exp,['year','inequality_measure','macroeconomic_measure','matched_countries','pearson_r_exploratory','interpretation'])
+           report={'status':'REAL_WID_WDI_NUMERIC_COUNTRY_YEAR_PANEL_DESCRIPTIVE_ONLY',
+                   'created_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
+                   'canonical_observations_verified':total,'canonical_families_verified':families,
+                   'wid_numeric_observations_verified':wtotal,'wid_countries_verified':wcount,
+                   'country_year_rows_with_both_sources':len(rows),
+                   'countries_with_both_sources':len(countries),'observed_year_min':min(r['year'] for r in rows),
+                   'observed_year_max':max(r['year'] for r in rows),
+                   'wdi_exact_duplicate_rows_skipped':dict(duplicates),
+                   'total_matched_numeric_cells':sum(r[n] is not None for r in rows for n in (*WID_NAMES,*WDI_NAMES)),
+                   'exploratory_correlations_with_at_least_six_countries':len(exp),
+                   'wdi_unit_basis':'Whitelisted source indicator codes from repository open_data/wdi_indicators.json; source native unit column retained in original warehouse',
+                   'wid_unit_conversion':'Source fraction x100 => percentage points of total; comparison of distinct variables is descriptive',
+                   'read_only_sources':True,'policy_reforms_joined':0,'causal_effects_estimated':0,
+                   'provenance':{'wid_sqlite_sha256':digest(wid_db),'canonical_sqlite_sha256':digest(canonical_db),'wdi_dictionary_sha256':digest(wdi_dictionary)},
+                   'limitations':['Data panel includes only observed WID and WDI values from pinned source snapshots; no imputation or interpolation.',
+                      'Observations joined only on matching ISO3 and calendar year; this DOES NOT establish equivalence of statistical concepts.',
+                      'WDI unemployment is ILO modeled; tax-revenue coverage depends on reporting definition.',
+                      'WID pretax vs posttax shares are not identified tax treatment effects.',
+                      'No policy events, experimental treatment, counterfactual or causal attribution are included.',
+                      'Do not pool country correlations into causal regressions or treat the sample as representative.']}
+           (outdir/'analysis_audit.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+           files=['wid_wdi_country_year_numeric.csv','joined_measure_coverage.csv','exploratory_country_correlations.csv','analysis_audit.json']
+           (outdir/'sha256_manifest.json').write_text(json.dumps({name:digest(outdir/name) for name in files},indent=2)+'\n',encoding='utf-8')
+           return report
+
+
+          def main():
+           p=argparse.ArgumentParser();p.add_argument('--wid-db',type=Path,required=True);p.add_argument('--warehouse-db',type=Path,required=True)
+           p.add_argument('--wdi-definitions',type=Path,required=True);p.add_argument('--out',type=Path,required=True)
+           a=p.parse_args();r=build(a.wid_db,a.warehouse_db,a.wdi_definitions,a.out)
+           print(json.dumps({k:r[k] for k in ('status','wid_numeric_observations_verified','country_year_rows_with_both_sources','countries_with_both_sources','total_matched_numeric_cells','exploratory_correlations_with_at_least_six_countries')},indent=2))
+
+          if __name__=='__main__':main()
+          PY_REAL_ANALYSIS
+      - name: Install seven validation regressions (synthetic tests only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p $(dirname 'tests/test_first_economic_panel.py')
+          cat > tests/test_first_economic_panel.py <<'PY_ANALYSIS_TESTS'
+          """Synthetic, dependency-free tests; synthetic rows are NOT real source data."""
+          import csv, json, sqlite3, tempfile, unittest
+          from pathlib import Path
+          from research import build_first_economic_panel as m
+
+          class JoinTests(unittest.TestCase):
+           def setUp(self):
+            self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+            self.root=Path(self.temp.name)
+            self.wid=self.root/'wid.sqlite';self.wh=self.root/'warehouse.sqlite'
+            with sqlite3.connect(self.wid) as db:
+             db.executescript('CREATE TABLE source_files (wid_area TEXT); CREATE TABLE wid_numeric_observations (iso3 TEXT,year INTEGER,percentile TEXT,concept TEXT,value_fraction REAL);')
+             for i in range(12):
+              iso='T'+str(i).zfill(2);db.execute('INSERT INTO source_files VALUES (?)',(iso,))
+              for yr in range(2010,2020):
+               db.execute('INSERT INTO wid_numeric_observations VALUES (?,?,?,?,?)',(iso,yr,'p99p100','pretax_national_income_share',0.2+i*0.002))
+               db.execute('INSERT INTO wid_numeric_observations VALUES (?,?,?,?,?)',(iso,yr,'p0p50','posttax_national_income_share',0.23+i*0.001))
+            with sqlite3.connect(self.wh) as db:
+             db.executescript('CREATE TABLE source_files (family TEXT); CREATE TABLE observations (family TEXT,country_or_polity_code TEXT,year INTEGER,series TEXT,value REAL,provider TEXT,period TEXT,unit TEXT,source_status TEXT);')
+             db.executemany('INSERT INTO source_files VALUES (?)',[(str(x),) for x in range(24)])
+             for i in range(12):
+              iso='T'+str(i).zfill(2)
+              for yr in range(2010,2020):
+               db.execute('INSERT INTO observations VALUES (?,?,?,?,?,?,?,?,?)',('wdi',iso,yr,'NY.GDP.PCAP.KD.ZG',2+0.1*i,'WorldBank',str(yr),'source_defined','observed'))
+            self.dictionary=self.root/'definitions.json'
+            self.dictionary.write_text(json.dumps({'growth':{'NY.GDP.PCAP.KD.ZG':'x'},'labor':{x:x for x in list(m.WDI_TARGETS)[3:5]},'other':{x:x for x in [*list(m.WDI_TARGETS)[:2],*list(m.WDI_TARGETS)[2:3],*list(m.WDI_TARGETS)[5:]]}}))
+            self.old=(m.WID_EXPECTED,m.WID_COUNTRIES,m.CANONICAL_EXPECTED)
+            m.WID_EXPECTED=240;m.WID_COUNTRIES=12;m.CANONICAL_EXPECTED=120
+            self.addCleanup(lambda:(setattr(m,'WID_EXPECTED',self.old[0]),setattr(m,'WID_COUNTRIES',self.old[1]),setattr(m,'CANONICAL_EXPECTED',self.old[2])))
+           def run_build(self):return m.build(self.wid,self.wh,self.dictionary,self.root/'out')
+           def test_real_numeric_country_year_join(self):
+            r=self.run_build();self.assertEqual(r['country_year_rows_with_both_sources'],120)
+            self.assertEqual(r['countries_with_both_sources'],12)
+            self.assertEqual(r['total_matched_numeric_cells'],360)
+            with (self.root/'out'/'wid_wdi_country_year_numeric.csv').open() as f:records=list(csv.DictReader(f))
+            self.assertEqual(len(records),120);self.assertAlmostEqual(float(records[0]['top1_pretax_income_share']),20.)
+            self.assertAlmostEqual(float(records[0]['gdp_per_capita_growth_pct']),2.)
+            self.assertEqual(r['causal_effects_estimated'],0)
+           def test_reject_nonreal_wid(self):
+            with sqlite3.connect(self.wid) as db:db.execute("UPDATE wid_numeric_observations SET value_fraction='metadata' WHERE iso3='T00'")
+            with self.assertRaisesRegex(ValueError,'non-REAL'):self.run_build()
+           def test_reject_conflicting_wdi_values(self):
+            with sqlite3.connect(self.wh) as db:db.execute("INSERT INTO observations VALUES (?,?,?,?,?,?,?,?,?)",('wdi','T00',2012,'NY.GDP.PCAP.KD.ZG',99,'WorldBank','2012','source_defined','observed'))
+            m.CANONICAL_EXPECTED=121
+            with self.assertRaisesRegex(ValueError,'Conflicting WDI'):self.run_build()
+           def test_reject_missing_wdi_target_definitions(self):
+            self.dictionary.write_text('{}')
+            with self.assertRaisesRegex(ValueError,'Selected WDI'):self.run_build()
+           def test_reject_metadata_only_macro(self):
+            with sqlite3.connect(self.wh) as db:db.execute('DELETE FROM observations')
+            m.CANONICAL_EXPECTED=0
+            with self.assertRaisesRegex(ValueError,'No numeric WDI'):self.run_build()
+           def test_exploratory_correlations_no_causal(self):
+            rows=[{'year':2024,'top1_pretax_income_share':i,'gdp_per_capita_growth_pct':i*2,'top1_wealth_share':None,'bottom50_posttax_income_share':None,'gdp_per_capita_ppp_constant':None,'unemployment_modelled_ilo_pct':None,'tax_revenue_pct_gdp':None} for i in range(1,8)]
+            x=m.compute_exploration(rows);self.assertEqual(len(x),1);self.assertAlmostEqual(x[0]['pearson_r_exploratory'],1);self.assertIn('NOT_CAUSAL',x[0]['interpretation'])
+           def test_read_only_input(self):
+            b=m.digest(self.wid);c=m.digest(self.wh);self.run_build();self.assertEqual(b,m.digest(self.wid));self.assertEqual(c,m.digest(self.wh))
+          if __name__=='__main__':unittest.main()
+          PY_ANALYSIS_TESTS
+      - name: Run offline tests and commit reproducible analytical code
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_first_economic_panel.py' -v
+          python -m py_compile research/build_first_economic_panel.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add research/build_first_economic_panel.py tests/test_first_economic_panel.py
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Install audited WID plus WDI real-value research bridge'
+            git fetch origin main
+            git rebase origin/main
+            git push origin HEAD:main
+          fi
+      - name: Configure private OneDrive access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing OneDrive secret'; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/first-econ-rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/first-econ-rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/first-econ-rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/first-econ-rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Retrieve verified source SQLite and original canonical warehouse snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/first-econ-input"
+          ROOT='onedrive:Diego/economic research database'
+          WID="$ROOT/atlas/wid-23-numeric-panels-v1/run-41015652979"
+          CANON="$ROOT/snapshots/canonical-20261028-40616230528.tar.gz"
+          rclone copyto "$WID/wid_23country_values.sqlite" "$RUNNER_TEMP/first-econ-input/wid.sqlite" --retries 3
+          rclone copyto "$WID/sha256_manifest.json" "$RUNNER_TEMP/first-econ-input/wid-sha.json" --retries 3
+          rclone copyto "$CANON" "$RUNNER_TEMP/first-econ-input/canonical-native.tar.gz" --retries 3
+          rclone copyto "$CANON.sha256" "$RUNNER_TEMP/first-econ-input/canonical-sha.txt" --retries 3
+          python - <<'PY_VERIFY_INPUTS'
+          import hashlib,json,os,pathlib,tarfile,shutil
+          base=pathlib.Path(os.environ['RUNNER_TEMP'])/'first-econ-input'
+          def digest(p):
+           h=hashlib.sha256()
+           with p.open('rb') as f:
+            for b in iter(lambda:f.read(1024*1024),b''):h.update(b)
+           return h.hexdigest()
+          manifest=json.loads((base/'wid-sha.json').read_text())
+          expected=manifest['wid_23country_values.sqlite']
+          assert digest(base/'wid.sqlite')==expected, 'Private WID numeric source hash changed'
+          canonical_hash=(base/'canonical-sha.txt').read_text().split()[0].lower()
+          assert len(canonical_hash)==64 and digest(base/'canonical-native.tar.gz')==canonical_hash, 'Canonical archive SHA256 mismatch'
+          with tarfile.open(base/'canonical-native.tar.gz',mode='r:gz') as tar:
+           members=tar.getmembers()
+           matches=[m for m in members if m.isfile() and pathlib.PurePosixPath(m.name).parts[-2:]==('canonical_warehouse','warehouse.sqlite')]
+           if len(matches)!=1:
+            candidates=[(m.name,m.size) for m in members if 'sqlite' in m.name.lower()]
+            raise ValueError(f'Expected exactly one canonical_warehouse/warehouse.sqlite member; matches={len(matches)}, SQLite candidates={candidates[:12]}')
+           member=matches[0]
+           free=shutil.disk_usage(base).free
+           print(f'Canonical SQLite member: path={member.name}, size={member.size} bytes; free disk={free} bytes',flush=True)
+           if member.size<=1_000_000: raise ValueError('Canonical SQLite archive member is unexpectedly small')
+           if member.size+600_000_000>=free:
+            raise ValueError(f'Insufficient runner disk for verified SQLite: need {member.size+600_000_000}, available {free}')
+           with tar.extractfile(member) as src,(base/'canonical.sqlite').open('wb') as dst:
+            shutil.copyfileobj(src,dst,1024*1024)
+          assert (base/'canonical.sqlite').stat().st_size>1_000_000, 'Unexpected empty canonical SQLite'
+          print('Verified source SQLite and original canonical warehouse snapshots by actual file SHA256')
+          PY_VERIFY_INPUTS
+      - name: Join real WID and WDI observations and audit exploratory comparisons
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/build_first_economic_panel.py \
+            --wid-db "$RUNNER_TEMP/first-econ-input/wid.sqlite" \
+            --warehouse-db "$RUNNER_TEMP/first-econ-input/canonical.sqlite" \
+            --wdi-definitions open_data/wdi_indicators.json \
+            --out "$RUNNER_TEMP/first-econ-output"
+          python - <<'PY_VERIFY_REAL'
+          import json,os,pathlib,csv,hashlib
+          p=pathlib.Path(os.environ['RUNNER_TEMP'])/'first-econ-output'
+          r=json.loads((p/'analysis_audit.json').read_text())
+          assert r['canonical_observations_verified']==2780117
+          assert r['wid_numeric_observations_verified']==21430
+          assert r['countries_with_both_sources']>=10
+          assert r['country_year_rows_with_both_sources']>=100
+          assert r['total_matched_numeric_cells']>r['country_year_rows_with_both_sources']
+          assert r['causal_effects_estimated']==r['policy_reforms_joined']==0
+          h=json.loads((p/'sha256_manifest.json').read_text())
+          for name,sha in h.items():
+           with (p/name).open('rb') as f:assert hashlib.sha256(f.read()).hexdigest()==sha
+          with (p/'wid_wdi_country_year_numeric.csv').open(newline='') as f:
+           rows=list(csv.DictReader(f))
+          assert len(rows)==r['country_year_rows_with_both_sources']
+          print('PASS: REAL WID + WDI value join,',len(rows),'country-year rows and',r['total_matched_numeric_cells'],'measured numeric cells')
+          PY_VERIFY_REAL
+      - name: Save complete numerical panel privately and verify all backup bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOCAL="$RUNNER_TEMP/first-econ-output"
+          REMOTE="onedrive:Diego/economic research database/private-research-analysis/wid-wdi-country-year/run-$GITHUB_RUN_ID"
+          for name in wid_wdi_country_year_numeric.csv joined_measure_coverage.csv exploratory_country_correlations.csv analysis_audit.json sha256_manifest.json; do
+           rclone copyto "$LOCAL/$name" "$REMOTE/$name" --retries 3
+           localsha="$(sha256sum "$LOCAL/$name" | awk '{print $1}')"
+           remotesha="$(rclone cat "$REMOTE/$name" | sha256sum | awk '{print $1}')"
+           test "$localsha" = "$remotesha" || { echo "OneDrive verification failed: $name"; exit 1; }
+          done
+          mkdir -p numeric-analysis-audit
+          cp "$LOCAL/analysis_audit.json" "$LOCAL/joined_measure_coverage.csv" "$LOCAL/exploratory_country_correlations.csv" numeric-analysis-audit/
+          printf '%s\n' 'PRIVATE_REAL_VALUES_BACKUP_SHA256_VERIFIED=true' > numeric-analysis-audit/backup_status.txt
+          echo 'PASS: all actual numeric source-joined values stored and SHA256-verified privately'
+      - name: Publish aggregate research audit only (no source-level numerical dataset)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-wid-wdi-first-research-${{ github.run_number }}
+          path: numeric-analysis-audit/
+          retention-days: 90
+          if-no-files-found: error
+      - name: Erase temporary raw data and credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/first-econ-rclone/rclone.conf"
+          rm -rf "$RUNNER_TEMP/first-econ-input" "$RUNNER_TEMP/first-econ-output"
