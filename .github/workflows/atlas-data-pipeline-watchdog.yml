@@ -1,0 +1,147 @@
+name: Atlas - Automatic Economic Data Coverage, Resumption and Backup Watchdog
+
+on:
+  workflow_dispatch:
+    inputs:
+      deep_verify:
+        description: 'Download and revalidate the original canonical warehouse archive (runs weekly anyway)'
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    - cron: '31 8 * * *'
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: atlas-automated-evidence-watchdog
+  cancel-in-progress: false
+
+jobs:
+  verify-and-backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      DEEP_VERIFY: ${{ inputs.deep_verify || 'false' }}
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Configure Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run seven offline safety and real-value validation tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_atlas_data_watchdog.py' -v
+          python -m py_compile scripts/atlas_data_watchdog.py
+      - name: Configure existing private OneDrive connection
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing preconfigured OneDrive secret' >&2; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/atlas-data-watchdog-rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/atlas-data-watchdog-rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/atlas-data-watchdog-rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/atlas-data-watchdog-rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Download real-data evidence from original verified private sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='onedrive:Diego/economic research database'
+          INPUT="$RUNNER_TEMP/atlas-watchdog-input"
+          mkdir -p "$INPUT"
+          rclone copyto "$ROOT/atlas/ilostat-bulk-v1/checkpoint/state.json" "$INPUT/ilostat_state.json" --retries 3
+          WID="$ROOT/atlas/wid-23-numeric-panels-v1/run-41015652979"
+          rclone copyto "$WID/wid_23country_values.sqlite" "$INPUT/wid.sqlite" --retries 3
+          rclone copyto "$WID/sha256_manifest.json" "$INPUT/wid_sha.json" --retries 3
+          rclone copyto "$WID/numeric_value_validation.json" "$INPUT/wid_validation.json" --retries 3
+          JOIN="$ROOT/private-research-analysis/wid-wdi-country-year/run-41020024891"
+          rclone copyto "$JOIN/wid_wdi_country_year_numeric.csv" "$INPUT/joined_numeric.csv" --retries 3
+          rclone copyto "$JOIN/sha256_manifest.json" "$INPUT/joined_sha.json" --retries 3
+          rclone copyto "$JOIN/analysis_audit.json" "$INPUT/joined_report.json" --retries 3
+          rclone copyto "$ROOT/snapshots/canonical-20261028-40616230528.tar.gz.sha256" "$INPUT/canonical_archive.sha256" --retries 3
+          echo 'Actual source files and their saved SHA256 manifests retrieved'
+      - name: Weekly or manual deep SHA256 plus real canonical SQLite verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$(date -u +%u)" -eq 7 || "$DEEP_VERIFY" = true ]]; then
+            ROOT='onedrive:Diego/economic research database'
+            ARCHIVE="$RUNNER_TEMP/atlas-watchdog-canonical.tar.gz"
+            rclone copyto "$ROOT/snapshots/canonical-20261028-40616230528.tar.gz" "$ARCHIVE" --retries 3
+            python - <<'PY_DEEP'
+          from pathlib import Path
+          import hashlib, os, sqlite3, tarfile, tempfile, shutil
+          root=Path(os.environ['RUNNER_TEMP'])
+          archive=root/'atlas-watchdog-canonical.tar.gz'
+          expected='8f6ae9a3674045851c0726aa6415014389082a6309e784c77753542d7147072f'
+          h=hashlib.sha256()
+          with archive.open('rb') as f:
+              for part in iter(lambda:f.read(1024*1024), b''):h.update(part)
+          assert h.hexdigest()==expected, 'Verified canonical archive SHA256 changed'
+          with tarfile.open(archive, 'r:gz') as tar:
+              matches=[m for m in tar.getmembers() if m.isfile() and m.name.endswith('/canonical_warehouse/warehouse.sqlite')]
+              assert len(matches)==1, 'Missing expected sole original canonical SQLite'
+              with tempfile.TemporaryDirectory() as tmp:
+                  p=Path(tmp)/'canonical.sqlite'
+                  with tar.extractfile(matches[0]) as src,p.open('wb') as dest:shutil.copyfileobj(src,dest)
+                  with sqlite3.connect(f'file:{p}?mode=ro',uri=True) as db:
+                      assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+                      assert db.execute('SELECT COUNT(*) FROM observations').fetchone()[0]==2780117
+                      assert db.execute('SELECT COUNT(*) FROM source_files').fetchone()[0]>=24
+          print('DEEP VERIFIED: Original 2,780,117 numeric observations, 24 source families, SHA256 archive')
+          PY_DEEP
+            rm -f "$ARCHIVE"
+          else
+            echo 'Fast daily audit; full canonical-archive verification scheduled weekly on Sunday UTC'
+          fi
+      - name: Audit real values, repair stalled ingestion, and preserve new monthly batches
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/atlas_data_watchdog.py \
+            --input "$RUNNER_TEMP/atlas-watchdog-input" \
+            --out "$RUNNER_TEMP/atlas-watchdog-output" \
+            --repo "$GH_REPO" --auto-repair
+      - name: Back up privacy-safe control reports and round-trip verify every byte
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/atlas-watchdog-output"
+          DEST="onedrive:Diego/economic research database/atlas/automated-data-watchdog/run-$GITHUB_RUN_ID"
+          for name in source_coverage_audit.json source_numeric_coverage_ledger.csv output_checksums.json; do
+            rclone copyto "$SRC/$name" "$DEST/$name" --retries 3
+            local_sha="$(sha256sum "$SRC/$name" | awk '{print $1}')"
+            remote_sha="$(rclone cat "$DEST/$name" | sha256sum | awk '{print $1}')"
+            test "$local_sha" = "$remote_sha" || { echo "Source coverage backup mismatch $name" >&2; exit 1; }
+          done
+          mkdir -p public-watchdog-audit
+          cp "$SRC/source_coverage_audit.json" "$SRC/source_numeric_coverage_ledger.csv" "$SRC/output_checksums.json" public-watchdog-audit/
+          echo 'VERIFIED: private control report backup matched byte-for-byte'
+      - name: Publish only source coverage and checkpoint summaries
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-verified-data-watchdog-${{ github.run_id }}
+          path: public-watchdog-audit/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Destroy ephemeral private source files and credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/atlas-data-watchdog-rclone/rclone.conf"
+          rm -rf "$RUNNER_TEMP/atlas-watchdog-input" "$RUNNER_TEMP/atlas-watchdog-output" "$RUNNER_TEMP/atlas-watchdog-canonical.tar.gz"
