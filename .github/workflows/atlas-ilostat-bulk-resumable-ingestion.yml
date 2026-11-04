@@ -290,7 +290,7 @@ jobs:
                   save_checkpoint(state,work)
                   load_dictionaries(work,state,report)
                   # Prioritize three GenAI tables, then all other official bulk files.
-                  ids=sorted(toc,key=lambda k:(not ('_GAI_' in k),k))
+                  ids=sorted(toc,key=lambda k:(k in state['downloaded'],not ('_GAI_' in k),k)
                   pending=[]; already=0; oversized=0; recent_failures=0
                   for key in ids:
                       r=toc[key]
