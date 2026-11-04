@@ -38,6 +38,8 @@ jobs:
       MAX_FILE_MIB: ${{ inputs.max_file_mib || '512' }}
       MAX_RUN_MIB: ${{ inputs.max_run_mib || '2048' }}
     steps:
+      - name: Check out the existing Atlas checkpoint guard
+        uses: actions/checkout@v4
       - name: Install private OneDrive credentials and rclone
         shell: bash
         run: |
@@ -50,6 +52,13 @@ jobs:
           printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/rclone/rclone.conf"
           chmod 600 "$RUNNER_TEMP/rclone/rclone.conf"
           echo "RCLONE_CONFIG=$RUNNER_TEMP/rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Test Atlas checkpoint guard
+        shell: bash
+        run: python -m unittest discover -s tests -p 'test_ilostat_checkpoint_guard.py'
+
+      - name: Verify ILOSTAT checkpoint before ingestion
+        shell: bash
+        run: python scripts/ilostat_checkpoint_guard.py --mode pre
       - name: Run resumable official ILOSTAT bulk-source ingestion (numeric data only in private OneDrive)
         shell: bash
         run: |
@@ -396,6 +405,9 @@ jobs:
               test()
               if os.environ.get('SELF_TEST') != '1': main()
           PYCODE
+      - name: Verify and back up ILOSTAT checkpoint after ingestion
+        shell: bash
+        run: python scripts/ilostat_checkpoint_guard.py --mode post
       - name: Publish metadata-only ingestion status report
         if: always()
         uses: actions/upload-artifact@v4
