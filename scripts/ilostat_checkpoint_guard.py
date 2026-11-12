@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 
 SOURCE = 'onedrive:Diego/economic research database/atlas/ilostat-bulk-v1/checkpoint/state.json'
 ROOT = 'onedrive:Diego/economic research database/atlas/ilostat-checkpoint-audit-v1'
@@ -74,6 +75,28 @@ def read_remote(remote: str) -> bytes:
     return run_rclone(['cat', remote])
 
 
+def read_json_with_retry(command: list[str], *, label: str) -> tuple[bytes, object]:
+    """Retry transient empty, malformed, or failed OneDrive JSON reads only.
+
+    Never replace a missing/corrupt response with an empty checkpoint or
+    silently reset the audit baseline. Exhausted retries abort the workflow.
+    """
+    last_error: Exception | None = None
+    for attempt in range(4):
+        try:
+            raw = run_rclone(command)
+            if not raw.strip():
+                raise ValueError('Empty remote JSON response')
+            return raw, json.loads(raw)
+        except (RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+            last_error = exc
+            if attempt == 3:
+                break
+            time.sleep(2 ** attempt)
+    raise RuntimeError(f'{label} unreadable after 4 attempts; failing closed '
+                       f'({type(last_error).__name__})') from last_error
+
+
 def restore_verified_history(manifest: dict) -> dict:
     if manifest.get('schema_version') != 1:
         raise ValueError('Unknown ILOSTAT audit history schema')
@@ -82,7 +105,7 @@ def restore_verified_history(manifest: dict) -> dict:
         raise ValueError('Unexpected private snapshot path')
     if not isinstance(sha, str) or not VALID_SHA.fullmatch(sha):
         raise ValueError('Invalid saved checkpoint SHA256')
-    data = read_remote(path)
+    data, _ = read_json_with_retry(['cat', path], label='immutable audit snapshot')
     if digest(data) != sha:
         raise ValueError('Historical checkpoint snapshot SHA256 mismatch')
     parsed = parse_checkpoint(data)
@@ -94,12 +117,12 @@ def restore_verified_history(manifest: dict) -> dict:
 def load_latest_manifest() -> dict | None:
     # Create the private audit directory only; never touch the source checkpoint path.
     run_rclone(['mkdir', ROOT])
-    listing = json.loads(run_rclone(['lsjson', ROOT, '--files-only']))
+    _, listing = read_json_with_retry(['lsjson', ROOT, '--files-only'], label='audit directory listing')
     if not isinstance(listing, list):
         raise ValueError('Unexpected private audit listing')
     if not any(entry.get('Name') == 'latest.json' for entry in listing):
         return None
-    manifest = json.loads(read_remote(LATEST))
+    _, manifest = read_json_with_retry(['cat', LATEST], label='audit latest pointer')
     if not isinstance(manifest, dict):
         raise ValueError('Malformed checkpoint audit manifest')
     return manifest
@@ -118,7 +141,7 @@ def save_history(data: bytes, *, run_id: str, attempt: str) -> dict:
         raise ValueError('Invalid run identity')
     remote = f'{ROOT}/snapshots/run-{run_id}-attempt-{attempt}.json'
     run_rclone(['mkdir', ROOT + '/snapshots'])
-    listing = json.loads(run_rclone(['lsjson', ROOT + '/snapshots', '--files-only']))
+    _, listing = read_json_with_retry(['lsjson', ROOT + '/snapshots', '--files-only'], label='immutable snapshot listing')
     if any(entry.get('Name') == f'run-{run_id}-attempt-{attempt}.json' for entry in listing):
         raise FileExistsError('Refusing to overwrite immutable private checkpoint snapshot')
     # rclone copyto requires a local file; do not log its contents or expose an artifact.
@@ -127,7 +150,8 @@ def save_history(data: bytes, *, run_id: str, attempt: str) -> dict:
         p = Path(folder) / 'state.json'
         p.write_bytes(data)
         run_rclone(['copyto', str(p), remote, '--retries', '3'])
-        if digest(read_remote(remote)) != digest(data):
+        restored, _ = read_json_with_retry(['cat', remote], label='new audit snapshot verification')
+        if digest(restored) != digest(data):
             raise ValueError('OneDrive restored checkpoint backup SHA256 mismatch')
         manifest = {'schema_version': 1, 'snapshot_remote': remote,
                     'snapshot_sha256': digest(data),
@@ -137,7 +161,8 @@ def save_history(data: bytes, *, run_id: str, attempt: str) -> dict:
         b = (json.dumps(manifest, indent=2, sort_keys=True) + '\n').encode()
         p.write_bytes(b)
         run_rclone(['copyto', str(p), LATEST, '--retries', '3'])
-        if read_remote(LATEST) != b:
+        restored_latest, _ = read_json_with_retry(['cat', LATEST], label='latest pointer verification')
+        if restored_latest != b:
             raise ValueError('Private checkpoint audit latest-pointer restore mismatch')
     return manifest
 
@@ -148,7 +173,7 @@ def main() -> int:
     args = parser.parse_args()
     tempdir = Path(os.environ.get('RUNNER_TEMP', '/tmp'))
     prefile = tempdir / 'atlas-ilostat-checkpoint-before.json'
-    source_data = read_remote(SOURCE)
+    source_data, _ = read_json_with_retry(['cat', SOURCE], label='source checkpoint')
     current = parse_checkpoint(source_data)
     latest = load_latest_manifest()
     report = assert_current_against_history(current, latest)

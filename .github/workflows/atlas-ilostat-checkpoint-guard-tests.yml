@@ -1,0 +1,29 @@
+name: Atlas - Verify ILOSTAT checkpoint guard without private data
+
+on:
+  push:
+    paths:
+      - 'scripts/ilostat_checkpoint_guard.py'
+      - 'tests/test_ilostat_checkpoint_guard.py'
+      - '.github/workflows/atlas-ilostat-checkpoint-guard-tests.yml'
+  pull_request:
+    paths:
+      - 'scripts/ilostat_checkpoint_guard.py'
+      - 'tests/test_ilostat_checkpoint_guard.py'
+      - '.github/workflows/atlas-ilostat-checkpoint-guard-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  checkpoint-unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code only
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exercise fail-closed checkpoint guard with synthetic data
+        run: python -m unittest discover -s tests -p 'test_ilostat_checkpoint_guard.py' -v
