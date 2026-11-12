@@ -85,3 +85,20 @@ Potential overlapping families: original/resilient/canonical warehouse build and
 **Later:** extend autonomous research and any user interface on top of defensible, provenance-linked results.
 
 This document is an evidence-based implementation decision, **not a claim that the full source inventory or an independently replicated scientific result is complete**.
+
+## P0 reconciliation implementation, 12 November 2026
+
+Rather than creating a new registry or monitoring job, the existing `scripts/build_source_registry.py` now reuses the **24 explicit partial catalog-to-family mappings** from `research/atlas1_reconcile_inventory.py`. The Atlas 1 map is historical, source-family-level evidence—not current series-level provenance or evidence that an entire named catalog dataset was downloaded. The builder also attaches independently identified **separate WID numeric** and **ILOSTAT raw bulk** run references without calling either canonical or duplicate-free.
+
+The existing registry produces `priority_p0_evidence.csv` with 71 rows, in the **same existing artifact**. The existing `persist-source-registry.yml` is updated to persist the CSV when the catalog, builder schema, or crosswalk fingerprint changes; no third registry, collector, or scheduled workflow was added. Regression tests run under the existing source-registry and persistence workflows.
+
+| P0 classification | Number | What it means |
+|---|---:|---|
+| Historical partial catalog-to-family mapping | 23 | Provider/source-family evidence exists, **not** an exact series-level match or complete dataset audit |
+| Separate historical WID numeric run | 1 | Numeric WID source exists outside the original mapped canonical families |
+| No explicit source-specific mapping yet | 47 | Requires investigation; **not evidence of data absence** |
+| **Total P0 sources** | **71** | **0 exact series-key audits completed by the registry builder** |
+
+The registry flags **3 potential overlap reviews** (WDI, WID, ILOSTAT). It intentionally records zero proven fully ingested catalog sources **by this builder**, and does not modify the existing `validation_state=NOT_INDEPENDENTLY_VERIFIED`, which concerns the builder's own value-level verification. The next milestone is to examine actual source IDs, series keys, geography, period, unit, adjustment and vintage for these three before any numeric consolidation.
+
+CI: [six passing source-registry reconciliation tests](https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43305296628). No private source data or warehouse mutation was made in the reconciliation implementation.
