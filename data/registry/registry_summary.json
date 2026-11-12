@@ -1,7 +1,7 @@
 {
-  "registry_version": "0.1.0",
+  "registry_version": "0.2.0",
   "source_catalog_sha256": "8f93b17bc24740c69e8ad042d080436ac1f40f9b0201750e17c18a38a2a2da4a",
-  "generated_utc": "2026-10-27T04:20:06.064364+00:00",
+  "generated_utc": "2026-11-12T20:58:21.736295+00:00",
   "source_count": 125,
   "by_status": {
     "reported_live_unverified": 4,
@@ -9,6 +9,7 @@
     "catalogued_only": 16,
     "importer_only": 1
   },
+  "lineage_evidence_map_sha256": "e245b65a62104b5d0b88a7fdaa26d2dde25c6e2b41ea6e02e6f9e17d75aed18f",
   "by_priority": {
     "P0": 71,
     "P1": 45,
@@ -28,6 +29,19 @@
     "Data engineering": 4
   },
   "verified_research_ready_count": 0,
+  "priority_p0_evidence_summary": {
+    "source_count": 71,
+    "by_evidence_basis": {
+      "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED": 23,
+      "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE": 47,
+      "HISTORICAL_SEPARATE_SOURCE_RUN_NOT_CANONICAL": 1
+    },
+    "potential_overlap_source_count": 3,
+    "exact_series_key_audits_completed": 0,
+    "fully_ingested_source_count_proven_by_this_builder": 0,
+    "observation_counts_are_additive": false,
+    "basis": "Existing Atlas 1 crosswalk and pinned separate source runs; NOT fresh numerical verification"
+  },
   "interpretation": "Catalog status only; labels LIVE are not independently validated by this build",
   "next_actions": [
     "Independently audit live workflows and artifacts",

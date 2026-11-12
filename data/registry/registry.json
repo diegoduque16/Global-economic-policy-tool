@@ -28,7 +28,26 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "wdi",
+        "worldbank_wdi_expanded"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "POTENTIAL_OVERLAP_NEEDS_KEY_AUDIT",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-002-imf-world-economic-outlook-weo",
@@ -59,7 +78,26 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "imf_oecd",
+        "imf_extension"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-003-imf-government-finance-statistics-gfs",
@@ -90,7 +128,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "imf_gfs"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-004-imf-international-financial-statistics-ifs",
@@ -121,7 +177,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-005-imf-fiscal-monitor",
@@ -152,7 +224,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-006-imf-balance-of-payments-iip",
@@ -183,7 +271,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-007-oecd-national-accounts",
@@ -214,7 +318,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-008-oecd-economic-outlook",
@@ -245,7 +365,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-009-penn-world-table",
@@ -276,7 +412,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-010-bis-total-credit-to-nonfinancial-sector",
@@ -307,7 +459,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-011-bis-policy-interest-and-exchange-rates",
@@ -338,7 +506,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-012-ecb-statistical-data-warehouse-data-portal",
@@ -369,7 +553,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-013-world-bank-international-debt-statistics",
@@ -400,7 +600,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-014-world-bank-global-economic-monitor",
@@ -431,7 +647,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-015-oecd-productivity-database",
@@ -462,7 +694,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-016-oecd-social-expenditure-database-socx",
@@ -493,7 +741,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-017-fred-13-selected-u-s-series",
@@ -524,7 +788,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "us_europe"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-018-bls-current-employment-statistics-ces",
@@ -555,7 +837,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "labor"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-019-bls-current-population-survey-cps",
@@ -586,7 +886,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "labor"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-020-bls-quarterly-census-of-employment-and-wages-qcew",
@@ -617,7 +935,27 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "us_state_qcew",
+        "us_state_qcew_historical",
+        "bls_qcew_us_national"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-021-bls-job-openings-and-labor-turnover-survey-jolts",
@@ -648,7 +986,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "bls_jolts"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-022-bls-business-employment-dynamics-bed",
@@ -679,7 +1035,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "bls_bed"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-023-bls-occupational-employment-and-wage-statistics-oews",
@@ -710,7 +1084,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-024-bls-employment-projections",
@@ -741,7 +1131,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-025-bls-productivity-and-costs",
@@ -772,7 +1178,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-026-census-lehd-quarterly-workforce-indicators",
@@ -803,7 +1225,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-027-census-county-business-patterns-cbp",
@@ -834,7 +1272,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "census_cbp_states"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-028-census-business-dynamics-statistics",
@@ -865,7 +1321,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "census_bds"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-029-census-business-formation-statistics",
@@ -896,7 +1370,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "census_bfs_monthly"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-030-census-acs",
@@ -927,7 +1419,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-031-census-sipp",
@@ -958,7 +1466,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-032-ilostat-employment-working-time-earnings",
@@ -989,7 +1513,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "labor"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": "PARTIAL_RAW_BULK_ARCHIVE",
+      "additional_source_run": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43207368259",
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "POTENTIAL_OVERLAP_NEEDS_KEY_AUDIT",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-033-eurostat-selected-annual-gdp-and-unemployment",
@@ -1020,7 +1562,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "us_europe"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-034-eurostat-eu-labour-force-survey-aggregates",
@@ -1051,7 +1611,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "labor"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-035-eurostat-structural-business-statistics",
@@ -1082,7 +1660,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-036-eurofound-european-working-conditions-survey",
@@ -1113,7 +1707,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-037-eu-silc-income-and-living-conditions",
@@ -1144,7 +1754,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-038-oecd-employment-database",
@@ -1175,7 +1801,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-039-oecd-employment-protection-legislation",
@@ -1206,7 +1848,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-040-ipums-cps-harmonized-microdata",
@@ -1237,7 +1895,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-041-u-s-treasury-fiscaldata",
@@ -1268,7 +1942,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "us_treasury_mts"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-042-omb-historical-tables",
@@ -1299,7 +1991,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-043-congressional-budget-office-cbo-historical-data",
@@ -1330,7 +2038,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-044-irs-statistics-of-income",
@@ -1361,7 +2085,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-045-tax-policy-center-historical-rates-and-tax-policy",
@@ -1392,7 +2132,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-046-tax-foundation-historical-rates-and-brackets",
@@ -1423,7 +2179,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-047-oecd-revenue-statistics",
@@ -1454,7 +2226,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "imf_oecd"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-048-oecd-taxing-wages",
@@ -1485,7 +2275,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-049-oecd-corporate-tax-statistics",
@@ -1516,7 +2322,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "oecd_cit"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-050-ictd-unu-wider-government-revenue-dataset",
@@ -1547,7 +2371,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-051-imf-fiscal-rules-database",
@@ -1578,7 +2418,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-052-us-state-and-local-tax-sources-census-stc",
@@ -1609,7 +2465,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "us_state_tax"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-053-eurostat-government-finance-statistics-cofog",
@@ -1640,7 +2514,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-054-imf-action-based-fiscal-consolidation-2024",
@@ -1671,7 +2561,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-055-romer-romer-us-exogenous-tax-changes",
@@ -1702,7 +2608,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "private_romer_tax_source"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-056-ramey-us-defense-news-shocks",
@@ -1733,7 +2657,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-057-mertens-ravn-us-tax-innovations",
@@ -1764,7 +2704,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-058-imf-high-frequency-monetary-shocks-2024",
@@ -1795,7 +2751,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-059-imf-2026-intraday-monetary-policy-shock-data",
@@ -1826,7 +2798,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-060-wto-tariff-and-trade-data-tariff-actions",
@@ -1857,7 +2845,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-061-world-bank-global-trade-alert",
@@ -1888,7 +2892,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-062-us-congress-gov-api",
@@ -1919,7 +2939,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-063-congressional-budget-office-legislative-cost-estimates",
@@ -1950,7 +2986,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-064-federal-register-and-regulations-gov",
@@ -1981,7 +3033,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-065-oecd-economic-policy-reforms-going-for-growth",
@@ -2012,7 +3080,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-066-policy-uncertainty-indices-epu-gepu",
@@ -2043,7 +3127,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-067-international-crises-and-natural-disasters-em-dat",
@@ -2074,7 +3174,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-068-parlgov-elections-cabinets-parties",
@@ -2105,7 +3221,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-069-manifesto-project",
@@ -2136,7 +3268,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-070-v-dem-2026-country-year",
@@ -2167,7 +3315,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-071-world-bank-wgi-2026",
@@ -2198,7 +3362,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-072-polity-historical-state-regime-data",
@@ -2229,7 +3409,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-073-international-idea-election-voter-turnout-data",
@@ -2260,7 +3456,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-074-historical-v-dem",
@@ -2291,7 +3503,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-075-world-inequality-database-wid",
@@ -2322,7 +3550,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_SEPARATE_SOURCE_RUN_NOT_CANONICAL",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": "SEPARATE_WID_NUMERIC_SNAPSHOT",
+      "additional_source_run": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/41015652979",
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "POTENTIAL_OVERLAP_NEEDS_KEY_AUDIT",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-076-oecd-income-distribution-database",
@@ -2353,7 +3597,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-077-world-bank-poverty-inequality-platform",
@@ -2384,7 +3644,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-078-eurostat-eu-silc-aggregates",
@@ -2415,7 +3691,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-079-federal-reserve-survey-of-consumer-finances",
@@ -2446,7 +3738,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-080-opportunity-insights-economic-tracker",
@@ -2477,7 +3785,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-081-world-happiness-report-gallup-world-poll",
@@ -2508,7 +3832,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-082-us-census-btos-ai-supplements",
@@ -2539,7 +3879,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-083-eurostat-enterprise-ai-adoption-isoc-eb-ai",
@@ -2570,7 +3926,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "eurostat_ai"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-084-ilostat-genai-exposure-series",
@@ -2601,7 +3975,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-085-oecd-ai-policy-observatory-policies",
@@ -2632,7 +4022,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-086-stanford-ai-index-underlying-data",
@@ -2663,7 +4069,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-087-us-census-annual-business-survey-technology-use",
@@ -2694,7 +4116,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-088-us-census-annual-capital-expenditures-survey",
@@ -2725,7 +4163,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-089-us-bea-r-d-and-innovation-satellite-accounts",
@@ -2756,7 +4210,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-090-oecd-r-d-and-innovation-indicators",
@@ -2787,7 +4257,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-091-oecd-piaac-survey-of-adult-skills",
@@ -2818,7 +4304,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-092-o-net-skills-and-task-data",
@@ -2849,7 +4351,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-093-occupational-exposure-research-scores-felten-webb-ilo",
@@ -2880,7 +4398,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-094-uspto-patentsview",
@@ -2911,7 +4445,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-095-epo-patstat-and-oecd-patent-indicators",
@@ -2942,7 +4492,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-096-openalex-scholarly-publications",
@@ -2973,7 +4539,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-097-top500-mlperf-compute-benchmarking",
@@ -3004,7 +4586,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-098-un-comtrade-trade-flows",
@@ -3035,7 +4633,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-099-wto-tariff-and-trade-data",
@@ -3066,7 +4680,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-100-unctadstat",
@@ -3097,7 +4727,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-101-world-bank-wits-trains",
@@ -3128,7 +4774,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-102-oecd-inter-country-input-output-icio",
@@ -3159,7 +4821,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-103-bea-us-input-output-accounts",
@@ -3190,7 +4868,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-104-un-commodity-price-statistics-world-bank-pink-sheet",
@@ -3221,7 +4915,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-105-faostat-agriculture",
@@ -3252,7 +4962,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-106-international-energy-agency-energy-statistics",
@@ -3283,7 +5009,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-107-ember-electricity-data",
@@ -3314,7 +5056,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-108-imf-climate-data-dashboard",
@@ -3345,7 +5103,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-109-un-world-population-prospects",
@@ -3376,7 +5150,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-110-unesco-uis-education-and-science",
@@ -3407,7 +5197,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-111-world-bank-human-capital-index",
@@ -3438,7 +5244,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-112-oecd-pisa",
@@ -3469,7 +5291,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-113-who-global-health-observatory",
@@ -3500,7 +5338,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-114-ihme-global-burden-of-disease",
@@ -3531,7 +5385,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-115-world-bank-microdata-library-lsms",
@@ -3562,7 +5432,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-116-maddison-project-via-our-world-in-data",
@@ -3593,7 +5479,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "historical"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-117-jst-macrohistory",
@@ -3624,7 +5528,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-118-bank-of-england-millennium-database",
@@ -3655,7 +5575,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-119-clio-infra-datasets",
@@ -3686,7 +5622,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-120-alfred-fred-historical-release-vintages",
@@ -3717,7 +5669,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-121-iso-3166-owid-geopolitical-country-crosswalk",
@@ -3748,7 +5716,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-122-nber-us-business-cycle-chronology",
@@ -3779,7 +5763,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-123-sdmx-data-structure-definitions-and-time-vintages",
@@ -3810,7 +5810,23 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "NO_EXPLICIT_EVIDENCE_MAPPING_NOT_PROOF_OF_ABSENCE",
+      "historical_family_ids": [],
+      "historical_family_crosswalk_audit": null,
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-124-den-besten-et-al-2026-narrative-us-tariff-shocks",
@@ -3841,7 +5857,25 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "tariff_shocks"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   },
   {
     "source_id": "src-125-california-ai-exposure-and-ui-claims-tracker",
@@ -3872,6 +5906,24 @@
     "license_verified": false,
     "data_snapshot_sha256": null,
     "record_count_verified": null,
-    "research_ready": false
+    "research_ready": false,
+    "evidence_linkage": {
+      "evidence_basis": "HISTORICAL_PARTIAL_FAMILY_MAP_NOT_SERIES_VALIDATED",
+      "historical_family_ids": [
+        "cait_ai_claims"
+      ],
+      "historical_family_crosswalk_audit": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627",
+      "additional_source_stage": null,
+      "additional_source_run": null,
+      "exact_series_keys_verified": false,
+      "complete_catalog_source_coverage_verified": false,
+      "last_collected_at_utc": null,
+      "last_warehouse_integrated_at_utc": null,
+      "last_research_panel_integrated_at_utc": null,
+      "source_snapshot_hash_verified_by_registry": false,
+      "overlap_review": "NOT_ASSESSED",
+      "verified_duplicate_observation_count": null,
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+    }
   }
 ]
