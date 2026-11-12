@@ -158,6 +158,11 @@ def main():
     report={'registry_version':'0.2.0','source_catalog_sha256':hashlib.sha256(blob).hexdigest(),
             'generated_utc':datetime.now(timezone.utc).isoformat(),
             'source_count':len(registry),'by_status':dict(status),
+            'lineage_evidence_map_sha256':hashlib.sha256(json.dumps({
+                'historical_family_map':ATLAS1_FAMILY_MAP,
+                'separate_source_runs':SEPARATE_SOURCE_RUNS,
+                'overlap_review_required':sorted(OVERLAP_REVIEW_REQUIRED),
+            },sort_keys=True).encode('utf-8')).hexdigest(),
             'by_priority':dict(priority),'by_domain':dict(domains),
             'verified_research_ready_count':0,
             'priority_p0_evidence_summary': {
