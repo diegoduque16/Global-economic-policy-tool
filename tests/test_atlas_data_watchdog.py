@@ -94,4 +94,52 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(len(ledger),5)
         self.assertTrue(all(x['additive_to_other_rows']=='no' for x in ledger))
 
+
+    def test_isolated_wid_comparison_skips_ilostat_and_all_external_repair(self):
+        from unittest.mock import patch
+        from research import audit_wid_revisions
+        input_dir=self.root/'inputs'
+        input_dir.mkdir()
+        (input_dir/'wid_sha.json').write_text(json.dumps({'wid_23country_values.sqlite':'a'*64}))
+        (input_dir/'wid_validation.json').write_text(json.dumps({'country_count':23}))
+        out=self.root/'out'
+        mock_result={'country_count':20,
+                     'totals':{'refreshed':17640,'unchanged':17637,'changed':3,'added':0,'removed':0,'baseline':17640}}
+        with patch.object(m, 'verify_wid', return_value={'observations':21430}) as verify, \
+             patch.object(audit_wid_revisions, 'compare', return_value=mock_result) as compare, \
+             patch.object(m, 'verify_ilostat', side_effect=AssertionError('ILOSTAT should not be accessed')), \
+             patch.object(m, 'verify_joined', side_effect=AssertionError('join should not be accessed')), \
+             patch.object(m, 'verify_canonical_source_marker', side_effect=AssertionError('canonical should not be accessed')), \
+             patch.object(m, 'github_runs', side_effect=AssertionError('GitHub should not be accessed')), \
+             patch.object(m, 'dispatch_ilostat', side_effect=AssertionError('ingestion should not be dispatched')), \
+             patch.object(m, 'backup_recent_batch', side_effect=AssertionError('backup should not run')):
+            with patch('builtins.print'):
+                report=m.main(['--input',str(input_dir),'--out',str(out),'--wid-only-revisions'])
+        self.assertEqual(report['status'],'WID_ONLY_EXACT_KEY_AND_VALUE_COMPARISON')
+        self.assertFalse(report['auto_ingestion_dispatch'])
+        self.assertEqual(report['ilostat_status'],'NOT_ACCESSED_IN_WID_ONLY_MODE')
+        self.assertEqual(report['onedrive_backup'],'NOT_ATTEMPTED_MANUAL_READ_ONLY')
+        self.assertEqual(verify.call_count,1)
+        self.assertEqual(compare.call_count,1)
+        recorded=json.loads((out/'source_coverage_audit.json').read_text())
+        self.assertEqual(recorded['wid_revision_comparison']['totals']['changed'],3)
+        ledger=list(csv.DictReader((out/'source_numeric_coverage_ledger.csv').open()))
+        self.assertEqual(len(ledger),2)
+        self.assertTrue(all(x['additive_to_other_rows']=='no' for x in ledger))
+        checksums=json.loads((out/'output_checksums.json').read_text())
+        self.assertEqual(checksums['source_coverage_audit.json'],m.digest(out/'source_coverage_audit.json'))
+
+    def test_isolated_wid_refuses_auto_repair_combination(self):
+        with self.assertRaises(SystemExit) as exc:
+            m.main(['--input',str(self.root),'--out',str(self.root/'out'),
+                    '--wid-only-revisions','--auto-repair'])
+        self.assertEqual(exc.exception.code,2)
+        self.assertFalse((self.root/'out').exists())
+
+    def test_isolated_wid_fails_closed_on_missing_private_wid_files(self):
+        inputs=self.root/'inputs'
+        inputs.mkdir()
+        with self.assertRaises(FileNotFoundError):
+            m.main(['--input',str(inputs),'--out',str(self.root/'out'), '--wid-only-revisions'])
+
 if __name__ == '__main__':unittest.main()
