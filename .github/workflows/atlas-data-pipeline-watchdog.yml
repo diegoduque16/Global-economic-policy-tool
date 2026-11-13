@@ -8,6 +8,11 @@ on:
         type: boolean
         required: false
         default: false
+      audit_wid_revisions:
+        description: 'Manual, read-only comparison of WID refreshed values with SHA-pinned baseline'
+        type: boolean
+        required: false
+        default: false
   schedule:
     - cron: '31 8 * * *'
 
@@ -28,6 +33,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
       DEEP_VERIFY: ${{ inputs.deep_verify || 'false' }}
+      AUDIT_WID_REVISIONS: ${{ inputs.audit_wid_revisions || 'false' }}
     steps:
       - name: Check out project
         uses: actions/checkout@v4
@@ -74,6 +80,33 @@ jobs:
           rclone copyto "$JOIN/analysis_audit.json" "$INPUT/joined_report.json" --retries 3
           rclone copyto "$ROOT/snapshots/canonical-20261028-40616230528.tar.gz.sha256" "$INPUT/canonical_archive.sha256" --retries 3
           echo 'Actual source files and their saved SHA256 manifests retrieved'
+      - name: Retrieve only refreshed WID source-native CSVs for manual revision audit
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.audit_wid_revisions == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_WID_REVISION_DOWNLOAD'
+          import json, os, subprocess
+          from pathlib import Path
+          meta=json.loads(Path('research/wid_refresh_20261103_source_fingerprints.json').read_text())
+          assert meta['schema_version']==1 and meta['expected_refreshed_country_count']==20
+          entries=meta['source_fingerprints']
+          assert len(entries)==20 and len({e['wid_area'] for e in entries})==20
+          root='onedrive:Diego/economic research database/atlas/wid-country-pilot-v1'
+          dest=Path(os.environ['RUNNER_TEMP'])/'atlas-watchdog-input'/'wid_refreshed'
+          dest.mkdir(parents=True,exist_ok=False)
+          for entry in entries:
+              code,sha=entry['wid_area'],entry['source_sha256']
+              if not code.isalpha() or len(code)!=2 or not sha.isalnum() or len(sha)!=64:
+                  raise ValueError('Invalid WID private source path identity')
+              remote=f'{root}/{code}/{sha[:24]}/wid_source_native_shares.csv'
+              local=dest/f'{code}.csv'
+              subprocess.run(['rclone','copyto',remote,str(local),'--retries','3'],
+                             check=True,timeout=360,stdout=subprocess.DEVNULL)
+              if local.stat().st_size<50:
+                  raise ValueError('Incomplete private WID staged source CSV')
+          print('WID_REVISION_INPUTS_RETRIEVED',len(entries),'private staged source files; no public values')
+          PY_WID_REVISION_DOWNLOAD
       - name: Weekly or manual deep SHA256 plus real canonical SQLite verification
         shell: bash
         run: |
@@ -112,10 +145,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/atlas_data_watchdog.py \
-            --input "$RUNNER_TEMP/atlas-watchdog-input" \
-            --out "$RUNNER_TEMP/atlas-watchdog-output" \
-            --repo "$GH_REPO" --auto-repair
+          if [[ "$AUDIT_WID_REVISIONS" == "true" ]]; then
+            # A manual WID audit must never auto-dispatch ILOSTAT ingestion.
+            python scripts/atlas_data_watchdog.py \
+              --input "$RUNNER_TEMP/atlas-watchdog-input" \
+              --out "$RUNNER_TEMP/atlas-watchdog-output" \
+              --repo "$GH_REPO" --compare-wid-revisions
+          else
+            python scripts/atlas_data_watchdog.py \
+              --input "$RUNNER_TEMP/atlas-watchdog-input" \
+              --out "$RUNNER_TEMP/atlas-watchdog-output" \
+              --repo "$GH_REPO" --auto-repair
+          fi
       - name: Back up privacy-safe control reports and round-trip verify every byte
         shell: bash
         run: |

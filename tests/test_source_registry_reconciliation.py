@@ -143,5 +143,53 @@ class SourceRegistryReconciliationTests(unittest.TestCase):
             self.assertEqual(wid['wid_value_level_revision_audit_complete'],'false')
 
 
+    def test_wid_source_raw_hash_comparison_is_not_numeric_revision_claim(self):
+        scope = m.wid_country_refresh_scope()
+        aud = scope['source_file_comparison']
+        self.assertEqual(aud['country_count'], 20)
+        self.assertEqual(aud['raw_source_file_sha256_changed_count'], 20)
+        self.assertEqual(aud['raw_source_file_sha256_unchanged_count'], 0)
+        self.assertEqual(aud['same_retained_source_row_count_countries'], 20)
+        self.assertEqual(aud['baseline_source_rows_for_refreshed_countries'], 17640)
+        self.assertEqual(aud['refreshed_source_rows_for_same_countries'], 17640)
+        self.assertFalse(aud['exact_observation_keys_compared'])
+        self.assertFalse(aud['exact_observation_values_compared'])
+        self.assertFalse(aud['new_or_revised_economic_observations_verified'])
+
+    def test_wid_source_hash_evidence_invalid_and_missing_country_fail_closed(self):
+        evidence = json.loads(m.WID_REFRESH_FINGERPRINTS.read_text())
+        original = json.loads(m.WID_MANIFEST.read_text())
+        codes = [x['wid_area'] for x in evidence['source_fingerprints']]
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)/'fingerprints.json'
+            bad = json.loads(json.dumps(evidence))
+            bad['source_fingerprints'][0]['source_sha256']='x'*64
+            p.write_text(json.dumps(bad))
+            with self.assertRaisesRegex(ValueError, 'source SHA256'):
+                m.compare_wid_raw_source_fingerprints(original, codes, p)
+            bad = json.loads(json.dumps(evidence))
+            bad['source_fingerprints'].pop()
+            p.write_text(json.dumps(bad))
+            with self.assertRaisesRegex(ValueError, 'Incomplete WID'):
+                m.compare_wid_raw_source_fingerprints(original, codes, p)
+            bad = json.loads(json.dumps(evidence))
+            bad['source_fingerprints'][0]['retained_source_shares']+=1
+            p.write_text(json.dumps(bad))
+            with self.assertRaisesRegex(ValueError, 'cumulative refreshed'):
+                m.compare_wid_raw_source_fingerprints(original, codes, p)
+
+    def test_source_summary_does_not_claim_data_deduplication(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(m,'OUTPUT',Path(folder)):
+            with contextlib.redirect_stdout(io.StringIO()):
+                m.main()
+            report = json.loads((Path(folder)/'registry_summary.json').read_text())
+            self.assertEqual(report['registry_version'], '0.3.0')
+            audit = report['wid_country_refresh_scope_audit']['source_file_comparison']
+            self.assertEqual(audit['raw_source_file_sha256_changed_count'],20)
+            self.assertFalse(audit['exact_observation_keys_compared'])
+            self.assertEqual(report['priority_p0_evidence_summary']['exact_series_key_audits_completed'],0)
+            self.assertEqual(report['verified_research_ready_count'],0)
+
+
 if __name__ == '__main__':
     unittest.main()

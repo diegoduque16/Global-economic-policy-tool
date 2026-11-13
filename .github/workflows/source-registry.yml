@@ -7,6 +7,11 @@ on:
       - 'scripts/build_source_registry.py'
       - 'research/atlas1_reconcile_inventory.py'
       - 'research/wid_23_source_manifest.json'
+      - 'research/wid_refresh_20261103_source_fingerprints.json'
+      - 'research/audit_wid_revisions.py'
+      - 'tests/test_wid_revision_audit.py'
+      - 'scripts/atlas_data_watchdog.py'
+      - '.github/workflows/atlas-data-pipeline-watchdog.yml'
       - '.github/workflows/atlas-wid-expand-20-countries.yml'
       - 'tests/test_source_registry_reconciliation.py'
       - '.github/workflows/source-registry.yml'
@@ -23,7 +28,10 @@ jobs:
         with:
           python-version: '3.12'
       - name: Verify source-linkage statuses cannot be overclaimed
-        run: python -m unittest discover -s tests -p 'test_source_registry_reconciliation.py' -v
+        run: |
+          python -m unittest discover -s tests -p 'test_source_registry_reconciliation.py' -v
+          python -m unittest discover -s tests -p 'test_wid_revision_audit.py' -v
+          python -m unittest discover -s tests -p 'test_atlas_data_watchdog.py' -v
       - name: Validate and normalize catalog
         run: python scripts/build_source_registry.py
       - name: Upload structured registry

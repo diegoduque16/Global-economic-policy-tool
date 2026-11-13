@@ -8,6 +8,7 @@ on:
       - 'scripts/build_source_registry.py'
       - 'research/atlas1_reconcile_inventory.py'
       - 'research/wid_23_source_manifest.json'
+      - 'research/wid_refresh_20261103_source_fingerprints.json'
       - '.github/workflows/atlas-wid-expand-20-countries.yml'
       - 'tests/test_source_registry_reconciliation.py'
       - '.github/workflows/persist-source-registry.yml'
