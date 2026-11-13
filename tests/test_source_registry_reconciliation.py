@@ -99,5 +99,49 @@ class SourceRegistryReconciliationTests(unittest.TestCase):
             self.assertEqual(wdi['validation_state'], 'NOT_INDEPENDENTLY_VERIFIED')
 
 
+    def test_wid_refresh_country_scope_is_not_new_geographic_coverage(self):
+        result = m.wid_country_refresh_scope()
+        self.assertEqual(result['original_country_count'], 23)
+        self.assertEqual(result['scheduled_refresh_country_count'], 20)
+        self.assertEqual(result['previously_in_original_country_count'], 20)
+        self.assertEqual(result['new_country_codes_not_in_original'], [])
+        self.assertEqual(result['original_country_codes_not_in_refresh'], ['CO', 'FR', 'US'])
+        self.assertFalse(result['same_observation_keys_or_values_verified'])
+        self.assertFalse(result['source_vintages_compared'])
+        self.assertFalse(result['new_numeric_observations_verified'])
+        _, registry = m.build()
+        wid = next(x for x in registry if x['dataset'] == 'World Inequality Database WID')
+        self.assertEqual(wid['evidence_linkage']['wid_refresh_country_scope'], result)
+        self.assertFalse(wid['research_ready'])
+
+    def test_wid_refresh_country_scope_fails_closed_when_matrix_changes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            manifest = root/'manifest.json'
+            workflow = root/'refresh.yml'
+            manifest.write_text(json.dumps({'expected_country_count':2, 'countries':[
+                {'wid_area':'GH'}, {'wid_area':'KE'}]}))
+            workflow.write_text('countries: GH,KE\n')
+            with self.assertRaisesRegex(ValueError, 'matrix'):
+                m.wid_country_refresh_scope(manifest, workflow)
+
+    def test_persisted_wid_country_overlap_remains_metadata_only(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(m,'OUTPUT',Path(folder)):
+            with contextlib.redirect_stdout(io.StringIO()):
+                m.main()
+            report = json.loads((Path(folder)/'registry_summary.json').read_text())
+            audit = report['wid_country_refresh_scope_audit']
+            self.assertEqual(audit['previously_in_original_country_count'],20)
+            self.assertEqual(audit['new_country_codes_not_in_original'],[])
+            self.assertFalse(audit['new_numeric_observations_verified'])
+            self.assertEqual(report['priority_p0_evidence_summary']['exact_series_key_audits_completed'],0)
+            with (Path(folder)/'priority_p0_evidence.csv').open(newline='',encoding='utf-8') as f:
+                rows = list(csv.DictReader(f))
+            wid = next(x for x in rows if x['dataset']=='World Inequality Database WID')
+            self.assertEqual(wid['wid_scheduled_country_overlap_count'],'20')
+            self.assertEqual(wid['wid_scheduled_new_country_count'],'0')
+            self.assertEqual(wid['wid_value_level_revision_audit_complete'],'false')
+
+
 if __name__ == '__main__':
     unittest.main()
