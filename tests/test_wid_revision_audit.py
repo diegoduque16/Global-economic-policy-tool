@@ -16,7 +16,12 @@ FIELDS = ['wid_area', 'year', 'percentile', 'group', 'concept', 'source_variable
 
 def row(area, year, pct, concept, value, sha):
     return {'wid_area':area,'year':str(year),'percentile':pct,'group':'ignored',
-            'concept':concept,'source_variable':'sptinc992j',
+            'concept':concept,'source_variable':{
+                'pretax_national_income_share':'sptinc992j',
+                'posttax_national_income_share':'sdiinc992j',
+                'posttax_disposable_income_share':'scainc992j',
+                'personal_wealth_share':'shweal992j',
+            }[concept],
             'share_fraction':str(value),'quality_grade':'3',
             'source_file_sha256':sha,'research_status':'source_native_descriptive_not_causal'}
 
@@ -112,6 +117,14 @@ class WidRevisionAuditTests(unittest.TestCase):
         rows[0]['research_status']='causal'
         self.write_country('AU',rows)
         with self.assertRaisesRegex(ValueError,'research readiness'):
+            self.run_audit()
+
+    def test_source_variable_and_concept_must_match(self):
+        rows=[row('AU',2021,'p99p100',self.concept_a,0.2,self.new_sha['AU']),
+              row('AU',2022,'p99p100',self.concept_b,0.3,self.new_sha['AU'])]
+        rows[0]['source_variable']='sdiinc992j'
+        self.write_country('AU',rows)
+        with self.assertRaisesRegex(ValueError, 'concept definition'):
             self.run_audit()
 
     def test_invalid_value_rejected_not_zero_filled(self):
