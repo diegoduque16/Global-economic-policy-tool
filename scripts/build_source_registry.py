@@ -28,6 +28,9 @@ OVERLAP_REVIEW_REQUIRED = {
 
 INPUT = Path('open_data/expanded_source_catalog.csv')
 OUTPUT = Path('research/source_registry')
+WID_MANIFEST = Path('research/wid_23_source_manifest.json')
+WID_REFRESH_WORKFLOW = Path('.github/workflows/atlas-wid-expand-20-countries.yml')
+WID_REFRESH_SUCCESS_RUN = 'https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/41588514160'
 REQUIRED = ['theme','dataset','measures','scope','priority','access_mode','current_status','official_source_url','research_rationale_or_limit']
 
 
@@ -38,6 +41,47 @@ def normalize_status(raw):
     if s == 'CATALOGUED': return 'catalogued_only'
     if s == 'IMPORT CODE ONLY': return 'importer_only'
     raise ValueError(f'Unknown catalog status: {raw!r}')
+
+
+def wid_country_refresh_scope(manifest_path: Path = WID_MANIFEST,
+                              workflow_path: Path = WID_REFRESH_WORKFLOW) -> dict:
+    """Compare original SHA-pinned WID country scope with existing refresh plan.
+
+    No numeric values, new observations, or identical series are inferred.
+    """
+    original = json.loads(manifest_path.read_text(encoding='utf-8'))
+    countries = original.get('countries')
+    if not isinstance(countries, list) or len(countries) != original.get('expected_country_count'):
+        raise ValueError('WID manifest country count inconsistent')
+    codes = [x['wid_area'] for x in countries]
+    if any(not re.fullmatch(r'[A-Z]{2}', c) for c in codes) or len(codes) != len(set(codes)):
+        raise ValueError('WID original country codes invalid/duplicated')
+    workflow = workflow_path.read_text(encoding='utf-8')
+    # Restricted to this checked-in matrix format. Fail closed on changes.
+    batches = re.findall(r'^\s+countries:\s*([A-Z]{2}(?:,[A-Z]{2})+)\s*$',
+                         workflow, flags=re.MULTILINE)
+    if len(batches) != 5:
+        raise ValueError('Unexpected WID refresh matrix; manual review required')
+    refreshed = [code for batch in batches for code in batch.split(',')]
+    if len(refreshed) != 20 or len(set(refreshed)) != 20:
+        raise ValueError('Duplicate/unexpected WID refresh country codes')
+    existing, proposed = set(codes), set(refreshed)
+    return {
+        'evidence_type': 'COUNTRY_SCOPE_ONLY_NOT_OBSERVATION_DEDUPLICATION',
+        'original_country_count': len(codes),
+        'scheduled_refresh_country_count': len(refreshed),
+        'previously_in_original_country_count': len(existing & proposed),
+        'new_country_codes_not_in_original': sorted(proposed-existing),
+        'original_country_codes_not_in_refresh': sorted(existing-proposed),
+        'original_manifest_sha256': hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        'refresh_workflow_sha256': hashlib.sha256(workflow_path.read_bytes()).hexdigest(),
+        'referenced_november_3_successful_run': WID_REFRESH_SUCCESS_RUN,
+        'run_status_reverified_by_registry': False,
+        'same_observation_keys_or_values_verified': False,
+        'source_vintages_compared': False,
+        'new_numeric_observations_verified': False,
+        'next_gate': 'COMPARE_PRIVATE_WID_SOURCE_FILE_HASH_AND_COUNTRY_YEAR_PERCENTILE_CONCEPT_KEYS',
+    }
 
 
 def evidence_for(dataset: str) -> dict:
@@ -86,6 +130,11 @@ def priority_evidence_rows(registry: list[dict]) -> list[dict]:
             'additional_source_stage': ev['additional_source_stage'] or '',
             'additional_source_run': ev['additional_source_run'] or '',
             'overlap_review': ev['overlap_review'],
+            'wid_scheduled_country_overlap_count': (str(ev['wid_refresh_country_scope']['previously_in_original_country_count'])
+                if 'wid_refresh_country_scope' in ev else ''),
+            'wid_scheduled_new_country_count': (str(len(ev['wid_refresh_country_scope']['new_country_codes_not_in_original']))
+                if 'wid_refresh_country_scope' in ev else ''),
+            'wid_value_level_revision_audit_complete': 'false',
             'exact_series_keys_verified': 'false',
             'complete_source_coverage_verified': 'false',
             'last_collected_at_utc': '',
@@ -111,6 +160,7 @@ def build(source: Path = INPUT):
         raise ValueError('Historical Atlas 1 evidence crosswalk no longer matches source catalog')
     if not set(SEPARATE_SOURCE_RUNS).issubset(catalog_names):
         raise ValueError('Separate source evidence no longer matches source catalog')
+    wid_scope = wid_country_refresh_scope()
     seen=set(); registry=[]
     for i,row in enumerate(records, start=2):
         if any(v is None for v in row.values()) or None in row: raise ValueError(f'Malformed CSV row {i}')
@@ -123,6 +173,9 @@ def build(source: Path = INPUT):
         if key in seen:raise ValueError(f'Duplicate source: {key}')
         seen.add(key)
         slug=re.sub(r'[^a-z0-9]+','-',row['dataset'].lower()).strip('-')[:72]
+        linked = evidence_for(row['dataset'].strip())
+        if row['dataset'].strip() == 'World Inequality Database WID':
+            linked['wid_refresh_country_scope'] = wid_scope
         registry.append({
            'source_id':f'src-{i-1:03d}-{slug}',
            'domain':row['theme'].strip(), 'dataset':row['dataset'].strip(),
@@ -140,7 +193,7 @@ def build(source: Path = INPUT):
            'connector_implementation':None,'last_successful_fetch_utc':None,
            'license_verified':False,'data_snapshot_sha256':None,
            'record_count_verified':None,'research_ready':False,
-           'evidence_linkage':evidence_for(row['dataset'].strip())
+           'evidence_linkage':linked
         })
     return blob,registry
 
@@ -159,11 +212,15 @@ def main():
             'generated_utc':datetime.now(timezone.utc).isoformat(),
             'source_count':len(registry),'by_status':dict(status),
             'lineage_evidence_map_sha256':hashlib.sha256(json.dumps({
+                'wid_manifest_sha256':hashlib.sha256(WID_MANIFEST.read_bytes()).hexdigest(),
+                'wid_refresh_workflow_sha256':hashlib.sha256(WID_REFRESH_WORKFLOW.read_bytes()).hexdigest(),
                 'historical_family_map':ATLAS1_FAMILY_MAP,
                 'separate_source_runs':SEPARATE_SOURCE_RUNS,
                 'overlap_review_required':sorted(OVERLAP_REVIEW_REQUIRED),
             },sort_keys=True).encode('utf-8')).hexdigest(),
             'by_priority':dict(priority),'by_domain':dict(domains),
+            'wid_country_refresh_scope_audit':next(x['evidence_linkage']['wid_refresh_country_scope']
+                for x in registry if x['dataset']=='World Inequality Database WID'),
             'verified_research_ready_count':0,
             'priority_p0_evidence_summary': {
                 'source_count':len(p0),
