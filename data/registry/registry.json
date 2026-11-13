@@ -3565,7 +3565,27 @@
       "source_snapshot_hash_verified_by_registry": false,
       "overlap_review": "POTENTIAL_OVERLAP_NEEDS_KEY_AUDIT",
       "verified_duplicate_observation_count": null,
-      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh."
+      "interpretation": "Historical partial evidence is not a fresh source-value audit, proof of complete source coverage, or a certified warehouse refresh.",
+      "wid_refresh_country_scope": {
+        "evidence_type": "COUNTRY_SCOPE_ONLY_NOT_OBSERVATION_DEDUPLICATION",
+        "original_country_count": 23,
+        "scheduled_refresh_country_count": 20,
+        "previously_in_original_country_count": 20,
+        "new_country_codes_not_in_original": [],
+        "original_country_codes_not_in_refresh": [
+          "CO",
+          "FR",
+          "US"
+        ],
+        "original_manifest_sha256": "b473a9c1438829c9896e935e20789300cec5ba30a50fba8c832aac21bef38a9a",
+        "refresh_workflow_sha256": "5ef7adbaf700096d13f869c512b646f07afff7f52d0c499fdbf9a5afa5f27f07",
+        "referenced_november_3_successful_run": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/41588514160",
+        "run_status_reverified_by_registry": false,
+        "same_observation_keys_or_values_verified": false,
+        "source_vintages_compared": false,
+        "new_numeric_observations_verified": false,
+        "next_gate": "COMPARE_PRIVATE_WID_SOURCE_FILE_HASH_AND_COUNTRY_YEAR_PERCENTILE_CONCEPT_KEYS"
+      }
     }
   },
   {

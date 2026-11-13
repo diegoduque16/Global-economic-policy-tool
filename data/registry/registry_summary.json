@@ -1,7 +1,7 @@
 {
   "registry_version": "0.2.0",
   "source_catalog_sha256": "8f93b17bc24740c69e8ad042d080436ac1f40f9b0201750e17c18a38a2a2da4a",
-  "generated_utc": "2026-11-12T20:58:21.736295+00:00",
+  "generated_utc": "2026-11-13T15:00:05.592474+00:00",
   "source_count": 125,
   "by_status": {
     "reported_live_unverified": 4,
@@ -9,7 +9,7 @@
     "catalogued_only": 16,
     "importer_only": 1
   },
-  "lineage_evidence_map_sha256": "e245b65a62104b5d0b88a7fdaa26d2dde25c6e2b41ea6e02e6f9e17d75aed18f",
+  "lineage_evidence_map_sha256": "f76faa8d5ad3c69e238c0eadd3207c54f23b5c731f6b579cb095cdf5d49ded67",
   "by_priority": {
     "P0": 71,
     "P1": 45,
@@ -27,6 +27,26 @@
     "Demographics, health & human capital": 7,
     "Historical series": 4,
     "Data engineering": 4
+  },
+  "wid_country_refresh_scope_audit": {
+    "evidence_type": "COUNTRY_SCOPE_ONLY_NOT_OBSERVATION_DEDUPLICATION",
+    "original_country_count": 23,
+    "scheduled_refresh_country_count": 20,
+    "previously_in_original_country_count": 20,
+    "new_country_codes_not_in_original": [],
+    "original_country_codes_not_in_refresh": [
+      "CO",
+      "FR",
+      "US"
+    ],
+    "original_manifest_sha256": "b473a9c1438829c9896e935e20789300cec5ba30a50fba8c832aac21bef38a9a",
+    "refresh_workflow_sha256": "5ef7adbaf700096d13f869c512b646f07afff7f52d0c499fdbf9a5afa5f27f07",
+    "referenced_november_3_successful_run": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/41588514160",
+    "run_status_reverified_by_registry": false,
+    "same_observation_keys_or_values_verified": false,
+    "source_vintages_compared": false,
+    "new_numeric_observations_verified": false,
+    "next_gate": "COMPARE_PRIVATE_WID_SOURCE_FILE_HASH_AND_COUNTRY_YEAR_PERCENTILE_CONCEPT_KEYS"
   },
   "verified_research_ready_count": 0,
   "priority_p0_evidence_summary": {
