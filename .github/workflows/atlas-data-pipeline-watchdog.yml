@@ -62,7 +62,20 @@ jobs:
           printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/atlas-data-watchdog-rclone/rclone.conf"
           chmod 600 "$RUNNER_TEMP/atlas-data-watchdog-rclone/rclone.conf"
           echo "RCLONE_CONFIG=$RUNNER_TEMP/atlas-data-watchdog-rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Download only original SHA-pinned WID evidence for manual revision audit
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.audit_wid_revisions == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          WID='onedrive:Diego/economic research database/atlas/wid-23-numeric-panels-v1/run-41015652979'
+          INPUT="$RUNNER_TEMP/atlas-watchdog-input"
+          mkdir -p "$INPUT"
+          rclone copyto "$WID/wid_23country_values.sqlite" "$INPUT/wid.sqlite" --retries 3
+          rclone copyto "$WID/sha256_manifest.json" "$INPUT/wid_sha.json" --retries 3
+          rclone copyto "$WID/numeric_value_validation.json" "$INPUT/wid_validation.json" --retries 3
+          echo 'Downloaded only original WID SQLite and checksums; no ILOSTAT checkpoint requested'
       - name: Download real-data evidence from original verified private sources
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.audit_wid_revisions != true }}
         shell: bash
         run: |
           set -euo pipefail
@@ -108,6 +121,7 @@ jobs:
           print('WID_REVISION_INPUTS_RETRIEVED',len(entries),'private staged source files; no public values')
           PY_WID_REVISION_DOWNLOAD
       - name: Weekly or manual deep SHA256 plus real canonical SQLite verification
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.audit_wid_revisions != true }}
         shell: bash
         run: |
           set -euo pipefail
@@ -146,11 +160,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$AUDIT_WID_REVISIONS" == "true" ]]; then
-            # A manual WID audit must never auto-dispatch ILOSTAT ingestion.
+            # WID-only mode bypasses ILOSTAT checkpoint, canonical and WID–WDI join entirely.
+            # It also never dispatches an ingestion repair or writes to private source storage.
             python scripts/atlas_data_watchdog.py \
               --input "$RUNNER_TEMP/atlas-watchdog-input" \
               --out "$RUNNER_TEMP/atlas-watchdog-output" \
-              --repo "$GH_REPO" --compare-wid-revisions
+              --repo "$GH_REPO" --wid-only-revisions
           else
             python scripts/atlas_data_watchdog.py \
               --input "$RUNNER_TEMP/atlas-watchdog-input" \
@@ -158,6 +173,7 @@ jobs:
               --repo "$GH_REPO" --auto-repair
           fi
       - name: Back up privacy-safe control reports and round-trip verify every byte
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.audit_wid_revisions != true }}
         shell: bash
         run: |
           set -euo pipefail

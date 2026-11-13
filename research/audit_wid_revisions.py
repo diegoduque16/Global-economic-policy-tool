@@ -34,6 +34,9 @@ def staged_rows(path: Path, area: str, source_sha: str, expected: int) -> dict:
     """Load numeric, source-native CSV without silently losing missing/duplicate keys."""
     if not path.is_file() or path.is_symlink():
         raise ValueError('WID refreshed input must be a regular local file')
+    # Use the EXISTING WID variable-code validator so identical year/pct keys
+    # with incompatible pretax/posttax concepts cannot be compared as equals.
+    from research.build_wid_numeric_panel import parse_variable
     values = {}
     with path.open(newline='', encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
@@ -51,6 +54,8 @@ def staged_rows(path: Path, area: str, source_sha: str, expected: int) -> dict:
             if (not re.fullmatch(r'\d{4}', year) or not 1700 <= int(year) <= 2200
                     or pct not in PERCENTILES or concept not in CONCEPTS):
                 raise ValueError('Invalid WID observation key')
+            if parse_variable(row['source_variable']) != concept:
+                raise ValueError('WID source variable does not match concept definition')
             if not row['share_fraction'].strip():
                 raise ValueError('Missing WID numeric value (not zero)')
             try:
