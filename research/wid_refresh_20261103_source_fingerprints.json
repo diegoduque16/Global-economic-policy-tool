@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "VERIFIED_WID_SOURCE_METADATA_NOT_OBSERVATION_COMPARISON",
+  "source_run_id": 41588514160,
+  "original_manifest_path": "research/wid_23_source_manifest.json",
+  "source_artifacts": {
+    "africa": {
+      "artifact_id": 13209851621,
+      "artifact_zip_sha256": "d7be339c1fc59e98db401ea4327f81beb20c3631bc01c70f87f5526c40413f36",
+      "source_country_codes": [
+        "ZA",
+        "NG",
+        "KE",
+        "GH"
+      ]
+    },
+    "americas": {
+      "artifact_id": 13209776192,
+      "artifact_zip_sha256": "9c927ad4724f21ad5ec1fd0b927c032a4b3f06b393bc7dce9a6109f2f9c2d147",
+      "source_country_codes": [
+        "BR",
+        "MX",
+        "CA",
+        "CL"
+      ]
+    },
+    "asia-pacific": {
+      "artifact_id": 13209606218,
+      "artifact_zip_sha256": "d70a684d729d0984bea7b6f535662e08f16c45dddc133839930f58acedc7bb43",
+      "source_country_codes": [
+        "AU",
+        "JP",
+        "KR",
+        "IN"
+      ]
+    },
+    "europe-a": {
+      "artifact_id": 13208704175,
+      "artifact_zip_sha256": "3e28e1dfbf8e6fe203d863396ae091b06775b5cd0f5378952cc424fc9988ae88",
+      "source_country_codes": [
+        "GB",
+        "DE",
+        "SE",
+        "IT"
+      ]
+    },
+    "europe-b": {
+      "artifact_id": 13208754306,
+      "artifact_zip_sha256": "70a5d231411b4ab15890f6262cbf9fc3014c4929c2ad1b4c1705e42a6a8ae039",
+      "source_country_codes": [
+        "ES",
+        "NL",
+        "DK",
+        "NO"
+      ]
+    }
+  },
+  "raw_source_files_preserved_only_in_private_onedrive": true,
+  "canonical_warehouse_modified": false,
+  "source_file_sha_differences_do_not_prove_value_changes": true,
+  "expected_refreshed_country_count": 20,
+  "expected_refreshed_numeric_source_rows": 17640,
+  "source_fingerprints": [
+    {
+      "wid_area": "AU",
+      "source_sha256": "e1c0a076cdb297fdb0d3a677200e023f4879926b9588e655810d373134bb55a8",
+      "retained_source_shares": 880,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "asia-pacific"
+    },
+    {
+      "wid_area": "BR",
+      "source_sha256": "5ade14389df85496d8579ac65b9dfea98d0197df9c988d684d782850a3a6e1b0",
+      "retained_source_shares": 628,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "americas"
+    },
+    {
+      "wid_area": "CA",
+      "source_sha256": "72fd950a521042c60d5c4512de90f243af7a237492ae781be202428c8dd168c6",
+      "retained_source_shares": 908,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "americas"
+    },
+    {
+      "wid_area": "CL",
+      "source_sha256": "045d758851803c7c8d041d0ba9c16ca394b414cd16a094362dd594aebe70f4e4",
+      "retained_source_shares": 680,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "americas"
+    },
+    {
+      "wid_area": "DE",
+      "source_sha256": "c3cc34a28beb0aa9feabb90b53cf83567af00b000ef1426c35e5d2256639e5b5",
+      "retained_source_shares": 1148,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "europe-a"
+    },
+    {
+      "wid_area": "DK",
+      "source_sha256": "736b8004292aa94b16430c5c5086494017541029170b02a0da0b9e4cf7610449",
+      "retained_source_shares": 1040,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "europe-b"
+    },
+    {
+      "wid_area": "ES",
+      "source_sha256": "5e62cae05860ee2cfa2dd7294986eea25c3fbc3f3942ca02c0c25ce414f83a99",
+      "retained_source_shares": 888,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "europe-b"
+    },
+    {
+      "wid_area": "GB",
+      "source_sha256": "4095054436c5df31338a65e222530ad4464c3370885b2658b9e9e22c2e1d1b0c",
+      "retained_source_shares": 1328,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "europe-a"
+    },
+    {
+      "wid_area": "GH",
+      "source_sha256": "6b3a6f2f16c074a09b38da4788ca68b279c3007cbea0b90b83dbfae123618cdc",
+      "retained_source_shares": 580,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "africa"
+    },
+    {
+      "wid_area": "IN",
+      "source_sha256": "65309b1cfe0877c5dfedef98a56ef78b40f16f7def3f9c40bca2f0460e78f798",
+      "retained_source_shares": 840,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "asia-pacific"
+    },
+    {
+      "wid_area": "IT",
+      "source_sha256": "9fd6127f3e90cc9332b7c9eeceafcffee96aaedbcda5e7c91ba2b816532a8de8",
+      "retained_source_shares": 888,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "europe-a"
+    },
+    {
+      "wid_area": "JP",
+      "source_sha256": "b1a4d7efcc5812dea6085e0890338b695fe31a9bf122f0bffc6c504107655d3c",
+      "retained_source_shares": 968,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "asia-pacific"
+    },
+    {
+      "wid_area": "KE",
+      "source_sha256": "d4c218f8cdf35e3318491b2469f88c850010b99d16f3308af94215d3907381f7",
+      "retained_source_shares": 716,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "africa"
+    },
+    {
+      "wid_area": "KR",
+      "source_sha256": "c1564bc2f0901467a91ba9776ced7db1565749181d486b1d398b981a0249db20",
+      "retained_source_shares": 800,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "asia-pacific"
+    },
+    {
+      "wid_area": "MX",
+      "source_sha256": "b57644a71df0cc23245d6daf091365d18cecdbdd8bb8a0bae942122d413bebfe",
+      "retained_source_shares": 628,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "americas"
+    },
+    {
+      "wid_area": "NG",
+      "source_sha256": "149d497e1d12bbd0fd34604695561f0cbab6450a73f7f09bf42c64a6d1350799",
+      "retained_source_shares": 660,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "africa"
+    },
+    {
+      "wid_area": "NL",
+      "source_sha256": "fc2a904b0fb7cfebdc200d02a47b4ea0a5b22838bab8ce80125125f42a24040c",
+      "retained_source_shares": 1208,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "europe-b"
+    },
+    {
+      "wid_area": "NO",
+      "source_sha256": "5546a4e0e82cfee213319a634ec7f891b35168950ec34d2e3b86e946f92a394d",
+      "retained_source_shares": 980,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "europe-b"
+    },
+    {
+      "wid_area": "SE",
+      "source_sha256": "9f251ec1835c9058fd83f8e56e9526cf2f30f14e8bfdb7f74deaadc658d7404c",
+      "retained_source_shares": 1052,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "europe-a"
+    },
+    {
+      "wid_area": "ZA",
+      "source_sha256": "1b236161fcad5ee262495c1ab37b2263fd7e940a0f8da01fa40f144de0535148",
+      "retained_source_shares": 820,
+      "matched_pretax_posttax_pairs": 180,
+      "artifact_batch": "africa"
+    }
+  ]
+}
