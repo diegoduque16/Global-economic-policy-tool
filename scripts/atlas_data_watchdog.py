@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 import sqlite3
 import subprocess
+import sys
 import tarfile
 from typing import Any
 
@@ -351,6 +352,7 @@ def main(argv=None):
     p.add_argument('--repo', default='diegoduque16/Global-economic-policy-tool')
     p.add_argument('--skip-external', action='store_true', help='Offline audit only, no gh or rclone execution')
     p.add_argument('--auto-repair', action='store_true', help='Dispatch existing ILOSTAT ingestion only when stale')
+    p.add_argument('--compare-wid-revisions', action='store_true', help='Compare 20 WID country values against checksum-verified SQLite, opt-in and read-only')
     a = p.parse_args(argv)
     d = a.input
     a.out.mkdir(parents=True, exist_ok=True)
@@ -360,6 +362,20 @@ def main(argv=None):
     wid = verify_wid(d / 'wid.sqlite', load_json(d / 'wid_sha.json'), load_json(d / 'wid_validation.json'))
     joined = verify_joined(d / 'joined_numeric.csv', load_json(d / 'joined_sha.json'), load_json(d / 'joined_report.json'))
     canonical = verify_canonical_source_marker(d / 'canonical_archive.sha256')
+    if a.compare_wid_revisions:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from research.audit_wid_revisions import compare as compare_wid
+        refreshed_dir = d / 'wid_refreshed'
+        if not refreshed_dir.is_dir():
+            raise ValueError('Requested WID revision comparison, but refreshed private inputs are unavailable')
+        # verify_wid above validates SQLite bytes against the saved private SHA manifest.
+        wid_revision_comparison = compare(
+            d / 'wid.sqlite', refreshed_dir,
+            Path('research/wid_23_source_manifest.json'),
+            Path('research/wid_refresh_20261103_source_fingerprints.json'),
+        )
+    else:
+        wid_revision_comparison = {'status': 'NOT_RUN_MANUAL_OPT_IN_ONLY'}
     if not a.skip_external:
         ilostat['sampled_source_integrity'] = sample_ilostat_remote(state)
         runs = github_runs(a.repo, ILOSTAT_WORKFLOW)
@@ -378,6 +394,7 @@ def main(argv=None):
         'canonical': canonical,
         'wid': wid,
         'wid_worldbank_join': joined,
+        'wid_revision_comparison': wid_revision_comparison,
         'ilostat_bulk': ilostat,
         'source_batch_backup': batch,
         'ingestion_scheduler_repair': repair,
