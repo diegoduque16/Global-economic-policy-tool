@@ -1,7 +1,7 @@
 {
-  "registry_version": "0.2.0",
+  "registry_version": "0.3.0",
   "source_catalog_sha256": "8f93b17bc24740c69e8ad042d080436ac1f40f9b0201750e17c18a38a2a2da4a",
-  "generated_utc": "2026-11-13T15:00:05.592474+00:00",
+  "generated_utc": "2026-11-13T15:23:50.779358+00:00",
   "source_count": 125,
   "by_status": {
     "reported_live_unverified": 4,
@@ -9,7 +9,7 @@
     "catalogued_only": 16,
     "importer_only": 1
   },
-  "lineage_evidence_map_sha256": "f76faa8d5ad3c69e238c0eadd3207c54f23b5c731f6b579cb095cdf5d49ded67",
+  "lineage_evidence_map_sha256": "a0d73faa02020e0fb68f280afa7a572c79485103f082455028e9890f47d77cf2",
   "by_priority": {
     "P0": 71,
     "P1": 45,
@@ -41,6 +41,20 @@
     ],
     "original_manifest_sha256": "b473a9c1438829c9896e935e20789300cec5ba30a50fba8c832aac21bef38a9a",
     "refresh_workflow_sha256": "5ef7adbaf700096d13f869c512b646f07afff7f52d0c499fdbf9a5afa5f27f07",
+    "source_fingerprint_metadata_sha256": "99d20eb26511e0367e1b397f40002115461b2b4258080b4060f8df377b9e56ff",
+    "source_file_comparison": {
+      "status": "RAW_SOURCE_FINGERPRINTS_COMPARED_NOT_OBSERVATION_VALUES",
+      "country_count": 20,
+      "raw_source_file_sha256_changed_count": 20,
+      "raw_source_file_sha256_unchanged_count": 0,
+      "same_retained_source_row_count_countries": 20,
+      "baseline_source_rows_for_refreshed_countries": 17640,
+      "refreshed_source_rows_for_same_countries": 17640,
+      "exact_observation_keys_compared": false,
+      "exact_observation_values_compared": false,
+      "new_or_revised_economic_observations_verified": false,
+      "note": "A changed raw-file SHA may reflect format, record order, metadata, or actual data revisions. Equal row counts do not prove equal keys or values."
+    },
     "referenced_november_3_successful_run": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/41588514160",
     "run_status_reverified_by_registry": false,
     "same_observation_keys_or_values_verified": false,
