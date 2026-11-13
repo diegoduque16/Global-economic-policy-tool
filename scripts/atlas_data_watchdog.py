@@ -345,6 +345,63 @@ def make_ledger(ilostat: dict, wid: dict, joined: dict, canonical: dict, batch: 
     ]
 
 
+
+def audit_wid_only(source: Path, output: Path) -> dict:
+    """Isolated manual WID revision audit; no ILOSTAT, GitHub, rclone or repair.
+
+    The caller downloads only SHA-pinned WID files via the existing workflow.
+    Never writes numeric values to output artifacts or edits the source SQLite.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from research.audit_wid_revisions import compare as compare_wid
+
+    wid = verify_wid(source / 'wid.sqlite',
+                     load_json(source / 'wid_sha.json'),
+                     load_json(source / 'wid_validation.json'))
+    revisions = compare_wid(
+        source / 'wid.sqlite', source / 'wid_refreshed',
+        Path('research/wid_23_source_manifest.json'),
+        Path('research/wid_refresh_20261103_source_fingerprints.json'),
+    )
+    report = {
+        'timestamp_utc': datetime.now(timezone.utc).isoformat(),
+        'status': 'WID_ONLY_EXACT_KEY_AND_VALUE_COMPARISON',
+        'wid': wid,
+        'wid_revision_comparison': revisions,
+        'ilostat_status': 'NOT_ACCESSED_IN_WID_ONLY_MODE',
+        'canonical_status': 'NOT_ACCESSED_IN_WID_ONLY_MODE',
+        'wid_wdi_join_status': 'NOT_ACCESSED_IN_WID_ONLY_MODE',
+        'onedrive_backup': 'NOT_ATTEMPTED_MANUAL_READ_ONLY',
+        'auto_ingestion_dispatch': False,
+        'sum_all_source_values_is_valid': False,
+        'note': 'Source-native numeric comparison, NOT harmonized or causal; source values remain private.',
+    }
+    output.mkdir(parents=True, exist_ok=True)
+    (output / 'source_coverage_audit.json').write_text(json.dumps(report, indent=2) + '\n')
+    rows = [{'source': 'WID_23country',
+             'stage': 'actual_numeric_sqlite_sha_and_schema_verified',
+             'physical_values': wid['observations'],
+             'numeric_rows_this_run_verified': 'yes',
+             'additive_to_other_rows': 'no'},
+            {'source': 'WID_20country_refresh',
+             'stage': 'private_exact_key_and_value_comparison_not_new_warehouse_values',
+             'physical_values': revisions['totals']['refreshed'],
+             'numeric_rows_this_run_verified': 'yes',
+             'additive_to_other_rows': 'no'}]
+    with (output / 'source_numeric_coverage_ledger.csv').open('w', newline='', encoding='utf-8') as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    manifest = {p.name: digest(p) for p in output.iterdir() if p.is_file()}
+    (output / 'output_checksums.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    print(json.dumps({'status': report['status'],
+                      'original_wid_numeric_rows': wid['observations'],
+                      'revision_audit_country_count': revisions['country_count'],
+                      'counts': revisions['totals'],
+                      'ilostat_accessed': False, 'ingestion_dispatched': False}))
+    return report
+
+
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument('--input', type=Path, required=True)
@@ -352,9 +409,14 @@ def main(argv=None):
     p.add_argument('--repo', default='diegoduque16/Global-economic-policy-tool')
     p.add_argument('--skip-external', action='store_true', help='Offline audit only, no gh or rclone execution')
     p.add_argument('--auto-repair', action='store_true', help='Dispatch existing ILOSTAT ingestion only when stale')
-    p.add_argument('--compare-wid-revisions', action='store_true', help='Compare 20 WID country values against checksum-verified SQLite, opt-in and read-only')
+    p.add_argument('--compare-wid-revisions', action='store_true', help='Compare WID revisions in comprehensive watchdog mode')
+    p.add_argument('--wid-only-revisions', action='store_true', help='Private, read-only WID comparison independent of ILOSTAT/joins/canonical')
     a = p.parse_args(argv)
     d = a.input
+    if a.wid_only_revisions:
+        if a.auto_repair or a.compare_wid_revisions:
+            p.error('--wid-only-revisions cannot be combined with ingestion repair or full-source comparison')
+        return audit_wid_only(d, a.out)
     a.out.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
     state = load_json(d / 'ilostat_state.json')
