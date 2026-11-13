@@ -30,6 +30,7 @@ INPUT = Path('open_data/expanded_source_catalog.csv')
 OUTPUT = Path('research/source_registry')
 WID_MANIFEST = Path('research/wid_23_source_manifest.json')
 WID_REFRESH_WORKFLOW = Path('.github/workflows/atlas-wid-expand-20-countries.yml')
+WID_REFRESH_FINGERPRINTS = Path('research/wid_refresh_20261103_source_fingerprints.json')
 WID_REFRESH_SUCCESS_RUN = 'https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/41588514160'
 REQUIRED = ['theme','dataset','measures','scope','priority','access_mode','current_status','official_source_url','research_rationale_or_limit']
 
@@ -43,8 +44,85 @@ def normalize_status(raw):
     raise ValueError(f'Unknown catalog status: {raw!r}')
 
 
+def compare_wid_raw_source_fingerprints(manifest: dict, refreshed_codes: list[str],
+                                        evidence_path: Path) -> dict:
+    """Compare raw file SHA and retained row counts, NOT observation values.
+
+    All inputs are historical public-safe GitHub metadata. The full source
+    contents remain private. This never claims numerical equality or revisions.
+    """
+    data = json.loads(evidence_path.read_text(encoding='utf-8'))
+    if data.get('schema_version') != 1 or data.get('source_run_id') != 41588514160:
+        raise ValueError('Unexpected WID historical fingerprint evidence version/run')
+    if data.get('expected_refreshed_country_count') != 20 or data.get('expected_refreshed_numeric_source_rows') != 17640:
+        raise ValueError('WID source fingerprint expected counts changed')
+    if data.get('raw_source_files_preserved_only_in_private_onedrive') is not True:
+        raise ValueError('WID fingerprint evidence privacy classification changed')
+    if data.get('canonical_warehouse_modified') is not False or data.get('source_file_sha_differences_do_not_prove_value_changes') is not True:
+        raise ValueError('WID fingerprint evidence overclaims research/canonical status')
+    files = data.get('source_fingerprints')
+    artifacts = data.get('source_artifacts')
+    if not isinstance(files, list) or len(files) != 20 or not isinstance(artifacts, dict) or len(artifacts) != 5:
+        raise ValueError('Incomplete WID country source fingerprint evidence')
+    original = {x['wid_area']: x for x in manifest['countries']}
+    if len(original) != len(manifest['countries']):
+        raise ValueError('Duplicate original WID country')
+    observed = {}
+    artifact_areas = []
+    for group, info in artifacts.items():
+        if not isinstance(info.get('artifact_id'), int) or info['artifact_id'] < 1:
+            raise ValueError('Missing WID source-run artifact identity')
+        if not re.fullmatch(r'[0-9a-f]{64}', info.get('artifact_zip_sha256', '')):
+            raise ValueError('Invalid WID source-run artifact SHA256')
+        areas = info.get('source_country_codes')
+        if not isinstance(areas, list) or len(areas) != 4 or len(set(areas)) != 4:
+            raise ValueError('Invalid WID source-run batch country set')
+        artifact_areas.extend(areas)
+    if len(set(artifact_areas)) != 20 or set(artifact_areas) != set(refreshed_codes):
+        raise ValueError('WID refresh artifact geography differs from configured workflow')
+    for row in files:
+        code = row.get('wid_area')
+        if code in observed or code not in original or code not in refreshed_codes:
+            raise ValueError('Unknown, duplicate or mismatched WID country fingerprint')
+        sha = row.get('source_sha256')
+        if not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{64}', sha):
+            raise ValueError('Invalid WID refreshed raw source SHA256')
+        if row.get('artifact_batch') not in artifacts or code not in artifacts[row['artifact_batch']]['source_country_codes']:
+            raise ValueError('WID country source artifact mismatch')
+        n = row.get('retained_source_shares')
+        pairs = row.get('matched_pretax_posttax_pairs')
+        if type(n) is not int or n < 1 or type(pairs) is not int or pairs < 0:
+            raise ValueError('WID refreshed numeric-row metadata invalid')
+        if pairs != original[code]['pretax_posttax_pairs']:
+            raise ValueError('WID source pairs differ; require explicit review')
+        observed[code] = {'original_sha256': original[code]['source_sha256'],
+                          'refreshed_sha256': sha,
+                          'original_rows': original[code]['source_native_rows'],
+                          'refreshed_rows': n}
+    if set(observed) != set(refreshed_codes):
+        raise ValueError('Missing WID refresh fingerprint countries')
+    originals = sum(row['original_rows'] for row in observed.values())
+    refreshed = sum(row['refreshed_rows'] for row in observed.values())
+    if refreshed != 17640:
+        raise ValueError('WID cumulative refreshed rows do not match five source artifacts')
+    return {
+        'status': 'RAW_SOURCE_FINGERPRINTS_COMPARED_NOT_OBSERVATION_VALUES',
+        'country_count': len(observed),
+        'raw_source_file_sha256_changed_count': sum(x['original_sha256'] != x['refreshed_sha256'] for x in observed.values()),
+        'raw_source_file_sha256_unchanged_count': sum(x['original_sha256'] == x['refreshed_sha256'] for x in observed.values()),
+        'same_retained_source_row_count_countries': sum(x['original_rows'] == x['refreshed_rows'] for x in observed.values()),
+        'baseline_source_rows_for_refreshed_countries': originals,
+        'refreshed_source_rows_for_same_countries': refreshed,
+        'exact_observation_keys_compared': False,
+        'exact_observation_values_compared': False,
+        'new_or_revised_economic_observations_verified': False,
+        'note': 'A changed raw-file SHA may reflect format, record order, metadata, or actual data revisions. Equal row counts do not prove equal keys or values.',
+    }
+
+
 def wid_country_refresh_scope(manifest_path: Path = WID_MANIFEST,
-                              workflow_path: Path = WID_REFRESH_WORKFLOW) -> dict:
+                              workflow_path: Path = WID_REFRESH_WORKFLOW,
+                              fingerprint_path: Path = WID_REFRESH_FINGERPRINTS) -> dict:
     """Compare original SHA-pinned WID country scope with existing refresh plan.
 
     No numeric values, new observations, or identical series are inferred.
@@ -66,6 +144,7 @@ def wid_country_refresh_scope(manifest_path: Path = WID_MANIFEST,
     if len(refreshed) != 20 or len(set(refreshed)) != 20:
         raise ValueError('Duplicate/unexpected WID refresh country codes')
     existing, proposed = set(codes), set(refreshed)
+    comparison = compare_wid_raw_source_fingerprints(original, refreshed, fingerprint_path)
     return {
         'evidence_type': 'COUNTRY_SCOPE_ONLY_NOT_OBSERVATION_DEDUPLICATION',
         'original_country_count': len(codes),
@@ -75,6 +154,8 @@ def wid_country_refresh_scope(manifest_path: Path = WID_MANIFEST,
         'original_country_codes_not_in_refresh': sorted(existing-proposed),
         'original_manifest_sha256': hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
         'refresh_workflow_sha256': hashlib.sha256(workflow_path.read_bytes()).hexdigest(),
+        'source_fingerprint_metadata_sha256': hashlib.sha256(fingerprint_path.read_bytes()).hexdigest(),
+        'source_file_comparison': comparison,
         'referenced_november_3_successful_run': WID_REFRESH_SUCCESS_RUN,
         'run_status_reverified_by_registry': False,
         'same_observation_keys_or_values_verified': False,
@@ -208,12 +289,13 @@ def main():
     if sum(v['priority'] == 'P0' for v in registry) != len(p0):
         raise ValueError('P0 view does not match source registry')
     basis_counts = Counter(v['evidence_basis'] for v in p0)
-    report={'registry_version':'0.2.0','source_catalog_sha256':hashlib.sha256(blob).hexdigest(),
+    report={'registry_version':'0.3.0','source_catalog_sha256':hashlib.sha256(blob).hexdigest(),
             'generated_utc':datetime.now(timezone.utc).isoformat(),
             'source_count':len(registry),'by_status':dict(status),
             'lineage_evidence_map_sha256':hashlib.sha256(json.dumps({
                 'wid_manifest_sha256':hashlib.sha256(WID_MANIFEST.read_bytes()).hexdigest(),
                 'wid_refresh_workflow_sha256':hashlib.sha256(WID_REFRESH_WORKFLOW.read_bytes()).hexdigest(),
+                'wid_refresh_fingerprint_sha256':hashlib.sha256(WID_REFRESH_FINGERPRINTS.read_bytes()).hexdigest(),
                 'historical_family_map':ATLAS1_FAMILY_MAP,
                 'separate_source_runs':SEPARATE_SOURCE_RUNS,
                 'overlap_review_required':sorted(OVERLAP_REVIEW_REQUIRED),
