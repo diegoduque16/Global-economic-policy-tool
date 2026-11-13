@@ -16,14 +16,14 @@ Source: [five successful WID expansion jobs](https://github.com/diegoduque16/Glo
 
 Use **Actions → Atlas - Automatic Economic Data Coverage, Resumption and Backup Watchdog → Run workflow**, with **audit_wid_revisions = true** and **deep_verify = false**. This is the existing workflow; no new job scheduler is installed. The comparison is intentionally **manual-only**, and manual mode does **not** invoke the ILOSTAT auto-repair dispatch.
 
-The run retrieves only the 20 already archived `wid_source_native_shares.csv` files from their existing SHA-addressed private OneDrive locations. Before comparing, the normal watchdog validates the private original WID SQLite against its stored checksum and expected 21,430 values across 23 countries. For each refreshed country, `research/audit_wid_revisions.py` verifies local source identity, row count, parseability, finite numbers and unique keys `(WID area, year, percentile, income/wealth concept)`, then counts:
+The manual WID-only run retrieves the original 23-country WID SQLite and its checksum/validation manifests, plus the 20 already archived `wid_source_native_shares.csv` files from SHA-addressed private OneDrive locations. It independently validates the original WID SQLite against its stored checksum and expected 21,430 values across 23 countries. **It does not read the ILOSTAT checkpoint, WID–WDI joined panel, or canonical warehouse**; those dependencies are bypassed to allow the WID comparison to proceed without the unrelated ILOSTAT checkpoint. For each refreshed country, `research/audit_wid_revisions.py` verifies local source identity, row count, parseability, finite numbers and unique keys `(WID area, year, percentile, income/wealth concept)`, then counts:
 
 - matched observations with exactly equal SQLite REAL values;
 - matched observations with different numerical values;
 - new observation keys; and
 - original keys missing from the refresh.
 
-**No individual numeric values are written to GitHub artifacts.** The existing `source_coverage_audit.json` carries only aggregate counts, per-country status, source SHA evidence and a caution on interpretation. The normal watchdog's private report backup mechanism remains in effect. Temporary downloaded source rows are deleted by its existing cleanup step.
+**No individual numeric values are written to GitHub artifacts.** The existing `source_coverage_audit.json` carries only aggregate counts, per-country status, source SHA evidence and a caution on interpretation. **The manual WID-only audit intentionally skips private OneDrive report write-back**: it publishes the metadata-only report as an existing watchdog GitHub Actions artifact, while the normal scheduled watchdog retains its private round-trip backup behavior. Temporary downloaded source rows are deleted by its existing cleanup step.
 
 The changed raw source hashes, whether or not numerical differences are detected, are **not additional country coverage, causal effects or automatically new canonical observations**. Do not promote any observations until definitions, vintages, overlap and research utility are reviewed.
 
@@ -34,3 +34,9 @@ November 13 ILOSTAT ingestion and daily watchdog failed while reading the privat
 ## Reproduction / validation
 
 The existing registry Actions CI runs three offline synthetic suites: `test_source_registry_reconciliation.py`, `test_wid_revision_audit.py`, and `test_atlas_data_watchdog.py`. These prove accounting and fail-closed behavior but do not substitute for a completed real private-data comparison.
+
+## WID-only isolation correction, 13 November 2026
+
+The original optional WID audit was inadvertently dependent on fetching the ILOSTAT checkpoint and WID–WDI join first. That was incompatible with OneDrive service instability. The existing watchdog now has an isolated `--wid-only-revisions` command path and the existing workflow uses it **only when manually dispatched with `audit_wid_revisions=true`**. Regular daily scheduled execution remains unchanged.
+
+The WID-only run never auto-dispatches ILOSTAT ingestion or attempts to repair checkpoints. In addition, refreshed source variables are checked against the existing WID variable-to-concept validator before comparing values; classification mismatches fail closed. The only private remote access needed is reading the pinned original WID SQLite and 20 refreshed source-native CSVs. Because OneDrive remains unreliable, a successful synthetic test is not evidence that this real comparison has run.
