@@ -23,6 +23,7 @@ on:
     - cron: '43 10 * * 1'
 permissions:
   contents: read
+  actions: read
 jobs:
   build-registry:
     runs-on: ubuntu-latest
@@ -31,6 +32,42 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Temporary live World Bank provider geography crosswalk check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wdi-real-data"
+          gh run download 42581151428 --repo "$GITHUB_REPOSITORY" --name world-bank-wdi-6 --dir "$RUNNER_TEMP/wdi-real-data"
+          python - <<'PY_LIVE_WDI_GEO'
+          import csv
+          import os
+          from collections import Counter
+          from pathlib import Path
+          import urllib.request
+          from open_data.wdi_geography import BASE, metadata_page, country_map, classify_observed
+          source_pages=[]
+          for page in range(1,13):
+              url=BASE+f'?format=json&per_page=500&page={page}'
+              req=urllib.request.Request(url,headers={'User-Agent':'GlobalEconomicPolicyAtlas/1.0'})
+              with urllib.request.urlopen(req,timeout=45) as response:
+                  raw=response.read()
+              pages, _, _=metadata_page(raw,page)
+              source_pages.append(raw)
+              if page == pages: break
+          provider=country_map(source_pages)
+          path=Path(os.environ['RUNNER_TEMP'])/'wdi-real-data'/'processed'/'wdi_panel.csv'
+          with path.open(newline='',encoding='utf-8') as stream:
+              counts=Counter(row['country_iso3'] for row in csv.DictReader(stream))
+          rows,summary=classify_observed(provider,dict(counts))
+          assert len(rows)==261 and sum(counts.values())==300240
+          assert summary['aggregate_codes']>0 and summary['country_or_territory_codes']>0
+          import json
+          print('LIVE_WDI_PROVIDER_GEOGRAPHY_AUDIT',json.dumps(summary,sort_keys=True))
+          print('UNRESOLVED_WDI_GEOGRAPHY_CODES',[x['code'] for x in rows if x['geography_type']=='UNRESOLVED_WORLD_BANK_METADATA'])
+          PY_LIVE_WDI_GEO
+          rm -rf "$RUNNER_TEMP/wdi-real-data"
       - name: Verify source-linkage statuses cannot be overclaimed
         run: |
           python -m unittest discover -s tests -p 'test_source_registry_reconciliation.py' -v
