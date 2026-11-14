@@ -71,3 +71,32 @@ classification and audit of the new source vintage must come first.
 - World Bank data terms: https://www.worldbank.org/en/about/legal/terms-of-use-for-datasets
 
 No third-party mirror or inferred economic data is used.
+
+## Verified recovery outcome (14 November 2026)
+
+The independently validated full source download
+[run 43637384781](https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43637384781)
+**completed successfully** following the updated bulk layout handling
+([PR #19](https://github.com/diegoduque16/Global-economic-policy-tool/pull/19)).
+
+- **59** of 59 configured WDI indicator codes were present in the original
+  World Bank series metadata and contributed actual numeric source values.
+- **572,179** country/territory/aggregate–year–indicator numerical values
+  were source-preserved and then independently matched to the original ZIP.
+- **265** distinct source geography codes (including income and regional
+  aggregates). Do not report them as 265 independent countries.
+- **Zero** ingestion errors and **zero** key/value conflicts.
+- Original official `WDI_CSV.zip` SHA256:
+  `dba33648d6f453a635b076a62b91db5939f5e640c8dcfeabd094219210533100`.
+- GitHub Actions artifact: `world-bank-wdi-9`, artifact ID
+  `14129679689` (compressed artifact size 84,513,186 bytes).
+- Download provenance is explicitly
+  `WORLD_BANK_OFFICIAL_WDI_BULK_CSV`, **not** the API endpoint that
+  failed earlier. The official source ZIP may have an older source
+  release vintage than its retrieval date.
+
+**Outstanding gates:** verify long-term private OneDrive round-trip backup,
+source-series country/aggregate geography classification, any indicator-level
+license exceptions, provider vintages and release data completeness.
+The public Atlas website still uses its independently verified 32-series
+source edition and has **not** been silently overwritten or promoted.
