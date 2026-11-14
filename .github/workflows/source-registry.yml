@@ -14,6 +14,7 @@ on:
       - '.github/workflows/world-bank.yml'
       - 'research/query_atlas_wdi.py'
       - 'tests/test_atlas_web.py'
+      - 'scripts/audit_public_wdi_series.py'
       - 'scripts/build_source_registry.py'
       - 'research/atlas1_reconcile_inventory.py'
       - 'research/wid_23_source_manifest.json'
