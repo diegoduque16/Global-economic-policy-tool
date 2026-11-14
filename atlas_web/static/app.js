@@ -360,6 +360,10 @@ function download(){
 function attach(){
  $("nav-explore").addEventListener("click",()=>mode("explore"));
  $("nav-catalog").addEventListener("click",()=>mode("catalog"));
+ $("toggle-filters").addEventListener("click",()=>{
+  const expanded=document.querySelector(".side").classList.toggle("show-filters");
+  $("toggle-filters").setAttribute("aria-expanded",String(expanded));
+ });
  $("open-source-catalog").addEventListener("click",()=>mode("catalog"));
  $("family").addEventListener("change",loadFamily);
  $("series").addEventListener("change",()=>{
