@@ -14,6 +14,11 @@ import json
 import math
 from pathlib import Path
 
+if __package__:
+    from .research_sqlite import build_sqlite_release
+else:
+    from research_sqlite import build_sqlite_release
+
 SOURCE_NAME = "World Bank World Development Indicators"
 FIELDS_LONG = ("geography_code", "year", "indicator_code", "value")
 COVERAGE_FIELDS = (
@@ -209,6 +214,15 @@ def build_research_exports(source: Path, destination: Path) -> dict:
         "causal_inference_ready": False,
         "caveat": "Descriptive country-year research data only, not a causal treatment/outcome design."
     }
+    # Bundle an indexed, read-only research edition in addition to flat CSVs.
+    # Every numeric observation comes from the same previously audited long CSV
+    # and is checked against the exact source catalogue/type classification.
+    sqlite_release = build_sqlite_release(destination, catalog, report)
+    output_hashes[sqlite_release["archive"]] = {
+        "sha256": sqlite_release["archive_sha256"],
+        "bytes": sqlite_release["archive_bytes"],
+    }
+    report["sqlite_research_edition"] = sqlite_release
     (destination / "research_manifest.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -219,6 +233,10 @@ def build_research_exports(source: Path, destination: Path) -> dict:
         "Official source: https://datatopics.worldbank.org/world-development-indicators/\n"
         "World Bank data terms: https://www.worldbank.org/en/about/legal/terms-of-use-for-datasets\n"
         "CC BY 4.0 generally applies to WDI, subject to specific third-party indicator rights.\n\n"
+        "atlas_wdi_research.sqlite.zip : indexed read-only research database (SQLite).\n"
+        "  Extract the single SQLite file, query country_observations or aggregate_observations;\n"
+        "  do not combine the two geographies as a set of countries. No imputed values.\n"
+        "  The archive SHA256 and SQLite row counts appear in research_manifest.json.\n"
         "wdi_country_year_long.csv : actual source-defined numeric values by country / year / code.\n"
         "wdi_country_year_wide.csv : outer union of country/territory-years with source codes as\n"
         "  columns. A blank cell is missing, NOT zero. No filling or interpolation.\n"
