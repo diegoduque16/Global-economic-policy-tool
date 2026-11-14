@@ -23,6 +23,7 @@ on:
       - 'research/wid_refresh_20261103_source_fingerprints.json'
       - 'research/audit_wid_revisions.py'
       - 'tests/test_wid_revision_audit.py'
+      - 'tests/test_wid_expansion_scope.py'
       - 'scripts/atlas_data_watchdog.py'
       - '.github/workflows/atlas-data-pipeline-watchdog.yml'
       - '.github/workflows/atlas-wid-expand-20-countries.yml'
@@ -48,6 +49,7 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_source_registry_reconciliation.py' -v
           python -m unittest discover -s tests -p 'test_wid_revision_audit.py' -v
+          python -m unittest discover -s tests -p 'test_wid_expansion_scope.py' -v
           python -m unittest discover -s tests -p 'test_atlas_data_watchdog.py' -v
           python -m unittest discover -s tests -p 'test_wdi_bulk.py' -v
           python -m unittest discover -s tests -p 'test_ilostat_native_profile.py' -v
