@@ -377,6 +377,9 @@ def validate_wdi_download(folder: Path) -> dict:
     if type(report.get('observations')) is not int or report['observations'] < WDI_MIN_ROWS:
         raise ValueError('WDI numeric coverage fell below existing full-global floor')
     urls, names, indicators = set(), set(), set()
+    raw_values = {}
+    raw_source_rows = 0
+    raw_skipped_rows = 0
     for entry in manifest:
         if not isinstance(entry, dict):
             raise ValueError('Malformed WDI raw page entry')
@@ -391,10 +394,43 @@ def validate_wdi_download(folder: Path) -> dict:
             raise ValueError('Duplicate WDI raw page identity')
         names.add(name); urls.add(url); indicators.add(indicator)
         p = folder / 'raw' / name
-        if p.is_symlink() or not p.is_file() or digest(p) != ensure_sha(sha):
+        sha = ensure_sha(sha)
+        match = re.fullmatch(re.escape(indicator) + r'_(\\d+)_' + re.escape(sha[:12]) + r'\\.json', name)
+        if not match:
+            raise ValueError('WDI raw filename does not bind page, indicator and source SHA')
+        if p.is_symlink() or not p.is_file() or digest(p) != sha:
             raise ValueError('WDI original API response SHA256 mismatch')
         if type(entry.get('returned')) is not int or entry['returned'] < 0:
             raise ValueError('Invalid WDI raw page row count')
+        payload = json.loads(p.read_bytes())
+        if (not isinstance(payload,list) or len(payload)!=2
+                or not isinstance(payload[0],dict) or not isinstance(payload[1],list)
+                or type(payload[0].get('page')) is not int
+                or payload[0]['page'] != int(match.group(1))
+                or len(payload[1]) != entry['returned']):
+            raise ValueError('WDI original API page response conflicts with manifest')
+        raw_source_rows += len(payload[1])
+        for source_row in payload[1]:
+            if not isinstance(source_row,dict) or not isinstance(source_row.get('indicator'),dict) or source_row['indicator'].get('id') != indicator:
+                raise ValueError('WDI source observation belongs to unexpected indicator')
+            code, year, value = (source_row.get(k) for k in ('countryiso3code','date','value'))
+            # Mirror existing WDI ingestion's legitimate exclusion of missing
+            # values and non-ISO3-format records, without filling them with zero.
+            if (not isinstance(code,str) or len(code)!=3 or not code.isalpha()
+                    or not isinstance(year,str) or len(year)!=4 or not year.isdigit()
+                    or value is None):
+                raw_skipped_rows += 1
+                continue
+            try:
+                numeric = float(value)
+            except (TypeError,ValueError,OverflowError) as exc:
+                raise ValueError('Invalid WDI original numeric source observation') from exc
+            if not math.isfinite(numeric):
+                raise ValueError('Nonfinite WDI original numeric source observation')
+            key=(code.upper(),int(year),indicator)
+            if key in raw_values and raw_values[key]!=numeric:
+                raise ValueError('Conflicting WDI original numeric observation keys')
+            raw_values[key]=numeric
     rawdir = folder / 'raw'
     if {p.name for p in rawdir.iterdir()} != names or any(p.is_symlink() for p in rawdir.iterdir()):
         raise ValueError('Untracked WDI raw source file present')
@@ -423,10 +459,12 @@ def validate_wdi_download(folder: Path) -> dict:
             key=(code,year,indicator)
             if key in keys:
                 raise ValueError('Duplicate WDI country-year-indicator observation')
+            if key not in raw_values or raw_values[key]!=value:
+                raise ValueError('WDI processed numeric row is not backed by original API value')
             keys.add(key); count+=1
             geographies.add(code); years.add(year)
-    if count != report['observations']:
-        raise ValueError('WDI actual numeric records disagree with run report')
+    if count != report['observations'] or count != len(raw_values) or keys != set(raw_values):
+        raise ValueError('WDI normalized panel is not identical to recorded nonmissing source values')
     regular = {str(p.relative_to(folder)) for p in folder.rglob('*') if p.is_file()}
     expected = {'run_report.json','processed/wdi_panel.csv'} | {'raw/'+name for name in names}
     if regular != expected or any(p.is_symlink() for p in folder.rglob('*')):
@@ -435,6 +473,9 @@ def validate_wdi_download(folder: Path) -> dict:
             'observations':count,'raw_pages':len(names),'indicators_with_raw_pages':len(indicators),
             'geography_codes':len(geographies),
             'first_observed_year':min(years),'last_observed_year':max(years),
+            'raw_source_rows_examined':raw_source_rows,
+            'raw_rows_missing_or_excluded_by_native_normalizer':raw_skipped_rows,
+            'all_output_numeric_keys_and_values_matched_original_raw':True,
             # WLD is the World Bank world aggregate, not a country. Preserve all
             # source-native rows; classify *all* geographies against official
             # country/aggregate metadata before any country-only research use.
