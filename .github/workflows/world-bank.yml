@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - 'open_data/wdi_indicators.json'
+      - 'open_data/wdi_bulk.py'
+      - 'open_data/ingest.py'
       - '.github/workflows/world-bank.yml'
   workflow_dispatch:
     inputs:
