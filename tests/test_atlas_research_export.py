@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from atlas_public.research_export import build_research_exports
+from research.query_atlas_wdi import subset
 
 
 class AtlasResearchExports(unittest.TestCase):
@@ -95,6 +96,21 @@ class AtlasResearchExports(unittest.TestCase):
             (data / "catalog.json").write_text(json.dumps(metadata))
             with self.assertRaisesRegex(ValueError, "Unknown World Bank"):
                 build_research_exports(data, root / "invalid")
+
+    def test_research_query_is_reproducible_and_rejects_tampered_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data = self.small_release(root)
+            build_research_exports(data, root / "export")
+            audit = subset(root / "export", root / "selected.csv", {"USA"},
+                           {"GDP.TEST", "TAX.TEST"}, 2020, 2021)
+            self.assertEqual(audit["actual_numeric_observations"], 4)
+            self.assertTrue((root / "selected.audit.json").is_file())
+            with (root / "export/wdi_country_year_long.csv").open("a") as f:
+                f.write("USA,2020,GDP.TEST,999\\n")
+            with self.assertRaisesRegex(ValueError, "SHA256/size"):
+                subset(root / "export", root / "tampered.csv", {"USA"},
+                       {"GDP.TEST"}, 2020, 2021)
 
     def test_actual_public_data_build_has_complete_provenance(self):
         data = Path(__file__).resolve().parents[1] / "atlas_public" / "data"
