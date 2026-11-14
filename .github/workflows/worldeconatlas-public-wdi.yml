@@ -1,0 +1,86 @@
+name: World Economic Atlas - verified public WDI edition
+
+# Controlled publisher of one existing and verified source artifact.
+# Not another collector, warehouse or raw/private backup.
+on:
+  push:
+    branches:
+      - feat/worldeconatlas-public-pages-20261114
+    paths:
+      - '.github/workflows/worldeconatlas-public-wdi.yml'
+      - 'atlas_public/export_wdi.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: worldeconatlas-public-wdi-pinned-release
+  cancel-in-progress: false
+
+jobs:
+  publish-verified-wdi-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Retrieve existing Atlas WDI source artifact; do not repeat collection
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/atlas-pinned-wdi"
+          gh run download 42581151428 --repo "$GH_REPO" \
+            --name world-bank-wdi-6 --dir "$RUNNER_TEMP/atlas-pinned-wdi"
+          test -s "$RUNNER_TEMP/atlas-pinned-wdi/run_report.json"
+          test -s "$RUNNER_TEMP/atlas-pinned-wdi/processed/wdi_panel.csv"
+      - name: Verify original API pages, source values and publisher output
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf atlas_public/data
+          python atlas_public/export_wdi.py \
+            --source "$RUNNER_TEMP/atlas-pinned-wdi" --output atlas_public/data
+          python atlas_public/build_site.py
+          python -m unittest discover -s tests -p 'test_atlas_public.py' -v
+          node --check atlas_public/dist/app.js
+          node --check atlas_public/dist/public_adapter.js
+          python - <<'PY_RELEASE'
+          import json
+          from pathlib import Path
+          root=Path('atlas_public/dist')
+          meta=json.loads((root/'data/catalog.json').read_text())
+          assert meta['summary']['observations']==300240
+          assert meta['summary']['series']==32
+          assert meta['summary']['country_or_territory_codes']==217
+          assert meta['summary']['aggregate_codes']==44
+          assert len(list((root/'data/series').glob('*.json')))==32
+          assert not list(root.rglob('warehouse.sqlite'))
+          assert not list(root.rglob('raw/*'))
+          print('WORLD_ECON_ATLAS_PUBLIC_SOURCE_RELEASE_VALIDATED',
+                meta['summary'], 'sha', meta['input_panel_sha256'])
+          PY_RELEASE
+      - name: Commit only verified public WDI series to feature branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Atlas Verified Source Publisher"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add atlas_public/data
+          if git diff --cached --quiet; then
+            echo "Public edition already matches validated input."
+            exit 0
+          fi
+          git commit -m "Publish source-verified WDI public data edition [skip ci]"
+          # A parallel source-registry check or reviewer may advance this branch.
+          # Rebase only the generated public files; never force-push.
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

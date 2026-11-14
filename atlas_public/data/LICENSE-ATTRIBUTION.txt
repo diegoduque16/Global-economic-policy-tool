@@ -1,0 +1,5 @@
+World Bank, World Development Indicators (WDI), accessed November 9, 2026.
+Public WDI source snapshot transformed into annual indicator JSON by World Economic Atlas.
+The World Bank WDI dataset is generally licensed CC BY 4.0; individual third-party
+indicator exceptions may apply. See https://www.worldbank.org/en/about/legal/terms-of-use-for-datasets
+This export retains source units. It is not a harmonized Atlas warehouse.
