@@ -78,8 +78,37 @@
         </section>
 
         <section id="explore-view" class="main-view">
+          <section class="quick-explorer" aria-label="Choose a country and indicator">
+            <div class="quick-intro">
+              <div><span class="quick-eyebrow">START EXPLORING</span><h2>Your world, in data.</h2>
+                <p>Pick a country and an indicator to see the trend. Change either choice to update the chart.</p></div>
+              <span class="quick-data-pill">Verified source data</span>
+            </div>
+            <div class="quick-fields">
+              <div class="quick-field">
+                <label for="quick-country"><span class="quick-step">1</span> Choose a country</label>
+                <input id="quick-country-search" type="search" placeholder="Search by country name…" autocomplete="off" aria-label="Filter countries">
+                <select id="quick-country" aria-label="Choose a country or region"><option value="">Loading countries…</option></select>
+                <small id="quick-country-hint">Select a country or territory. Compare more using the sidebar.</small>
+              </div>
+              <div class="quick-field">
+                <label for="quick-indicator"><span class="quick-step">2</span> Choose an indicator</label>
+                <input id="quick-indicator-search" type="search" placeholder="Try GDP, population, inflation…" autocomplete="off" aria-label="Search indicators">
+                <select id="quick-indicator" aria-label="Choose an indicator"><option value="">Loading indicators…</option></select>
+                <small id="quick-indicator-hint">Choose from indicators available in this source.</small>
+              </div>
+              <div class="quick-field">
+                <label for="quick-year-start"><span class="quick-step">3</span> Select years</label>
+                <div class="quick-years">
+                  <div><label for="quick-year-start">From</label><input id="quick-year-start" type="number" min="-1000" max="2200" value="1960"></div>
+                  <div><label for="quick-year-end">To</label><input id="quick-year-end" type="number" min="-1000" max="2200" value="2026"></div>
+                </div>
+                <button id="quick-apply" class="quick-action">Show data <span aria-hidden="true">→</span></button>
+              </div>
+            </div>
+          </section>
           <div class="section-heading">
-            <div><h2>Visual explorer</h2><p>Use the filters at left to query and compare actual source observations.</p></div>
+            <div><h2>Visual explorer</h2><p>Explore trends, switch chart views, or compare additional countries in the sidebar.</p></div>
             <button class="outline-btn" id="csv-export">↓ Export CSV</button>
           </div>
           <article class="graph-card">
