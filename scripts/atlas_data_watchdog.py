@@ -381,6 +381,14 @@ def validate_wdi_download(folder: Path) -> dict:
     """Check actual WDI API pages, value types, panel keys and source manifest."""
     folder = Path(folder)
     report = load_json(folder / 'run_report.json')
+    if report.get('transport') == 'WORLD_BANK_OFFICIAL_WDI_BULK_CSV':
+        # Preserve the same independent source-to-processed verification gate
+        # when the original Indicators API is temporarily unavailable.
+        # Never relabel a bulk source ZIP as API pages or accept unknown modes.
+        from open_data.wdi_bulk import validate_bulk_download
+        return validate_bulk_download(folder)
+    if report.get('transport') not in (None, 'WORLD_BANK_INDICATORS_API'):
+        raise ValueError('Unknown WDI original-source transport')
     if report.get('errors') != [] or report.get('conflicts') != []:
         raise ValueError('WDI source run reported retrieval errors or conflicts')
     if report.get('country_query') != 'all' or report.get('start') != 1960 or report.get('end', 0) < 2026:

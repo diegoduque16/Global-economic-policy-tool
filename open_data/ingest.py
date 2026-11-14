@@ -106,8 +106,14 @@ def run(out,country,start,end,indicators,fetch=fetch_json):
     (out/'run_report.json').write_text(json.dumps(report,indent=2));return report
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--out',default='data/wdi');p.add_argument('--countries',default='all');p.add_argument('--start',type=int,default=1960);p.add_argument('--end',type=int,default=2025);p.add_argument('--group',default='all');p.add_argument('--limit',type=int,default=0)
+    p=argparse.ArgumentParser();p.add_argument('--transport',choices=('api','bulk'),default='api',help='Official source transport; bulk is the outage-proof all-country WDI source ZIP');p.add_argument('--out',default='data/wdi');p.add_argument('--countries',default='all');p.add_argument('--start',type=int,default=1960);p.add_argument('--end',type=int,default=2025);p.add_argument('--group',default='all');p.add_argument('--limit',type=int,default=0)
     args=p.parse_args(); groups=json.loads((Path(__file__).parent/'wdi_indicators.json').read_text()); indicators=list(dict.fromkeys(k for group,series in groups.items() if args.group in ('all',group) for k in series))
     if args.limit:indicators=indicators[:args.limit]
-    result=run(args.out,args.countries,args.start,args.end,indicators)
+    if args.transport == 'bulk':
+        if args.countries!='all' or args.group!='all' or args.limit!=0:
+            p.error('Official bulk ZIP transport is only valid for complete global/all-series source downloads')
+        from wdi_bulk import collect_bulk
+        result=collect_bulk(Path(args.out),indicators,start=args.start,end=args.end)
+    else:
+        result=run(args.out,args.countries,args.start,args.end,indicators)
     print(json.dumps({k:v for k,v in result.items() if k!='manifest'},indent=2))
