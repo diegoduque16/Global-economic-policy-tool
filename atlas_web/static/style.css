@@ -141,7 +141,8 @@ footer{font-size:11px;color:#9aa8b9;margin:36px 0 8px;line-height:1.5}
 .content>#explore-view,.content>#catalog-view{order:2}
 .content>.kpis{order:3;margin-top:24px}
 .content>.catalog-overview{order:4;margin-top:0}
-.content>footer{order:5}
+.content>.public-attribution{order:5}
+.content>footer{order:6}
 .quick-explorer{background:#fff;border:1px solid #dce6f5;border-radius:18px;
   padding:clamp(20px,2.5vw,32px);box-shadow:0 15px 48px #183c7210;margin-bottom:27px}
 .quick-intro{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:24px}
