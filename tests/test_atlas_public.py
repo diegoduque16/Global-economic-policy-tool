@@ -29,7 +29,7 @@ class PublicWebsiteTests(unittest.TestCase):
             (data/"catalog.json").write_text(json.dumps(manifest))
             (data/"LICENSE-ATTRIBUTION.txt").write_text("World Bank WDI attribution")
             output=root/"site"
-            result=build(data=data,output=output)
+            result=build(data=data,output=output,include_research=False)
             self.assertTrue(result["public_edition"])
             self.assertEqual(result["public_records"],300240)
             for name in ("index.html","app.js","style.css","public_adapter.js",
