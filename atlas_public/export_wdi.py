@@ -42,7 +42,7 @@ def digest(path):
 
 
 def load_definitions():
-    groups = json.loads((ROOT / "open_data" / "wdi_indicators.json").read_text(encoding="utf-8"))
+    groups = json.loads((ROOT / "atlas_public" / "wdi_20261109_definitions.json").read_text(encoding="utf-8"))
     definitions = {}
     for group, descriptions in groups.items():
         for code, label in descriptions.items():
