@@ -140,11 +140,19 @@ def scan_bulk(path: Path, indicators: list[str], start: int, end: int) -> dict:
                 raise ValueError("Unsafe or unexpectedly large WDI ZIP source member")
         if sum(m.file_size for m in members) > MAX_UNCOMPRESSED_BYTES:
             raise ValueError("WDI official source uncompressed size exceeds safety cap")
-        if "WDIData.csv" not in archive.namelist() or "WDISeries.csv" not in archive.namelist():
-            raise ValueError("Official WDI ZIP lacks required data and series metadata")
+        # World Bank has distributed both WDIData.csv and WDICSV.csv,
+        # sometimes with a single archive folder prefix. Identify the
+        # source member by its original filename, never inventing a file.
+        names = archive.namelist()
+        raw_data = [n for n in names if
+                    Path(n).name in ("WDIData.csv", "WDICSV.csv")]
+        raw_series = [n for n in names if Path(n).name == "WDISeries.csv"]
+        if len(raw_data) != 1 or len(raw_series) != 1:
+            raise ValueError("Official WDI ZIP has unrecognized CSV member layout: " +
+                             ",".join(sorted(names)[:15]))
 
         official_series = set()
-        with _open_csv(archive, "WDISeries.csv") as stream:
+        with _open_csv(archive, raw_series[0]) as stream:
             meta = csv.DictReader(stream)
             if "Series Code" not in (meta.fieldnames or []):
                 raise ValueError("Unknown official WDI series metadata schema")
@@ -156,7 +164,7 @@ def scan_bulk(path: Path, indicators: list[str], start: int, end: int) -> dict:
             raise ValueError("Official bulk ZIP series metadata missing requested codes: " +
                              ",".join(sorted(set(requested) - official_series)))
 
-        with _open_csv(archive, "WDIData.csv") as stream:
+        with _open_csv(archive, raw_data[0]) as stream:
             reader = csv.DictReader(stream)
             fields = reader.fieldnames or []
             if not {"Country Code", "Indicator Code"}.issubset(fields):
