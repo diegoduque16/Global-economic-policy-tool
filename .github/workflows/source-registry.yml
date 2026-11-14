@@ -14,6 +14,7 @@ on:
       - '.github/workflows/atlas-data-pipeline-watchdog.yml'
       - '.github/workflows/atlas-wid-expand-20-countries.yml'
       - 'tests/test_source_registry_reconciliation.py'
+      - 'tests/test_atlas_data_watchdog.py'
       - '.github/workflows/source-registry.yml'
   schedule:
     - cron: '43 10 * * 1'
