@@ -109,6 +109,7 @@ def build(data=None, output=None, *, include_research=True):
             '<p>Clean source-preserving data, coverage reports, and provenance for reproducible analysis. '
             'Missing values remain missing; aggregates are separate from countries.</p></div>'
             '<div class="research-links">'
+            '<a href="/research/atlas_wdi_research.sqlite.zip" download>Research database (SQLite ZIP) ↓</a>'
             '<a href="/research/wdi_country_year_wide.csv" download>Country–year dataset (wide) ↓</a>'
             '<a href="/research/wdi_country_year_long.csv" download>Research dataset (long) ↓</a>'
             '<a href="/research/wdi_variable_dictionary.csv" download>Variable dictionary ↓</a>'
