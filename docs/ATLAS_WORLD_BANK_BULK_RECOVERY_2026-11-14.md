@@ -95,8 +95,36 @@ The independently validated full source download
   failed earlier. The official source ZIP may have an older source
   release vintage than its retrieval date.
 
-**Outstanding gates:** verify long-term private OneDrive round-trip backup,
-source-series country/aggregate geography classification, any indicator-level
-license exceptions, provider vintages and release data completeness.
-The public Atlas website still uses its independently verified 32-series
-source edition and has **not** been silently overwritten or promoted.
+## Permanent original-source backup: independently verified November 14, 2026
+
+The existing data coverage/backup watchdog was triggered to secure the
+successful 59-series full source artifact before its GitHub Actions retention
+expired. The first backup attempt [run 43642665591](https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43642665591)
+**correctly failed closed**: direct execution of
+`scripts/atlas_data_watchdog.py` did not include the repository's sibling
+`open_data/` validator on Python's import path. This was repaired with a
+standalone isolated-process regression test in
+[PR #26](https://github.com/diegoduque16/Global-economic-policy-tool/pull/26).
+
+The successful reattempt
+[run 43643193303](https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43643193303)
+proved:
+- `wdi_source_backup` status
+  `NEW_WDI_SOURCE_ARCHIVE_PRIVATE_BYTES_VERIFIED`.
+- Exact full WDI source run ID **43637384781** and **572,179** numeric
+  observations; no synthetic values added and no re-download from provider.
+- Independent raw official WDI ZIP-to-panel numeric key/value verification
+  **before** private archive creation.
+- A permanent private OneDrive archive containing the original downloaded
+  source ZIP, verified normalized panel and run report, with its restored
+  archive bytes independently matching SHA-256
+  `6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a`.
+- Private watchdog control-report copies separately round-trip verified.
+- GitHub workflow concluded **success**; no public raw data were published.
+
+**Remaining gates, not backup:** source-series country/aggregate geography
+classification, indicator-level licensing exceptions, official release
+vintage review, source-native/canonical exact-key integration, and a separately
+versioned public release. The public website still uses its independently
+verified **32-series** source edition; the private 59-series archive is not
+evidence that the website or canonical warehouse has been upgraded.
