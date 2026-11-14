@@ -54,7 +54,9 @@ jobs:
           echo "RCLONE_CONFIG=$RUNNER_TEMP/rclone/rclone.conf" >> "$GITHUB_ENV"
       - name: Test Atlas checkpoint guard
         shell: bash
-        run: python -m unittest discover -s tests -p 'test_ilostat_checkpoint_guard.py'
+        run: |
+          python -m unittest discover -s tests -p 'test_ilostat_checkpoint_guard.py' -v
+          python -m unittest discover -s tests -p 'test_ilostat_native_profile.py' -v
 
       - name: Verify ILOSTAT checkpoint before ingestion
         shell: bash
@@ -75,6 +77,9 @@ jobs:
           from urllib.parse import urlencode, urlsplit
           from urllib.request import Request, urlopen
           from urllib.error import HTTPError, URLError
+          from scripts.ilostat_native_profile import (
+              profile_native_file, write_inventory, sha256_bytes,
+          )
 
           HOST = 'rplumber.ilo.org'
           TOC = 'https://rplumber.ilo.org/metadata/toc/indicator?format=.csv&lang=en'
@@ -327,7 +332,11 @@ jobs:
                           if remaining < MAX_FILE:
                               break
                           bytes_downloaded=request(url,local,MAX_FILE,3)
-                          rows,header=verify_gz(local,r.get('n.records',''))
+                          # Stream every source-native row once, validating gzip
+                          # integrity, row counts, actual finite numeric values,
+                          # blanks and unrecognized value markers. No harmonization.
+                          native_profile=profile_native_file(local,r.get('n.records',''))
+                          rows,header=native_profile['records_validated'],native_profile['csv_header']
                           sha=digest(local)
                           last_tag=re.sub('[^0-9A-Za-z]','',r.get('last.update','unknown'))[:20] or 'unknown'
                           remote=TARGET+'/'+key+'/'+key+'-'+last_tag+'-'+sha[:16]+'.csv.gz'
@@ -335,6 +344,7 @@ jobs:
                           verified={'last_update':r.get('last.update',''),'toc_records':r.get('n.records',''),
                                     'records_validated':rows,'compressed_bytes':bytes_downloaded,
                                     'csv_header':header,'sha256':sha,'source_url':url,'remote':remote,
+                                    'native_numeric_profile':native_profile,
                                     'verified_utc':NOW,'state':'NATIVE_NOT_HARMONIZED'}
                           state['downloaded'][key]=verified
                           state['deferred'].pop(key,None)
@@ -372,6 +382,19 @@ jobs:
                   report['checkpoint_remote']=MANIFEST
                   report['source_native_readiness']='NOT_HARMONIZED_OR_CAUSALLY_VALIDATED'
                   report['replication_note']='Raw ILOSTAT indicator CSV.gz datasets can overlap with existing warehouse records; do not add to canonical counts without keyed deduplication and QA.'
+                  # Publish metadata-only evidence from the same already
+                  # private SHA-pinned checkpoint. Historical files without a
+                  # source-native numeric profile are explicitly UNKNOWN.
+                  checkpoint_blob=(json.dumps(state,indent=2,sort_keys=True)+'\n').encode('utf-8')
+                  inventory=write_inventory(OUT,state,toc,checkpoint_sha256=sha256_bytes(checkpoint_blob))
+                  if (inventory['source_tables_matching_current_toc_vintage'] >
+                          report['cumulative_downloaded_files']):
+                      raise ValueError('ILOSTAT source table inventory exceeds current TOC coverage')
+                  report['numeric_profile_evidence_stage']=inventory['stage']
+                  report['native_source_tables_value_profiled']=inventory['source_tables_with_numeric_value_profile']
+                  report['native_source_tables_not_yet_value_profiled']=inventory['historical_source_tables_not_yet_profiled']
+                  report['finite_numeric_rows_in_profiled_source_tables_only']=inventory[
+                      'finite_numeric_obs_value_rows_in_profiled_tables_ONLY']
                   (OUT/'summary.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
                   with (OUT/'batch_results.csv').open('w',encoding='utf-8',newline='') as f:
                       cols=['id','toc_last_update','toc_records','result','rows','compressed_bytes','sha256','error','url']
