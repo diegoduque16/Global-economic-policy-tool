@@ -30,7 +30,7 @@ OVERLAP_REVIEW_REQUIRED = {
 INPUT = Path('open_data/expanded_source_catalog.csv')
 OUTPUT = Path('research/source_registry')
 WID_MANIFEST = Path('research/wid_23_source_manifest.json')
-WID_REFRESH_WORKFLOW = Path('.github/workflows/atlas-wid-expand-20-countries.yml')
+WID_REFRESH_WORKFLOW = Path('research/wid_refresh_20261103_historical_scope.txt')  # frozen 2026-11-03 evidence; NEVER the mutable expansion workflow
 WID_REFRESH_FINGERPRINTS = Path('research/wid_refresh_20261103_source_fingerprints.json')
 WID_REFRESH_SUCCESS_RUN = 'https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/41588514160'
 REQUIRED = ['theme','dataset','measures','scope','priority','access_mode','current_status','official_source_url','research_rationale_or_limit']
@@ -124,7 +124,7 @@ def compare_wid_raw_source_fingerprints(manifest: dict, refreshed_codes: list[st
 def wid_country_refresh_scope(manifest_path: Path = WID_MANIFEST,
                               workflow_path: Path = WID_REFRESH_WORKFLOW,
                               fingerprint_path: Path = WID_REFRESH_FINGERPRINTS) -> dict:
-    """Compare original SHA-pinned WID country scope with existing refresh plan.
+    """Compare original SHA-pinned WID countries with immutable 2026-11-03 refresh evidence.
 
     No numeric values, new observations, or identical series are inferred.
     """
@@ -154,7 +154,7 @@ def wid_country_refresh_scope(manifest_path: Path = WID_MANIFEST,
         'new_country_codes_not_in_original': sorted(proposed-existing),
         'original_country_codes_not_in_refresh': sorted(existing-proposed),
         'original_manifest_sha256': hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
-        'refresh_workflow_sha256': hashlib.sha256(workflow_path.read_bytes()).hexdigest(),
+        'historical_refresh_scope_sha256': hashlib.sha256(workflow_path.read_bytes()).hexdigest(),
         'source_fingerprint_metadata_sha256': hashlib.sha256(fingerprint_path.read_bytes()).hexdigest(),
         'source_file_comparison': comparison,
         'referenced_november_3_successful_run': WID_REFRESH_SUCCESS_RUN,
