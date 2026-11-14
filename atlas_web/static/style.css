@@ -176,3 +176,14 @@ footer{font-size:11px;color:#9aa8b9;margin:36px 0 8px;line-height:1.5}
 @media(max-width:520px){.quick-explorer{padding:17px;border-radius:13px}.quick-fields{gap:22px}.quick-intro{margin-bottom:18px}
  .quick-intro h2{font-size:23px}.quick-field>input,.quick-field>select{height:48px}.quick-action{min-height:46px}
  .content>.kpis{margin-top:18px}}
+
+/* Keep the guided explorer first on mobile; reveal comparisons only on demand. */
+.mobile-toggle{display:none}
+@media(max-width:800px){
+ .mobile-toggle{display:block;width:100%;text-align:center;padding:10px 12px;background:#213c61;
+  color:#d7e6ff;border:1px solid #3c577c;border-radius:9px;font-size:12px;font-weight:750;margin:0 0 6px}
+ .sidebar-filters{display:none}
+ .side.show-filters .sidebar-filters{display:block;padding-top:12px}
+ .side.show-filters .filter-block{width:100%;display:block}
+ .side.show-filters .apply-btn{width:calc(100% - 14px)}
+}
