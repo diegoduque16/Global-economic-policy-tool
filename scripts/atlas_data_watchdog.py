@@ -14,6 +14,7 @@ import hashlib
 import io
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -27,6 +28,9 @@ ILOSTAT_ROOT = REMOTE_ROOT + '/atlas/ilostat-bulk-v1'
 CANONICAL_SHA256 = '8f6ae9a3674045851c0726aa6415014389082a6309e784c77753542d7147072f'
 ILOSTAT_WORKFLOW = 'atlas-ilostat-bulk-resumable-ingestion.yml'
 BATCH_WORKFLOW = 'expand-economic-sources-batch.yml'
+WDI_WORKFLOW = 'world-bank.yml'
+WDI_REMOTE_ROOT = REMOTE_ROOT + '/atlas/wdi-verified-source-archives-v1'
+WDI_MIN_ROWS = 100_000
 CANONICAL_EXPECTED = 2_780_117
 WID_EXPECTED = 21_430
 ISO3 = re.compile(r'[A-Z]{3}\Z')
@@ -245,7 +249,7 @@ def sample_ilostat_remote(state: dict, max_bytes: int = 16 * 1024 * 1024) -> dic
 def github_runs(repo: str, workflow: str, count: int = 15) -> list:
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo):
         raise ValueError('Unexpected GitHub repository path')
-    if workflow not in (ILOSTAT_WORKFLOW, BATCH_WORKFLOW):
+    if workflow not in (ILOSTAT_WORKFLOW, BATCH_WORKFLOW, WDI_WORKFLOW):
         raise ValueError('Unapproved workflow')
     response = json.loads(run(['gh', 'api', f'repos/{repo}/actions/workflows/{workflow}/runs?per_page={count}'], timeout=90))
     if not isinstance(response, dict) or not isinstance(response.get('workflow_runs'), list):
@@ -335,14 +339,198 @@ def backup_recent_batch(repo: str, now: datetime, output: Path) -> dict:
     return {'status': 'NEW_SOURCE_NATIVE_ARCHIVE_BACKED_UP_AND_SHA256_VERIFIED', 'run_id': rid, **audit}
 
 
-def make_ledger(ilostat: dict, wid: dict, joined: dict, canonical: dict, batch: dict) -> list[dict]:
-    return [
+
+def select_wdi_run(runs: list, now: datetime) -> dict | None:
+    """Only successful production scheduled WDI runs; reject smoke/test branches."""
+    eligible = [x for x in runs
+                if x.get('event') == 'schedule'
+                and x.get('head_branch') == 'main'
+                and x.get('status') == 'completed'
+                and x.get('conclusion') == 'success']
+    if not eligible:
+        return None
+    latest = max(eligible, key=lambda x: iso_time(x['created_at']))
+    age = (now - iso_time(latest['created_at'])).total_seconds() / 86400
+    if age < -0.01:
+        raise ValueError('Future WDI source run')
+    if age > 70:
+        return None
+    rid, number = latest.get('id'), latest.get('run_number')
+    if type(rid) is not int or rid <= 0 or type(number) is not int or number <= 0:
+        raise ValueError('Invalid WDI workflow run identity')
+    return {'id': rid, 'run_number': number}
+
+
+def validate_wdi_download(folder: Path) -> dict:
+    """Check actual WDI API pages, value types, panel keys and source manifest."""
+    folder = Path(folder)
+    report = load_json(folder / 'run_report.json')
+    if report.get('errors') != [] or report.get('conflicts') != []:
+        raise ValueError('WDI source run reported retrieval errors or conflicts')
+    if report.get('country_query') != 'all' or report.get('start') != 1960 or report.get('end', 0) < 2026:
+        raise ValueError('WDI backup requires full historical global scheduled scope')
+    manifest = report.get('manifest')
+    if not isinstance(manifest, list) or not manifest or len(manifest) > 10000:
+        raise ValueError('Invalid WDI raw API page manifest')
+    if type(report.get('raw_pages')) is not int or len(manifest) != report['raw_pages']:
+        raise ValueError('WDI raw API page count contradicts manifest')
+    if type(report.get('observations')) is not int or report['observations'] < WDI_MIN_ROWS:
+        raise ValueError('WDI numeric coverage fell below existing full-global floor')
+    urls, names, indicators = set(), set(), set()
+    for entry in manifest:
+        if not isinstance(entry, dict):
+            raise ValueError('Malformed WDI raw page entry')
+        name, url, indicator, sha = (entry.get(k) for k in ('file','url','indicator','sha256'))
+        if not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{5,160}',name) or not name.endswith('.json'):
+            raise ValueError('Unsafe WDI source page filename')
+        if not isinstance(url,str) or not url.startswith('https://api.worldbank.org/v2/country/'):
+            raise ValueError('Unexpected WDI official raw source URL')
+        if not isinstance(indicator,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{2,100}',indicator):
+            raise ValueError('Invalid WDI indicator identifier')
+        if name in names or url in urls:
+            raise ValueError('Duplicate WDI raw page identity')
+        names.add(name); urls.add(url); indicators.add(indicator)
+        p = folder / 'raw' / name
+        if p.is_symlink() or not p.is_file() or digest(p) != ensure_sha(sha):
+            raise ValueError('WDI original API response SHA256 mismatch')
+        if type(entry.get('returned')) is not int or entry['returned'] < 0:
+            raise ValueError('Invalid WDI raw page row count')
+    rawdir = folder / 'raw'
+    if {p.name for p in rawdir.iterdir()} != names or any(p.is_symlink() for p in rawdir.iterdir()):
+        raise ValueError('Untracked WDI raw source file present')
+    panel = folder / 'processed' / 'wdi_panel.csv'
+    if panel.is_symlink() or not panel.is_file():
+        raise ValueError('Missing WDI normalized numeric source panel')
+    count, keys = 0, set()
+    with panel.open(encoding='utf-8',newline='') as fh:
+        reader = csv.DictReader(fh)
+        required = {'country_iso3','year','indicator','value','unit','source','source_url','downloaded_at_utc'}
+        if not required.issubset(reader.fieldnames or []):
+            raise ValueError('WDI normalized panel missing source provenance columns')
+        for row in reader:
+            code, indicator = row['country_iso3'], row['indicator']
+            if not ISO3.fullmatch(code or '') or indicator not in indicators:
+                raise ValueError('Invalid WDI country or unmanifested series')
+            try:
+                year = int(row['year'])
+                value = float(row['value'])
+            except (TypeError,ValueError,OverflowError) as exc:
+                raise ValueError('WDI invalid numeric row') from exc
+            if not report['start'] <= year <= report['end'] or not math.isfinite(value):
+                raise ValueError('WDI numeric row out of range or not finite')
+            if not row['unit'] or row['source'] != 'World Bank Indicators API' or row['source_url'] not in urls:
+                raise ValueError('WDI normalized row has missing/unknown provenance')
+            key=(code,year,indicator)
+            if key in keys:
+                raise ValueError('Duplicate WDI country-year-indicator observation')
+            keys.add(key); count+=1
+    if count != report['observations']:
+        raise ValueError('WDI actual numeric records disagree with run report')
+    regular = {str(p.relative_to(folder)) for p in folder.rglob('*') if p.is_file()}
+    expected = {'run_report.json','processed/wdi_panel.csv'} | {'raw/'+name for name in names}
+    if regular != expected or any(p.is_symlink() for p in folder.rglob('*')):
+        raise ValueError('Untracked WDI artifact payload')
+    return {'status':'WDI_SOURCE_NATIVE_NUMERIC_CHECKS_PASSED_NOT_CANONICAL',
+            'observations':count,'raw_pages':len(names),'indicators_with_raw_pages':len(indicators),
+            'report_sha256':digest(folder/'run_report.json'),
+            'panel_sha256':digest(panel), 'canonical_integration_verified':False}
+
+
+def remote_digest(remote: str) -> str:
+    """Independently hash private restored bytes; never print actual data."""
+    proc = subprocess.Popen(['rclone','cat',remote],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    h=hashlib.sha256()
+    assert proc.stdout is not None
+    for chunk in iter(lambda:proc.stdout.read(1024*1024),b''):
+        h.update(chunk)
+    error=proc.stderr.read()[-300:] if proc.stderr else b''
+    if proc.wait(timeout=300) != 0:
+        raise RuntimeError('WDI private archive could not be retrieved: '+error.decode(errors='replace')[-120:])
+    return h.hexdigest()
+
+
+def backup_recent_wdi(repo: str, now: datetime, output: Path) -> dict:
+    """Versioned private backup for latest completed full WDI source collector."""
+    picked=select_wdi_run(github_runs(repo,WDI_WORKFLOW),now)
+    if picked is None:
+        return {'status':'NO_RECENT_SUCCESSFUL_FULL_WDI_SCHEDULED_RUN'}
+    rid, number=picked['id'], picked['run_number']
+    remote=f'{WDI_REMOTE_ROOT}/run-{rid}'
+    archive_name=f'wdi-source-{rid}.tar.gz'
+    expected={archive_name, archive_name+'.sha256', 'source_validation.json'}
+    try:
+        listing=json.loads(run(['rclone','lsjson',remote,'--files-only'],timeout=90))
+    except RuntimeError as exc:
+        if 'directory not found' in str(exc).lower() or 'path not found' in str(exc).lower():
+            listing=[]
+        else:
+            raise
+    if not isinstance(listing,list):
+        raise ValueError('Unexpected WDI private archive directory listing')
+    present={x.get('Name') for x in listing if isinstance(x,dict)}
+    if present:
+        if not expected.issubset(present):
+            raise ValueError('Partial WDI private backup: reconcile existing private files before writing')
+        marker=run(['rclone','cat',remote+'/'+archive_name+'.sha256'],timeout=90).strip().split()
+        if len(marker)!=2 or marker[1]!=archive_name:
+            raise ValueError('Unexpected private WDI archive checksum marker')
+        pinned=ensure_sha(marker[0])
+        data=json.loads(run(['rclone','cat',remote+'/source_validation.json'],timeout=90))
+        if data.get('source_run_id')!=rid or data.get('archive_sha256')!=pinned:
+            raise ValueError('WDI private archive metadata contradicts checksum')
+        if remote_digest(remote+'/'+archive_name)!=pinned:
+            raise ValueError('Previously backed up WDI archive byte checksum changed')
+        return {'status':'PREVIOUS_WDI_PRIVATE_ARCHIVE_BYTES_VERIFIED',
+                'run_id':rid,'archive_sha256':pinned,
+                'observations':data.get('observations'),
+                'canonical_integration_verified':False}
+    work=Path(output)/f'wdi_source_{rid}'
+    work.mkdir(parents=True,exist_ok=False)
+    source=work/'payload'
+    source.mkdir()
+    run(['gh','run','download',str(rid),'--repo',repo,
+         '--name',f'world-bank-wdi-{number}','--dir',str(source)],timeout=900)
+    quality=validate_wdi_download(source)
+    archive=work/archive_name
+    with tarfile.open(archive,'w:gz') as tar:
+        for p in sorted(source.rglob('*')):
+            if p.is_file() and not p.is_symlink():
+                tar.add(p,arcname='wdi_source_artifact/'+str(p.relative_to(source)),recursive=False)
+    archive_sha=digest(archive)
+    marker=work/(archive_name+'.sha256')
+    marker.write_text(archive_sha+'  '+archive_name+'\n',encoding='ascii')
+    metadata=work/'source_validation.json'
+    metadata.write_text(json.dumps({**quality,'source_run_id':rid,
+                                    'source_run_number':number,'archive_sha256':archive_sha},
+                                   indent=2,sort_keys=True)+'\n',encoding='utf-8')
+    # All private copies are read back and independently SHA-verified.
+    for p in (archive,marker,metadata):
+        dest=remote+'/'+p.name
+        run(['rclone','copyto',str(p),dest,'--retries','3'],timeout=1800)
+        if remote_digest(dest)!=digest(p):
+            raise RuntimeError('WDI private source copy does not match local SHA256')
+    return {'status':'NEW_WDI_SOURCE_ARCHIVE_PRIVATE_BYTES_VERIFIED',
+            'run_id':rid,'archive_sha256':archive_sha,
+            'observations':quality['observations'],
+            'raw_pages':quality['raw_pages'],
+            'canonical_integration_verified':False}
+
+
+def make_ledger(ilostat: dict, wid: dict, joined: dict, canonical: dict, batch: dict, wdi: dict | None = None) -> list[dict]:
+    rows = [
         {'source': 'canonical_warehouse', 'stage': 'validated_real_numeric_sqlite_previous_run', 'physical_values': canonical['canonical_observations_previously_verified'], 'numeric_rows_this_run_verified': 'no', 'additive_to_other_rows': 'no'},
         {'source': 'WID_23country', 'stage': 'actual_numeric_sqlite_sha_and_schema_verified', 'physical_values': wid['observations'], 'numeric_rows_this_run_verified': 'yes', 'additive_to_other_rows': 'no'},
         {'source': 'WID_WDI_join', 'stage': 'actual_joined_numeric_csv_values_verified', 'physical_values': joined['observed_numeric_cells'], 'numeric_rows_this_run_verified': 'yes', 'additive_to_other_rows': 'no'},
         {'source': 'ILOSTAT_bulk', 'stage': 'raw_official_csv_gzip_counted_not_harmonized', 'physical_values': ilostat['validated_raw_csv_rows_NOT_all_numeric'], 'numeric_rows_this_run_verified': 'no', 'additive_to_other_rows': 'no'},
         {'source': 'monthly_source_batch', 'stage': batch['status'], 'physical_values': '', 'numeric_rows_this_run_verified': 'no', 'additive_to_other_rows': 'no'},
     ]
+    if wdi is not None:
+        rows.append({'source':'WorldBank_WDI_weekly_source',
+                     'stage':wdi['status'],
+                     'physical_values':wdi.get('observations',''),
+                     'numeric_rows_this_run_verified':'no',
+                     'additive_to_other_rows':'no'})
+    return rows
 
 
 
@@ -446,10 +634,12 @@ def main(argv=None):
             dispatch_ilostat(a.repo)
             repair['action'] = 'dispatched_existing_bounded_20_file_ingestion'
         batch = backup_recent_batch(a.repo, now, a.out)
+        wdi_source = backup_recent_wdi(a.repo, now, a.out)
     else:
         repair = {'action': 'offline_checks_only'}
         batch = {'status': 'NOT_CHECKED_OFFLINE'}
-    ledger = make_ledger(ilostat, wid, joined, canonical, batch)
+        wdi_source = {'status': 'NOT_CHECKED_OFFLINE'}
+    ledger = make_ledger(ilostat, wid, joined, canonical, batch, wdi_source)
     report = {
         'timestamp_utc': now.isoformat(),
         'status': 'AUDITED_SOURCE_COVERAGE_NO_NEW_HARMONIZATION_OR_CAUSAL_INFERENCE',
@@ -459,6 +649,7 @@ def main(argv=None):
         'wid_revision_comparison': wid_revision_comparison,
         'ilostat_bulk': ilostat,
         'source_batch_backup': batch,
+        'wdi_source_backup': wdi_source,
         'ingestion_scheduler_repair': repair,
         'sum_all_source_values_is_valid': False,
         'separate_existing_ilostat_cron': '17 2,10,18 * * *',
@@ -471,7 +662,7 @@ def main(argv=None):
         w.writerows(ledger)
     evidence = {p.name: digest(p) for p in a.out.iterdir() if p.is_file()}
     (a.out / 'output_checksums.json').write_text(json.dumps(evidence, indent=2) + '\n')
-    print(json.dumps({'status': report['status'], 'wid_values': wid['observations'], 'joined_numeric_cells': joined['observed_numeric_cells'], 'ilostat_verified_files': ilostat['verified_compressed_files'], 'ilostat_pending': ilostat['remaining_bulk_files'], 'repair': repair['action'], 'batch_backup': batch['status']}))
+    print(json.dumps({'status': report['status'], 'wid_values': wid['observations'], 'joined_numeric_cells': joined['observed_numeric_cells'], 'ilostat_verified_files': ilostat['verified_compressed_files'], 'ilostat_pending': ilostat['remaining_bulk_files'], 'repair': repair['action'], 'batch_backup': batch['status'], 'wdi_backup': wdi_source['status']}))
 
 
 if __name__ == '__main__':
