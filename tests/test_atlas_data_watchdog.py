@@ -2,6 +2,7 @@ import csv
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import shutil
 from pathlib import Path
 import sqlite3
 import sys
@@ -18,6 +19,170 @@ class WatchdogTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.now = datetime(2026,10,30,12,0,tzinfo=timezone.utc)
+
+    def make_wdi_fixture(self):
+        root=self.root/'source_fixture'
+        (root/'raw').mkdir(parents=True)
+        (root/'processed').mkdir()
+        indicator='NY.GDP.MKTP.KD.ZG'
+        url='https://api.worldbank.org/v2/country/all/indicator/'+indicator+'?format=json&page=1'
+        raw=json.dumps([{'page':1,'pages':1},
+                        [{'countryiso3code':'USA','date':'2020','value':2.5}]]).encode()
+        sha=hashlib.sha256(raw).hexdigest()
+        name=indicator+'_1_'+sha[:12]+'.json'
+        (root/'raw'/name).write_bytes(raw)
+        record={'country_iso3':'USA','year':2020,'indicator':indicator,'value':2.5,
+                'unit':'source_defined','source':'World Bank Indicators API',
+                'source_url':url,'downloaded_at_utc':'2026-10-29T00:00:00+00:00',
+                'obs_status':'','decimal':''}
+        with (root/'processed'/'wdi_panel.csv').open('w',newline='') as out:
+            writer=csv.DictWriter(out,fieldnames=list(record))
+            writer.writeheader();writer.writerow(record)
+        report={'country_query':'all','start':1960,'end':2026,
+                'observations':1,'raw_pages':1,'indicator_count':1,
+                'errors':[],'conflicts':[],
+                'manifest':[{'indicator':indicator,'url':url,'file':name,
+                             'sha256':sha,'downloaded_at_utc':'now','returned':1}]}
+        (root/'run_report.json').write_text(json.dumps(report))
+        return root,report,name
+
+    def test_wdi_full_source_raw_sha_and_numeric_verified(self):
+        from unittest.mock import patch
+        root,report,name=self.make_wdi_fixture()
+        with patch.object(m,'WDI_MIN_ROWS',1):
+            result=m.validate_wdi_download(root)
+        self.assertEqual(result['observations'],1)
+        self.assertEqual(result['raw_pages'],1)
+        self.assertFalse(result['canonical_integration_verified'])
+
+    def test_wdi_reject_corrupt_raw_page_and_failed_collector(self):
+        from unittest.mock import patch
+        root,report,name=self.make_wdi_fixture()
+        with patch.object(m,'WDI_MIN_ROWS',1):
+            (root/'raw'/name).write_bytes(b'corrupted')
+            with self.assertRaisesRegex(ValueError,'SHA256'):
+                m.validate_wdi_download(root)
+            root,report,name=self.make_wdi_fixture()
+            report['errors']=[{'indicator':'TEST','error':'failed'}]
+            (root/'run_report.json').write_text(json.dumps(report))
+            with self.assertRaisesRegex(ValueError,'retrieval errors'):
+                m.validate_wdi_download(root)
+
+    def test_wdi_reject_unexpected_scope_and_duplicate_numeric_keys(self):
+        from unittest.mock import patch
+        root,report,name=self.make_wdi_fixture()
+        with patch.object(m,'WDI_MIN_ROWS',1):
+            report['country_query']='USA'
+            (root/'run_report.json').write_text(json.dumps(report))
+            with self.assertRaisesRegex(ValueError,'full historical global'):
+                m.validate_wdi_download(root)
+            report['country_query']='all'
+            report['observations']=2
+            (root/'run_report.json').write_text(json.dumps(report))
+            panel=root/'processed'/'wdi_panel.csv'
+            with panel.open() as f:
+                rows=f.readlines()
+            with panel.open('a') as f:
+                f.write(rows[-1])
+            with self.assertRaisesRegex(ValueError,'Duplicate WDI'):
+                m.validate_wdi_download(root)
+
+    def test_wdi_reject_nan_and_unmanifested_raw_files(self):
+        from unittest.mock import patch
+        root,report,name=self.make_wdi_fixture()
+        panel=root/'processed'/'wdi_panel.csv'
+        with panel.open() as f:
+            rows=f.readlines()
+        with patch.object(m,'WDI_MIN_ROWS',1):
+            panel.write_text(rows[0]+rows[1].replace(',2.5,',',nan,'))
+            with self.assertRaisesRegex(ValueError,'not finite'):
+                m.validate_wdi_download(root)
+            panel.write_text(''.join(rows))
+            (root/'raw'/'untracked.json').write_text('x')
+            with self.assertRaisesRegex(ValueError,'Untracked WDI raw'):
+                m.validate_wdi_download(root)
+
+    def test_wdi_latest_scheduled_main_only(self):
+        future='2026-10-29T00:00:00Z'
+        rows=[{'id':6,'run_number':6,'event':'workflow_dispatch','head_branch':'main',
+               'status':'completed','conclusion':'success','created_at':future},
+              {'id':7,'run_number':7,'event':'schedule','head_branch':'test',
+               'status':'completed','conclusion':'success','created_at':future},
+              {'id':8,'run_number':8,'event':'schedule','head_branch':'main',
+               'status':'completed','conclusion':'failure','created_at':future},
+              {'id':5,'run_number':5,'event':'schedule','head_branch':'main',
+               'status':'completed','conclusion':'success','created_at':'2026-10-28T00:00:00Z'}]
+        self.assertEqual(m.select_wdi_run(rows,self.now),{'id':5,'run_number':5})
+        self.assertIsNone(m.select_wdi_run(rows[:3],self.now))
+
+    def test_wdi_backup_new_verified_archive_without_new_collector(self):
+        from unittest.mock import patch
+        root,report,name=self.make_wdi_fixture()
+        now=self.now
+        runs=[{'id':99,'run_number':6,'event':'schedule','head_branch':'main',
+               'status':'completed','conclusion':'success','created_at':'2026-10-29T00:00:00Z'}]
+        private={}
+        calls=[]
+        def fake_run(cmd,timeout=1800):
+            calls.append(cmd)
+            if cmd[:2]==['rclone','lsjson']:
+                return '[]'
+            if cmd[:3]==['gh','run','download']:
+                dest=Path(cmd[-1])
+                for item in root.rglob('*'):
+                    if item.is_file():
+                        target=dest/item.relative_to(root)
+                        target.parent.mkdir(parents=True,exist_ok=True)
+                        shutil.copy2(item,target)
+                return ''
+            if cmd[:2]==['rclone','copyto']:
+                private[cmd[3]]=Path(cmd[2]).read_bytes()
+                return ''
+            raise AssertionError('Unexpected external command '+repr(cmd))
+        def fake_remote_hash(remote):
+            return hashlib.sha256(private[remote]).hexdigest()
+        with patch.object(m,'WDI_MIN_ROWS',1), \
+             patch.object(m,'github_runs',return_value=runs), \
+             patch.object(m,'run',side_effect=fake_run), \
+             patch.object(m,'remote_digest',side_effect=fake_remote_hash):
+            result=m.backup_recent_wdi('diegoduque16/Global-economic-policy-tool',now,self.root)
+        self.assertEqual(result['observations'],1)
+        self.assertEqual(result['status'],'NEW_WDI_SOURCE_ARCHIVE_PRIVATE_BYTES_VERIFIED')
+        self.assertEqual(len(private),3)
+        self.assertEqual([cmd[:3] for cmd in calls if cmd[0]=='gh'],
+                         [['gh','run','download']])
+
+    def test_wdi_backup_existing_full_remote_hash_audited(self):
+        from unittest.mock import patch
+        runs=[{'id':99,'run_number':6,'event':'schedule','head_branch':'main',
+               'status':'completed','conclusion':'success','created_at':'2026-10-29T00:00:00Z'}]
+        digest='a'*64
+        name='wdi-source-99.tar.gz'
+        archive_root=m.WDI_REMOTE_ROOT+'/run-99'
+        expected=[name,name+'.sha256','source_validation.json']
+        def fake_run(cmd,timeout=1800):
+            if cmd[:2]==['rclone','lsjson']:
+                return json.dumps([{'Name':x} for x in expected])
+            if cmd[:2]==['rclone','cat'] and cmd[2].endswith('.sha256'):
+                return digest+'  '+name+'\n'
+            if cmd[:2]==['rclone','cat'] and cmd[2].endswith('.json'):
+                return json.dumps({'source_run_id':99,'archive_sha256':digest,'observations':123})
+            raise AssertionError('Unexpected remote request')
+        with patch.object(m,'github_runs',return_value=runs), \
+             patch.object(m,'run',side_effect=fake_run), \
+             patch.object(m,'remote_digest',return_value=digest) as verify_remote:
+            result=m.backup_recent_wdi('diegoduque16/Global-economic-policy-tool',self.now,self.root)
+        self.assertEqual(result['status'],'PREVIOUS_WDI_PRIVATE_ARCHIVE_BYTES_VERIFIED')
+        self.assertEqual(result['observations'],123)
+        verify_remote.assert_called_once_with(archive_root+'/'+name)
+
+    def test_wdi_new_source_ledger_not_additive(self):
+        ledger=m.make_ledger({'validated_raw_csv_rows_NOT_all_numeric':100},{'observations':3},
+                             {'observed_numeric_cells':10},{'canonical_observations_previously_verified':5},
+                             {'status':'not_run'},
+                             {'status':'NEW_WDI_SOURCE_ARCHIVE_PRIVATE_BYTES_VERIFIED','observations':1000})
+        self.assertEqual(len(ledger),6)
+        self.assertTrue(all(x['additive_to_other_rows']=='no' for x in ledger))
 
     def test_checkpoint_counts_nonadditive_raw_rows(self):
         data={'schema_version':1,'last_run_utc':'2026-10-30T11:20:00Z','latest_toc':{'entries':1964},
