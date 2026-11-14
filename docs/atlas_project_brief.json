@@ -3,7 +3,7 @@
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
   "updated_date": "2026-11-14",
-  "status_basis": "Evidence checked against GitHub Actions on November 14, 2026. This is a dated project snapshot, not a live progress tracker; the linked runs are authoritative for changes after this update.",
+  "status_basis": "Snapshot checked against production GitHub Actions on November 14, 2026 at approximately 4:17 p.m. EST. This is not live telemetry; linked workflows and artifacts take precedence after this timestamp.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -44,16 +44,16 @@
   "workstreams": [
     {
       "name": "ILOSTAT official bulk",
-      "stage": "Active completion",
-      "evidence": "Last completed source checkpoint: 920 of 1,964 official bulk files verified; 1,044 remained. The existing collector was raised from 20 to 50 files per run. The newer 50-file run was in progress when this briefing was prepared.",
-      "next": "Continue source-ID-aware resumable collection of missing files; report new distinct verified tables and blockers. Never turn a running job into a completed count.",
+      "stage": "Latest 50-file batch completed; broader archive incomplete",
+      "evidence": "November 14 improved 50-file run completed: 969/1,964 official source tables verified, 995 remaining. This run added 49 new files, reported one temporary World Bank-independent ILOSTAT HTTP 502 failure for EMP_PIFL_SEX_AGE_ECO_RT_A, and verified zero lost old files with SHA-checked private checkpoint backup. The earlier checkpoint had 920.",
+      "next": "Continue the existing 50-file resumable schedule to retrieve the 995 outstanding official files. Retry the single HTTP 502 source on later runs; do not claim a green workflow means all attempted files succeeded.",
       "links": [
         {
           "label": "Last completed 920-file checkpoint",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43629083582"
         },
         {
-          "label": "Current 50-file batch",
+          "label": "Latest successful batch (49 added, 1 failed source)",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43639113626"
         },
         {
@@ -64,9 +64,9 @@
     },
     {
       "name": "World Inequality Database (WID)",
-      "stage": "Genuine country expansion",
-      "evidence": "Historical private 23-country numeric panel: 21,430 selected distribution observations. Original monthly '20-country expansion' only refreshed countries already in those 23. On November 14, eight genuinely new countries (FI, BE, AT, CH, PT, PL, CZ, IE) were source-verified and privately backed up with 6,632 selected numeric distribution observations. Twelve more new candidate countries were still running/queued as of this snapshot.",
-      "next": "Complete the remaining candidate batches, separately count successful and failed countries, then extend geographic and distribution-variable scope without claiming complete global WID coverage or merging duplicate vintages.",
+      "stage": "16 additional countries verified; 4 African candidates underway",
+      "evidence": "Historical WID panel: 23 countries and 21,430 selected numeric distribution observations. The old 20-country run refreshed the baseline only, so was not expansion. On November 14 four completed new-country batches verified 16 codes (FI, BE, AT, CH, PT, PL, CZ, IE, AR, PE, UY, CR, CN, ID, PH, TH), with 12,028 source-native selected income/wealth distribution observations backed up with private source SHA verification and zero baseline country overlap. African candidate batch EG, MA, SN, UG had not finished as of this snapshot.",
+      "next": "Finish the African WID batch; count only the successful country/source rows and failed IDs. Then expand beyond the attained new-country set without double-counting refreshes, and separately examine distribution-variable coverage.",
       "links": [
         {
           "label": "New-country PR #22",
@@ -171,11 +171,17 @@
       "title": "Collect more Eurostat labor and wage data",
       "description": "Expanded the existing Eurostat economic downloader from 3 to 6 source-defined series; all 3,436 numerical observations and private backup succeeded.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43640875170"
+    },
+    {
+      "date": "2026-11-14",
+      "title": "Establish one permanent Atlas operating reference",
+      "description": "Preserve completion-first direction, status boundaries, verified workflow evidence and a cumulative dated decision log in one version-controlled JSON file. Publish it as a dedicated website Project Brief with a machine-readable link and require future repository work to read it first.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/docs/atlas_project_brief.json"
     }
   ],
   "next_actions": [
-    "Check the real results of the active ILOSTAT 50-file and WID 20-new-country GitHub runs; update this snapshot only with completed, verified outcomes.",
-    "Continue finishing the ILOSTAT 1,964-file official inventory by missing IDs, with explicit errors and size deferrals.",
+    "Check the next ILOSTAT scheduled source-ID batch after the verified 969/1,964 checkpoint and the still-running WID Africa batch; never substitute outdated run status or assert complete collection on a batch-level success.",
+    "Continue acquiring the 995 currently missing official ILOSTAT bulk tables; retry temporary source HTTP 502 failures with existing resumable logic, preserve immutable checkpoints.",
     "Back up the 59-series WDI artifact privately and verify the restored original SHA before retention expires.",
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
     "Expand WID geographic coverage and verify which new candidate countries yielded real nonempty distribution observations.",
