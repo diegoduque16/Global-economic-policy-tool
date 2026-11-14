@@ -7,6 +7,8 @@ on:
       - 'open_data/ingest.py'
       - 'tests/test_open_data_v07.py'
       - 'atlas_web/**'
+      - 'atlas_public/**'
+      - 'tests/test_atlas_public.py'
       - 'tests/test_atlas_web.py'
       - 'scripts/build_source_registry.py'
       - 'research/atlas1_reconcile_inventory.py'
@@ -40,6 +42,8 @@ jobs:
           python -m unittest discover -s tests -p 'test_open_data_v07.py' -v
           python -m unittest discover -s tests -p 'test_atlas_web.py' -v
           node --check atlas_web/static/app.js
+          python -m unittest discover -s tests -p 'test_atlas_public.py' -v
+          node --check atlas_public/public_adapter.js
       - name: Validate and normalize catalog
         run: python scripts/build_source_registry.py
       - name: Upload structured registry
