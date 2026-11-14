@@ -102,3 +102,48 @@ The existing registry produces `priority_p0_evidence.csv` with 71 rows, in the *
 The registry flags **3 potential overlap reviews** (WDI, WID, ILOSTAT). It intentionally records zero proven fully ingested catalog sources **by this builder**, and does not modify the existing `validation_state=NOT_INDEPENDENTLY_VERIFIED`, which concerns the builder's own value-level verification. The next milestone is to examine actual source IDs, series keys, geography, period, unit, adjustment and vintage for these three before any numeric consolidation.
 
 CI: [six passing source-registry reconciliation tests](https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43305296628). No private source data or warehouse mutation was made in the reconciliation implementation.
+
+
+---
+
+## 14 November 2026: data-first continuation and non-duplication checkpoint
+
+**Current instruction supersedes the research-pilot sequencing above:** continue collecting, preserving, reconciling, validating, and preparing economic source data. **Do not initiate new economic studies, causal analysis, results generation, or policy recommendations yet.** The historical pilot proposal above is retained as context only, not an approved next task.
+
+### Basis and limits of this audit
+
+Reconciled relevant October–November Atlas conversations and stocktake decisions, the full current GitHub `main` workflow filename/SHA inventory, the detailed 4 November 111-workflow register, the 12 recurring YAML definitions, the 12 November consolidation decision, and metadata for all **391 recorded GitHub Actions runs** through 14 November. This establishes existing workflow roles, historical run outcomes and likely overlap, **not** a byte-level re-audit of all private OneDrive source files or individual execution logs. The repository has **112 workflow YAML files**: one additional checkpoint-guard tests workflow beyond the earlier 111-file register.
+
+### Existing infrastructure to reuse (no duplicate systems)
+
+| Component | Existing owner/path | Preserve / verify |
+|---|---|---|
+| Curated source catalog | `open_data/expanded_source_catalog.csv` (125 descriptions, 71 P0) | Catalog entries and legacy `LIVE` statuses are **not** certified actual series-level coverage |
+| Catalog-to-evidence register | `scripts/build_source_registry.py`, `source-registry.yml`, `persist-source-registry.yml` | One registry; both existing weekly workflows build it, and the persistence workflow commits snapshots; do **not** add a third |
+| Cross-provider discovery | Atlas 1–3 inventory and five-/six-provider discovery workflows | Previously discovered provider catalogs are metadata, not new numeric observations; check historical archives before repeating discovery |
+| ILOSTAT raw source collection | `atlas-ilostat-bulk-resumable-ingestion.yml` + `scripts/ilostat_checkpoint_guard.py` | Existing three-times-daily resumable loader with immutable checkpoint backups. Nov 14 run [43587300803](https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43587300803) verifies **900 / 1,964** source-native files, **20 newly added**, **0 lost**, **1,064 remaining**. No canonical integration is implied |
+| WID numeric source and refresh | `atlas-wid-23-real-numeric-panel_REDOWNLOAD.yml`, `atlas-wid-expand-20-countries.yml` | Original 21,430 verified values in 23 countries; Nov 3 refresh covers 20 **existing** countries, not 20 new ones. Exact key/value revision comparison remains outstanding |
+| Data health and backup | `atlas-data-pipeline-watchdog.yml`, private OneDrive/rclone snapshots and checksum guards | [Nov 14 watchdog](https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43579495054) successful. Avoid adding another auditor or warehouse without proving missing functionality |
+| Canonical archive | Existing `warehouse/` modules and pinned snapshot workflow | Historical **2,780,117 observations across 24 families**. Separate source-native collections are **not additive** and have not been proven integrated into a refreshed canonical release |
+
+The existing source registry's 71 P0 rows currently classify **23 historical partial family mappings, 1 separate WID numeric source, and 47 without explicit mapping**. Unknown is not absent, and no exact series-level audits are certified by the registry builder. This is the primary reconciliation backlog, not an authorization to re-download 47 purportedly missing datasets.
+
+### Workflow overlap and failure interpretation
+
+- The November 4 workflow register identified **24 review candidates** among 111 files and **12 scheduled workflows**. The new additional workflow is `atlas-ilostat-checkpoint-guard-tests.yml`, a test, not another collector. All 12 recurring definitions are still present on `main` as of this review.
+- **93 failed runs** came from the legacy `install-us-state-bea-gdp-income.yml`. `install-us-state-bea-verified-v3.yml` separately succeeded. Do not restart or rewrite BEA ingestion on the strength of the legacy failure count.
+- `atlas-first-wid-wdi-research 2.yml` and `atlas-first-wid-wdi-research-2.yml` have identical Git blob SHAs. Research workflows are **deferred**, not needed to progress data collection. Do not remove either until historical consumers and cross-workflow references are checked.
+- Parallel or successive installer versions also exist for ITEP tax rates, Bocconi plans, QCEW historical data, BJK, and other providers. Compare their code, output locations, successful successor runs and downstream references before disabling any. A successful workflow is not evidence of research readiness.
+- Seven scheduled workflows inspected (`world-bank.yml`, `eurostat-ai-adoption.yml`, `historical-us-outcomes.yml`, `imf-fiscal-source-investment.yml`, `us-investment-coverage.yml`, `expand-economic-sources-batch.yml`, `audit-tariff-and-cait.yml`) publish Actions artifacts but have no direct OneDrive/rclone step in their YAML. Verify whether their outputs have another durable, checksum-verified storage route **before** creating backup infrastructure; artifact retention can expire.
+- [Draft PR #7](https://github.com/diegoduque16/Global-economic-policy-tool/pull/7) adds ILOSTAT checkpoint filename/SHA binding tests (32 CI tests passed). It is **not merged** and needs a real private-checkpoint compatibility check. [Merged PR #6](https://github.com/diegoduque16/Global-economic-policy-tool/pull/6) already isolates the *manual* WID value audit from unrelated ILOSTAT checkpoint reads; do not implement that separation again.
+
+### Agreed data-only next sequence
+
+1. **Evidence and storage mapping:** extend the existing registry/watchdog evidence with source-native provider/table/series IDs, license, retrieval UTC, release vintage, SHA, row counts, geographic/period coverage, storage pointer, last collector success, last canonical incorporation and exact validation state. Distinguish genuinely missing from unknown, merely collected, verified raw, validated numeric and canonical.
+2. **Verify durable preservation:** trace the seven artifact-based schedules to retained private snapshots; repair broken backup paths only after identifying the current writer and immutable snapshot conventions. Do not expose raw/private source data publicly.
+3. **Complete existing collection:** allow the scheduled guarded ILOSTAT loader to continue; track unique table ID set growth and immutable checkpoint history, not just green run badges. Audit the 20-country WID refresh by exact observed source keys and numeric values, not by changed file hashes.
+4. **Make acquired data research-ready without running studies:** inspect source definitions, numeric typing and missingness flags; units, frequency, geography and vintages; duplicate keys/overlap with existing families; source licenses; ranges and continuity; compute auditable source- and series-level coverage. Quarantine uncertain observations rather than silently harmonizing them.
+5. **Expand real coverage selectively:** review the 47 unmapped P0 source labels against all existing workflows and archived source evidence, then extend an existing collector only when a genuinely missing, open and retrievable source/series is proven. Keep raw data in versioned private storage. No new generic downloader, alternate registry, dashboard or scheduled research agent.
+6. **Publish independently validated incremental canonical versions later:** only after a source-specific transformation passes integrity/definition/deduplication tests; preserve the immutable canonical baseline and provide explicit rollback and provenance.
+
+**Change-control gate:** before any new workflow, collector, scheduler, registry, archive or warehouse, identify the nearest existing implementation, its latest actual run, its stored source identity, its output directory, private snapshot lineage and why it cannot be extended. The default is to improve the existing path, not duplicate it. No deletion or disabling is authorized by this documentation review.
