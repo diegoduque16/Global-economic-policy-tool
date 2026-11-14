@@ -395,7 +395,7 @@ def validate_wdi_download(folder: Path) -> dict:
         names.add(name); urls.add(url); indicators.add(indicator)
         p = folder / 'raw' / name
         sha = ensure_sha(sha)
-        match = re.fullmatch(re.escape(indicator) + r'_(\\d+)_' + re.escape(sha[:12]) + r'\\.json', name)
+        match = re.fullmatch(re.escape(indicator) + r'_(\d+)_' + re.escape(sha[:12]) + r'\.json', name)
         if not match:
             raise ValueError('WDI raw filename does not bind page, indicator and source SHA')
         if p.is_symlink() or not p.is_file() or digest(p) != sha:
