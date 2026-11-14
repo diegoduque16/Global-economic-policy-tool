@@ -46,6 +46,19 @@ class WatchdogTests(unittest.TestCase):
         (root/'run_report.json').write_text(json.dumps(report))
         return root,report,name
 
+    def test_existing_watchdog_publishes_no_unverified_wdi_backup_on_main_push(self):
+        workflow=(Path(__file__).resolve().parent.parent /
+                  '.github/workflows/atlas-data-pipeline-watchdog.yml').read_text()
+        self.assertIn("  push:\n    branches: [main]", workflow)
+        self.assertIn("Require actual private World Bank WDI source archive verification on push",
+                      workflow)
+        self.assertIn("ATLAS_WDI_59_PRIVATE_ORIGINAL_SOURCE_BACKUP_VERIFIED", workflow)
+        self.assertIn("backup.get('run_id')==43637384781", workflow)
+        self.assertIn("backup.get('observations')==572179", workflow)
+        self.assertIn("PREVIOUS_WDI_PRIVATE_ARCHIVE_BYTES_VERIFIED", workflow)
+        self.assertIn("NEW_WDI_SOURCE_ARCHIVE_PRIVATE_BYTES_VERIFIED", workflow)
+        self.assertIn("if: github.event_name == 'push'", workflow)
+
     def test_wdi_full_source_raw_sha_and_numeric_verified(self):
         from unittest.mock import patch
         root,report,name=self.make_wdi_fixture()
