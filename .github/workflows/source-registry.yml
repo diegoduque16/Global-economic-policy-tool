@@ -9,6 +9,10 @@ on:
       - 'atlas_web/**'
       - 'atlas_public/**'
       - 'tests/test_atlas_public.py'
+      - 'tests/test_atlas_research_export.py'
+      - 'open_data/wdi_indicators.json'
+      - '.github/workflows/world-bank.yml'
+      - 'research/query_atlas_wdi.py'
       - 'tests/test_atlas_web.py'
       - 'scripts/build_source_registry.py'
       - 'research/atlas1_reconcile_inventory.py'
@@ -43,6 +47,20 @@ jobs:
           python -m unittest discover -s tests -p 'test_atlas_web.py' -v
           node --check atlas_web/static/app.js
           python -m unittest discover -s tests -p 'test_atlas_public.py' -v
+          python -m unittest discover -s tests -p 'test_atlas_research_export.py' -v
+          python atlas_public/build_site.py
+          python - <<'PY_WDI_SCOPE'
+          import json
+          from pathlib import Path
+          baseline=json.loads(Path('atlas_public/wdi_20261109_definitions.json').read_text())
+          expanded=json.loads(Path('open_data/wdi_indicators.json').read_text())
+          b={x for group in baseline.values() for x in group}
+          e={x for group in expanded.values() for x in group}
+          assert len(b)==32 and len(e)==59, (len(b),len(e))
+          assert b.issubset(e) and len(e-b)==27
+          assert all(len(code)>=4 and '.' in code for code in e)
+          print('WDI_PUBLIC_PINNED',len(b),'RESEARCH_SOURCE_CATALOG',len(e))
+          PY_WDI_SCOPE
           node --check atlas_public/public_adapter.js
       - name: Validate and normalize catalog
         run: python scripts/build_source_registry.py

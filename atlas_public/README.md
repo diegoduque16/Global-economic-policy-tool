@@ -65,3 +65,38 @@ Then visit http://127.0.0.1:8765/ .
 Visitors can search indicators by label or code, select geographies and years, compare up to eight areas, switch line/bar/scatter/heatmap/table views, and export CSV. Source units and country/aggregate distinctions are shown without implying cross-provider harmonization. Data files and metadata are publicly accessible, while the private Atlas backend is not.
 
 The public site initially contains **only WDI**. Expanding to other source families is a separate data-readiness and licensing task, not an automatic dump of the entire private SQLite database.
+
+
+## Research-ready source exports (November 2026 edition)
+
+The public build generates research downloads from the **same already verified 32 WDI series**. This is a new convenient *representation* of existing real source values, not an independent new data source.
+
+- `/research/wdi_country_year_long.csv` — source observations with geography code, year, indicator code, numeric value. Country/territory codes only.
+- `/research/wdi_country_year_wide.csv` — one row for each observed country-year and one column per WDI series; unavailable cells are **blank, never zero**.
+- `/research/wdi_aggregate_year_long.csv` — 44 World Bank aggregate codes, **not added to countries**.
+- `/research/wdi_variable_dictionary.csv`, `wdi_indicator_coverage.csv`, `wdi_country_coverage.csv` — definitions, source series links, and counts.
+- `/research/research_manifest.json` — input and output SHA256, source run, counts, type assertions. `README.txt` describes citation and limitations.
+
+To regenerate from the verified source tree:
+
+```bash
+python atlas_public/research_export.py --data atlas_public/data --out atlas_research_exports
+```
+
+Research subset example (after downloading the long CSV and research manifest into one folder):
+
+```bash
+python research/query_atlas_wdi.py --release atlas_research_exports \
+  --countries USA,GHA --indicators NY.GDP.MKTP.KD.ZG,GC.TAX.TOTL.GD.ZS \
+  --from-year 2000 --to-year 2025 --out tax_growth_subset.csv
+```
+
+This query refuses source CSVs whose contents do not match the manifest hash and writes a selection audit JSON. For econometric work, researchers still need treatment definition, event dates, source-definition comparability, and a credible counterfactual; these exports alone **do not identify causal effects**. World Bank survey inequality estimates can be discontinuous across methods and survey years.
+
+## Expanded World Bank collector (separate from approved public source edition)
+
+The existing `.github/workflows/world-bank.yml` now uses `open_data/wdi_indicators.json`, curated to **59 indicators** (up from 32). The 27 new codes include youth/sex-specific unemployment, real productivity, income shares, direct/indirect tax revenue, national income, health expenditure, innovation, external flows, and electricity access. Its full run is triggered by a `main` change to that catalog or collector workflow, in addition to the original Monday schedule.
+
+New collection goes to a versioned **GitHub Actions artifact**, not automatically to public Pages or the canonical warehouse. The collector must complete, report no errors, include actual numeric values for all 59 series, and pass the existing raw-API-to-processed-row SHA256/numeric identity audit. A separately audited public release or canonical integration is required before the dashboard or research CSVs can truthfully claim the new values.
+
+The pinned November 9 public publisher deliberately uses `atlas_public/wdi_20261109_definitions.json`, **not** the expanded working catalog. This prevents retroactively relabeling 32-series source data as the expanded 59-series release.

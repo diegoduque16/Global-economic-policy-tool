@@ -11,12 +11,17 @@ import json
 from pathlib import Path
 import shutil
 
+if __package__:
+    from .research_export import build_research_exports
+else:
+    from research_export import build_research_exports
+
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 BASE_SITE = REPO / "atlas_web" / "static"
 
 
-def build(data=None, output=None):
+def build(data=None, output=None, *, include_research=True):
     data = Path(data or HERE / "data")
     output = Path(output or HERE / "dist")
     catalog_path = data / "catalog.json"
@@ -44,6 +49,8 @@ def build(data=None, output=None):
         shutil.copy2(BASE_SITE / name, output / name)
     shutil.copytree(data, output / "data")
     shutil.copy2(HERE / "public_adapter.js", output / "public_adapter.js")
+    if include_research:
+        build_research_exports(data, output / "research")
     html = (output / "index.html").read_text(encoding="utf-8")
     if '<script src="/app.js" defer></script>' not in html:
         raise ValueError("Atlas UI script insertion point changed")
@@ -91,6 +98,24 @@ def build(data=None, output=None):
     if marker not in html:
         raise ValueError("Public attribution placement not found")
     html = html.replace(marker, attribution + "\n\n        " + marker)
+    if include_research:
+        hook = '<section class="catalog-overview" id="catalog-overview" aria-label="Source coverage">'
+        if hook not in html:
+            raise ValueError("Research download placement in public page missing")
+        download = (
+            '<section class="research-downloads" aria-label="Research datasets">'
+            '<div><span class="research-eyebrow">FOR RESEARCHERS</span>'
+            '<h2>Download verified country–year data</h2>'
+            '<p>Clean source-preserving data, coverage reports, and provenance for reproducible analysis. '
+            'Missing values remain missing; aggregates are separate from countries.</p></div>'
+            '<div class="research-links">'
+            '<a href="/research/wdi_country_year_wide.csv" download>Country–year dataset (wide) ↓</a>'
+            '<a href="/research/wdi_country_year_long.csv" download>Research dataset (long) ↓</a>'
+            '<a href="/research/wdi_variable_dictionary.csv" download>Variable dictionary ↓</a>'
+            '<a href="/research/research_manifest.json" download>Provenance &amp; checksums ↓</a>'
+            '</div></section>'
+        )
+        html = html.replace(hook, download + "\n        " + hook)
     (output / "index.html").write_text(html, encoding="utf-8")
     # The only change to the existing local dashboard JS is a public-specific
     # read-only export hook; local server mode retains its original behavior.
@@ -125,6 +150,21 @@ def build(data=None, output=None):
         ".public-attribution strong{color:#214d86}"
         ".public-attribution span{flex:1;min-width:210px}"
         ".public-attribution a{color:#245eb8;text-decoration:underline}\n"
+    )
+    css += (
+        "\n.research-downloads{order:4;display:flex;align-items:center;justify-content:space-between;"
+        "gap:24px;margin:4px 0 24px;border:1px solid #d5e4f5;background:#f0f6ff;"
+        "padding:23px 26px;border-radius:15px}"
+        ".research-downloads h2{font-size:19px;margin:8px 0;color:#24466f}"
+        ".research-eyebrow{font-size:10px;letter-spacing:1.3px;font-weight:800;color:#416cb3}"
+        ".research-downloads p{font-size:12px;line-height:1.55;color:#657e9c;max-width:650px;margin:0}"
+        ".research-links{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-width:370px}"
+        ".research-links a{display:block;text-decoration:none;padding:11px 12px;background:#fff;"
+        "color:#24568e;font-size:11px;font-weight:700;border:1px solid #d4e1f3;border-radius:8px}"
+        ".research-links a:hover{background:#e8f1fc}"
+        "@media(max-width:1170px){.research-downloads{flex-direction:column;align-items:stretch}"
+        ".research-links{min-width:0}}"
+        "@media(max-width:540px){.research-downloads{padding:18px}.research-links{grid-template-columns:1fr}}\n"
     )
     (output / "style.css").write_text(css, encoding="utf-8")
     (output / "_headers").write_text(
