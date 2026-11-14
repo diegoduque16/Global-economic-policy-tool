@@ -43,6 +43,17 @@ EUROSTAT = {
     'gdp_nominal': ('nama_10_gdp', {'na_item':'B1G','unit':'CP_MEUR'}, 'annual', 'current prices million euros'),
     'gdp_real_growth': ('nama_10_gdp', {'na_item':'B1G','unit':'CLV_PCH_PRE'}, 'annual', 'chain-linked real GDP annual percent change'),
     'unemployment_rate': ('une_rt_a', {'sex':'T','age':'Y15-74','unit':'PC_ACT'}, 'annual', 'share of economically active aged 15-74, percent'),
+    # Eurostat Labour Force Survey: NOT payroll jobs or unemployment counts.
+    'employment_rate_20_64': ('lfsi_emp_a', {'indic_em':'EMP_LFS','sex':'T',
+        'age':'Y20-64','unit':'PC_POP'}, 'annual', 'percent of population ages 20-64'),
+    # Eurostat annual Labour Cost Index level (lc_lci_lev); wages are an
+    # employer cost concept, NOT average net employee earnings.
+    'hourly_wages_salaries': ('lc_lci_lev', {'lcstruct':'D11',
+        'nace_r2':'B-S_X_O','unit':'EUR'}, 'annual',
+        'euro per hour worked, wages and salaries, NACE B-S excluding O'),
+    'hourly_total_labour_cost': ('lc_lci_lev', {'lcstruct':'D1_D4_MD5',
+        'nace_r2':'B-S_X_O','unit':'EUR'}, 'annual',
+        'euro per hour worked, employer labour cost, NACE B-S excluding O'),
 }
 
 
@@ -116,15 +127,24 @@ def parse_jsonstat(raw, name, start=1990, end=2026, eligible=None):
             geo=parts['geo'];yr=int(parts['time']);val=float(value)
         except (ValueError,IndexError,TypeError,KeyError):skipped+=1;continue
         if geo not in eligible or not start<=yr<=end or not math.isfinite(val):continue
+        # Never mislabel a response that contains unrequested source dimensions.
+        # Keep all selected original source fields bound to the series identity.
+        expected={'freq':'A', **EUROSTAT[name][1]}
+        if any(parts.get(dim)!=requested for dim,requested in expected.items()):
+            skipped+=1
+            continue
+        statuses=payload.get('status') or {}
+        flag=statuses.get(str(flat),'') if isinstance(statuses,dict) else ''
         result.append({'country_iso3':EU_ISO3[geo],'region':geo,'year':yr,'period':str(yr),
          'series':name,'value':val,'unit':EUROSTAT[name][3],
-         'frequency':'annual','provider':'Eurostat','observation_kind':'source_observation_or_estimate'})
+         'frequency':'annual','provider':'Eurostat','observation_kind':'source_observation_or_estimate',
+         'status_flag':str(flag)})
     return result,skipped
 
 
 def eu_url(name,start):
     dataset,params,*_=EUROSTAT[name]
-    query={**params,'geoLevel':'country','sinceTimePeriod':str(start),'lang':'EN','format':'JSON'}
+    query={**params,'freq':'A','geoLevel':'country','sinceTimePeriod':str(start),'lang':'EN','format':'JSON'}
     return EUROSTAT_BASE+'/'+dataset+'?'+urllib.parse.urlencode(query)
 
 
@@ -160,10 +180,11 @@ def run(out,scope='smoke',sources='all',start=1870,end=2026,fetch=fetch_bytes):
     # Distinct source/geography/date/series, preserving source vintages and avoiding imputation.
     unique={}; conflicts=[]
     for item in records:
+        item.setdefault('status_flag','')
         key=(item['provider'],item['country_iso3'],item['period'],item['series'])
         if key in unique and unique[key]['value']!=item['value']:conflicts.append(key)
         unique[key]=item
-    fields=['country_iso3','region','year','period','series','value','unit','frequency','provider','observation_kind','source_url','retrieved_utc']
+    fields=['country_iso3','region','year','period','series','value','unit','frequency','provider','observation_kind','status_flag','source_url','retrieved_utc']
     with (out/'processed'/'us_europe_panel.csv').open('w',encoding='utf-8',newline='') as f:
         writer=csv.DictWriter(f,fieldnames=fields);writer.writeheader();writer.writerows(sorted(unique.values(),key=lambda r:(r['provider'],r['country_iso3'],r['series'],r['period'])))
     coverage={}
@@ -175,7 +196,9 @@ def run(out,scope='smoke',sources='all',start=1870,end=2026,fetch=fetch_bytes):
     report={'scope':scope,'sources_requested':sources,'retrieved_utc':stamp,'observations':len(unique),'coverage':coverage,
       'tasks_requested':len(tasks),'tasks_passed':len(manifest),'errors':errors,'conflicts':conflicts,
       'cautions':['FRED source units require metadata crosswalk before merging across providers.',
-        'Eurostat series may include revisions and country concept changes. European country selection is 31 economies, not all geographic Europe.',
+        'Eurostat series may include revisions, provisional values and country concept changes. European country selection is 31 economies, not all geographic Europe.',
+        'Hourly wages and employer total labour costs are distinct gross employer cost concepts, NOT net worker earnings.',
+        'Official labour-cost level archive lc_lci_lev has finite source-year coverage and missing years are not imputed.',
         'GDP, payroll employment and unemployment have different frequencies; aggregation/harmonization not yet implemented.',
         'Data download success does not imply causal identification or exhaustive policy coverage.'],
       'manifest':manifest}
