@@ -19,7 +19,8 @@ CODES = ["NY.GDP.MKTP.KD.ZG", "SL.UEM.TOTL.ZS"]
 
 
 def make_source(path: Path, *, missing_indicator=False, malformed=False,
-                duplicate=False, nonfinite=False):
+                duplicate=False, nonfinite=False, data_member="WDIData.csv",
+                nested=False):
     series = io.StringIO()
     writer = csv.writer(series)
     writer.writerow(["Series Code", "Indicator Name", "License Type"])
@@ -43,9 +44,10 @@ def make_source(path: Path, *, missing_indicator=False, malformed=False,
     if nonfinite:
         source_row("GHA", CODES[0], {2021: "NaN"})
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
-        bundle.writestr("WDIData.csv", data.getvalue())
-        bundle.writestr("WDISeries.csv", series.getvalue())
-        bundle.writestr("WDICountry.csv", "Country Code,Region\nUSA,North America\n")
+        prefix = "WorldBankWDI/" if nested else ""
+        bundle.writestr(prefix + data_member, data.getvalue())
+        bundle.writestr(prefix + "WDISeries.csv", series.getvalue())
+        bundle.writestr(prefix + "WDICountry.csv", "Country Code,Region\nUSA,North America\n")
 
 
 class OfficialBulkWDIChecks(unittest.TestCase):
@@ -93,6 +95,20 @@ class OfficialBulkWDIChecks(unittest.TestCase):
                 file.write(b"tampered")
             with self.assertRaisesRegex(ValueError, "SHA256"):
                 validate_wdi_download(output)
+
+    def test_official_current_bulk_filename_and_archive_folder_layouts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for i, (name, nested) in enumerate((
+                ("WDICSV.csv", False), ("WDICSV.csv", True),
+                ("WDIData.csv", True),
+            )):
+                original = Path(tmp) / ("layout-" + str(i) + ".zip")
+                make_source(original, data_member=name, nested=nested)
+                parsed = scan_bulk(original, CODES, 1960, 2026)
+                self.assertEqual(len(parsed["values"]), 4)
+                output = Path(tmp) / ("release-" + str(i))
+                collect_bulk(output, CODES, source_zip=original)
+                self.assertEqual(validate_wdi_download(output)["observations"], 4)
 
     def test_reject_original_source_which_is_not_complete(self):
         with tempfile.TemporaryDirectory() as tmp:
