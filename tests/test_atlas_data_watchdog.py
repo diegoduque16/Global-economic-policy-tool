@@ -71,17 +71,17 @@ class WatchdogTests(unittest.TestCase):
             (source/'run_report.json').write_text(
                 json.dumps({'transport':'WORLD_BANK_OFFICIAL_WDI_BULK_CSV'}))
             program=(
-                'import importlib.util, pathlib, sys\\n'
-                'spec=importlib.util.spec_from_file_location("isolated_watchdog",sys.argv[1])\\n'
-                'watchdog=importlib.util.module_from_spec(spec)\\n'
-                'spec.loader.exec_module(watchdog)\\n'
-                'try:\\n'
-                '    watchdog.validate_wdi_download(pathlib.Path(sys.argv[2]))\\n'
-                'except ValueError as exc:\\n'
-                '    assert "scope/report mismatch" in str(exc),str(exc)\\n'
-                'else:\\n'
-                '    raise AssertionError("Expected offline synthetic source rejection")\\n'
-                'print("STANDALONE_WDI_BULK_IMPORT_OK")\\n'
+                'import importlib.util, pathlib, sys\n'
+                'spec=importlib.util.spec_from_file_location("isolated_watchdog",sys.argv[1])\n'
+                'watchdog=importlib.util.module_from_spec(spec)\n'
+                'spec.loader.exec_module(watchdog)\n'
+                'try:\n'
+                '    watchdog.validate_wdi_download(pathlib.Path(sys.argv[2]))\n'
+                'except ValueError as exc:\n'
+                '    assert "scope/report mismatch" in str(exc),str(exc)\n'
+                'else:\n'
+                '    raise AssertionError("Expected offline synthetic source rejection")\n'
+                'print("STANDALONE_WDI_BULK_IMPORT_OK")\n'
             )
             proc=subprocess.run(
                 [sys.executable,'-I','-c',program,str(script),str(source)],
