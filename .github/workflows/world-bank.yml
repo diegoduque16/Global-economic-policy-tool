@@ -2,6 +2,11 @@
 name: Refresh World Bank economic data
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'open_data/wdi_indicators.json'
+      - '.github/workflows/world-bank.yml'
   workflow_dispatch:
     inputs:
       scope:
@@ -39,7 +44,7 @@ jobs:
         run: python open_data/ingest.py --countries 'USA;GBR;ZAF' --start 2000 --end 2025 --group growth --limit 2 --out data/wdi
 
       - name: Download global WDI data
-        if: github.event_name == 'schedule' || inputs.scope == 'full'
+        if: github.event_name == 'schedule' || github.event_name == 'push' || inputs.scope == 'full'
         run: python open_data/ingest.py --countries all --start 1960 --end 2026 --group all --out data/wdi
 
       - name: Validate downloaded dataset
@@ -53,6 +58,38 @@ jobs:
           print('Conflicts:', report['conflicts'])
           if report['observations'] == 0 or report['errors'] or report['conflicts']:
               raise SystemExit('Validation failed')
+          PY
+
+      - name: Verify every official indicator and numeric key against original API responses
+        if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full'
+        run: |
+          python - <<'PY'
+          import csv, json
+          from collections import Counter
+          from pathlib import Path
+          from scripts.atlas_data_watchdog import validate_wdi_download
+          expected = {
+              code for group in json.loads(Path('open_data/wdi_indicators.json').read_text()).values()
+              for code in group
+          }
+          report = json.loads(Path('data/wdi/run_report.json').read_text())
+          assert report['country_query'] == 'all' and report['start'] == 1960 and report['end'] >= 2026
+          assert report['indicator_count'] == len(expected), 'Wrong source series scope'
+          actual = Counter()
+          with Path('data/wdi/processed/wdi_panel.csv').open(newline='') as stream:
+              for record in csv.DictReader(stream):
+                  actual[record['indicator']] += 1
+          assert set(actual) == expected, 'Missing approved official WDI series with actual numeric data'
+          verified = validate_wdi_download(Path('data/wdi'))
+          assert verified['all_output_numeric_keys_and_values_matched_original_raw']
+          assert verified['indicators_with_raw_pages'] == len(expected)
+          assert verified['observations'] == sum(actual.values())
+          print('WORLD_BANK_RESEARCH_SOURCE_VERIFIED', {
+              'indicators': len(expected),
+              'numeric_observations': verified['observations'],
+              'geographies_including_aggregates': verified['geography_codes'],
+              'no_cross_provider_harmonization': True
+          })
           PY
 
       - name: Save data and audit trail
