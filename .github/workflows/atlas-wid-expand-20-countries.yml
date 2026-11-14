@@ -1,4 +1,4 @@
-name: Atlas - Expand WID to 20 countries outside original 23-country reference (private OneDrive)
+name: Atlas - Expand WID to next 20 uncollected countries (private OneDrive)
 
 on:
   workflow_dispatch:
@@ -26,16 +26,16 @@ jobs:
       max-parallel: 2
       matrix:
         include:
-          - batch: europe-west-new
-            countries: FI,BE,AT,CH
-          - batch: europe-east-new
-            countries: PT,PL,CZ,IE
-          - batch: americas-new
-            countries: AR,PE,UY,CR
-          - batch: asia-new
-            countries: CN,ID,PH,TH
-          - batch: africa-new
-            countries: EG,MA,SN,UG
+          - batch: europe-west-wave2
+            countries: HU,RO,GR,TR
+          - batch: europe-east-wave2
+            countries: SK,SI,HR,LU
+          - batch: americas-wave2
+            countries: BO,EC,PY,DO
+          - batch: asia-wave2
+            countries: MY,VN,BD,PK
+          - batch: africa-wave2
+            countries: TZ,CI,CM,ET
     env:
       RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
       COUNTRY_CODES: ${{ matrix.countries }}
@@ -58,7 +58,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_wid_live_pilot.py' -v
           python -m compileall -q open_data/wid_live_pilot.py
           python -m unittest discover -s tests -p 'test_wid_expansion_scope.py' -v
-      - name: Prove every requested country is absent from original 23-country numeric source manifest
+      - name: Prove new country scope excludes original 23-country numeric source manifest AND verified first wave
         shell: bash
         run: |
           python - <<'PY_WID_SCOPE'
@@ -66,12 +66,19 @@ jobs:
           from pathlib import Path
           prior = json.loads(Path('research/wid_23_source_manifest.json').read_text())
           original = {x['wid_area'] for x in prior['countries']}
+          previous = json.loads(Path('research/wid_expansion_20261114_completed_scope.json').read_text())
+          completed = {country for batch in previous['new_country_batches']
+                       for country in batch['countries']}
           requested = os.environ['COUNTRY_CODES'].split(',')
-          assert len(original) == 23 and len(requested) == 4
-          assert len(set(requested)) == 4 and not (set(requested) & original), (
-              'Refusing to count historical WID countries as geographic expansion')
+          assert len(original) == 23 and len(completed) == 20
+          assert previous['source_run_id'] == 43640485476
+          assert not original.intersection(completed)
+          assert len(requested) == 4 and len(set(requested)) == 4
+          assert not (set(requested) & (original | completed)), (
+              'Refusing to count historical WID countries as geographic expansion '
+              'or to re-download any of the first 20 completed countries')
           print('WID_NEW_COUNTRY_SCOPE_VERIFIED', {'batch': os.environ['BATCH_NAME'],
-              'baseline_23_overlap': 0, 'requested_country_codes': requested})
+              'previous_43_country_overlap': 0, 'requested_country_codes': requested})
           PY_WID_SCOPE
       - name: Configure private OneDrive connection
         shell: bash
@@ -112,7 +119,7 @@ jobs:
               'batch': batch,
               'run_timestamp_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
               'country_codes': countries,
-              'baseline_scope': 'COUNTRIES_NOT_IN_VERIFIED_ORIGINAL_23_COUNTRY_NUMERIC_PANEL',
+              'baseline_scope': 'COUNTRIES_NOT_IN_ORIGINAL_23_OR_COMPLETED_20_NEW_COUNTRY_NUMERIC_PANELS',
               'successful': [],
               'failed': [],
               'source_rows_added_to_canonical_warehouse': 0,
@@ -178,7 +185,8 @@ jobs:
                   'batch': batch, 'success': report['count_successful_countries'],
                   'failed': report['count_failed_countries'],
                   'verified_share_observations': report['verified_share_observations'],
-                  'original_23_country_overlap': 0
+                  'original_23_country_overlap': 0,
+                  'previous_completed_20_country_overlap': 0
               }), flush=True)
           # Fail the job if there are failures, but leave its metadata artifact and
           # any successfully backed-up countries available for an independent rerun.
