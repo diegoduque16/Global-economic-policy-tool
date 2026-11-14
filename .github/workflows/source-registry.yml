@@ -85,7 +85,7 @@ jobs:
           assert len(project['workstreams'])>=5 and len(project['decisions'])>=6
           agents=Path('AGENTS.md').read_text()
           assert 'docs/atlas_project_brief.json' in agents
-          assert 'check GitHub Actions' not in agents or True
+          assert 'Check GitHub Actions runs' in agents
           print('ATLAS_PROJECT_CONTEXT_VERIFIED',project['updated_date'])
           PY_CONTEXT
           python -m unittest discover -s tests -p 'test_atlas_research_export.py' -v
