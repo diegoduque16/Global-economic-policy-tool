@@ -25,6 +25,44 @@ class TestRegion(unittest.TestCase):
         with self.assertRaises(ValueError):parse_jsonstat(b'{"error":"Bad filter"}','gdp_nominal')
     def test_url_encodes_query(self):
         self.assertIn('na_item=B1G',eu_url('gdp_nominal',1990)); self.assertIn('id=PAYEMS',fred_url('PAYEMS'))
+    def test_new_eurostat_employment_and_hourly_wages_source_dimensions(self):
+        from urllib.parse import urlsplit,parse_qs
+        params={
+            'employment_rate_20_64': {'indic_em':'EMP_LFS','sex':'T','age':'Y20-64','unit':'PC_POP'},
+            'hourly_wages_salaries': {'lcstruct':'D11','nace_r2':'B-S_X_O','unit':'EUR'},
+            'hourly_total_labour_cost': {'lcstruct':'D1_D4_MD5','nace_r2':'B-S_X_O','unit':'EUR'},
+        }
+        for name,selected in params.items():
+            with self.subTest(name=name):
+                query=parse_qs(urlsplit(eu_url(name,2008)).query)
+                self.assertEqual(query['freq'],['A'])
+                self.assertEqual(query['sinceTimePeriod'],['2008'])
+                for key,value in selected.items(): self.assertEqual(query[key],[value])
+                dimensions={'freq':'A',**selected}
+                axes={**dimensions,'geo':'DE','time':'2024'}
+                raw=json.dumps({'id':list(axes),
+                    'size':[1]*len(axes),
+                    'dimension':{k:{'category':{'index':{v:0}}} for k,v in axes.items()},
+                    'value':{'0':0 if name.startswith('employment') else 22.5},
+                    'status':{'0':'p'}}).encode()
+                rows,skipped=parse_jsonstat(raw,name,start=2008,end=2026)
+                self.assertEqual(skipped,0)
+                self.assertEqual(len(rows),1)
+                self.assertEqual(rows[0]['country_iso3'],'DEU')
+                self.assertEqual(rows[0]['series'],name)
+                self.assertEqual(rows[0]['status_flag'],'p')
+                self.assertEqual(rows[0]['value'],0 if name.startswith('employment') else 22.5)
+                # A response with a different native structure must NEVER
+                # be silently normalized under the requested series ID.
+                mismatched={**axes, **({'unit':'NAC'} if name.startswith('hourly')
+                                     else {'age':'Y15-64'})}
+                wrong=json.dumps({'id':list(mismatched),
+                    'size':[1]*len(mismatched),
+                    'dimension':{k:{'category':{'index':{v:0}}} for k,v in mismatched.items()},
+                    'value':{'0':22.5}}).encode()
+                rejected,_=parse_jsonstat(wrong,name,start=2008,end=2026)
+                self.assertEqual(rejected,[])
+
     def test_mocked_smoke_and_manifests(self):
         def fetch(url): return EU_RAW if 'eurostat' in url else FRED_RAW.replace(b'PAYEMS',b'USPRIV') if 'id=USPRIV' in url else FRED_RAW
         with tempfile.TemporaryDirectory() as out:
