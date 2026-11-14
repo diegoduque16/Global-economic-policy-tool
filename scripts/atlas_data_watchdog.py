@@ -98,12 +98,22 @@ def verify_ilostat(state: dict, now: datetime) -> dict:
             raise ValueError('Unexpected ILOSTAT harmonization status')
         n = row.get('records_validated')
         b = row.get('compressed_bytes')
-        if not isinstance(n, int) or n < 1 or not isinstance(b, int) or b < 1:
+        if type(n) is not int or n < 1 or type(b) is not int or b < 1:
             raise ValueError('No validated physical source-row evidence')
-        ensure_sha(row.get('sha256', ''))
+        sha = ensure_sha(row.get('sha256', ''))
         remote = row.get('remote', '')
-        if not isinstance(remote, str) or not remote.startswith(ILOSTAT_ROOT + '/indicator-data/' + key + '/'):
+        prefix = ILOSTAT_ROOT + '/indicator-data/' + key + '/'
+        if not isinstance(remote, str) or not remote.startswith(prefix):
             raise ValueError('ILOSTAT source location outside expected private root')
+        # The ingestion workflow stores each source as:
+        # indicator-data/<table_id>/<table_id>-<TOC_update>-<sha256_prefix>.csv.gz.
+        # Bind the checkpoint's full SHA to that filename and dataset identity.
+        # This is a metadata integrity check, not a substitute for a byte-level
+        # private-source checksum verification.
+        filename = remote[len(prefix):]
+        if not re.fullmatch(re.escape(key) + r'-[A-Za-z0-9]+-' +
+                            re.escape(sha[:16]) + r'\\.csv\\.gz', filename):
+            raise ValueError('ILOSTAT checkpoint remote filename/source SHA mismatch')
         total_source_rows += n
         total_bytes += b
         count += 1
