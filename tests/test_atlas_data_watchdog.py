@@ -55,6 +55,50 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(result['raw_pages'],1)
         self.assertFalse(result['canonical_integration_verified'])
 
+    def test_wdi_provider_geography_recomputed_from_pinned_original(self):
+        from unittest.mock import patch
+        from wdi_geography import country_map, classify_observed
+        root,report,name=self.make_wdi_fixture()
+        country_rows=[{'id':'USA','name':'United States',
+                       'region':{'id':'NAC','value':'North America'}},
+                      {'id':'WLD','name':'World','region':{'id':'NA','value':'Aggregates'}}]
+        raw=json.dumps([{'page':1,'pages':1,'total':2},country_rows]).encode()
+        sha=hashlib.sha256(raw).hexdigest()
+        filename=f'country_metadata_1_{sha[:12]}.json'
+        (root/'geography_raw').mkdir()
+        (root/'geography_raw'/filename).write_bytes(raw)
+        rows,summary=classify_observed(country_map([raw]),{'USA':1})
+        with (root/'processed'/'wdi_geography.csv').open('w',newline='') as h:
+            writer=csv.DictWriter(h,fieldnames=['code','name','region_id',
+                     'region_name','geography_type','observation_rows'])
+            writer.writeheader();writer.writerows(rows)
+        report['geography_metadata']={'status':'PROVIDER_COUNTRY_AGGREGATE_METADATA_VERIFIED',
+              'source_url':'https://api.worldbank.org/v2/country',
+              'metadata_pages':[{'page':1,'file':filename,'sha256':sha,
+              'url':'https://api.worldbank.org/v2/country?format=json&per_page=500&page=1','returned':2}],
+              'summary':summary}
+        (root/'run_report.json').write_text(json.dumps(report))
+        with patch.object(m,'WDI_MIN_ROWS',1):
+            audit=m.validate_wdi_download(root)
+            self.assertTrue(audit['source_metadata_version_verified'])
+            self.assertEqual(audit['country_or_territory_codes'],1)
+            self.assertEqual(audit['aggregate_codes'],0)
+            path=root/'processed'/'wdi_geography.csv'
+            path.write_text(path.read_text().replace('WORLD_BANK_COUNTRY_OR_TERRITORY',
+                                                      'WORLD_BANK_AGGREGATE'))
+            with self.assertRaisesRegex(ValueError,'classifications differ'):
+                m.validate_wdi_download(root)
+            # The WDI numeric value archive is still intact; corruption is
+            # detected solely in the derived geography crosswalk.
+    def test_wdi_legacy_immutable_archive_still_passes_with_explicit_unresolved_geo(self):
+        from unittest.mock import patch
+        root,report,name=self.make_wdi_fixture()
+        with patch.object(m,'WDI_MIN_ROWS',1):
+            got=m.validate_wdi_download(root)
+        self.assertFalse(got['source_metadata_version_verified'])
+        self.assertFalse(got['country_vs_aggregate_resolved'])
+        self.assertIn('LEGACY',got['geography_type_audit'])
+
     def test_wdi_processed_value_must_match_original_raw_source(self):
         from unittest.mock import patch
         root,report,name=self.make_wdi_fixture()
