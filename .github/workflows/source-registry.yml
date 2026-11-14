@@ -5,6 +5,7 @@ on:
     paths:
       - 'open_data/expanded_source_catalog.csv'
       - 'open_data/ingest.py'
+      - 'open_data/wdi_geography.py'
       - 'tests/test_open_data_v07.py'
       - 'scripts/build_source_registry.py'
       - 'research/atlas1_reconcile_inventory.py'
