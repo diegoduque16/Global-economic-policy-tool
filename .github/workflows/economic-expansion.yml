@@ -2,6 +2,13 @@
 name: Refresh US Europe and Historical data
 
 on:
+  # Reuse the existing economic extension job to collect new European
+  # employment/wage series once when the source configuration changes.
+  push:
+    branches: [main]
+    paths:
+      - 'open_data/us_europe.py'
+      - '.github/workflows/economic-expansion.yml'
   workflow_dispatch:
     inputs:
       dataset:
@@ -36,25 +43,88 @@ jobs:
           python-version: '3.12'
 
       - name: Test U.S. and Europe code
-        if: inputs.dataset != 'historical'
+        if: github.event_name == 'push' || inputs.dataset != 'historical'
         run: python -m unittest discover -s tests -p 'test_us_europe.py' -v
 
       - name: Test historical code
-        if: inputs.dataset != 'us_europe'
+        if: github.event_name != 'push' && inputs.dataset != 'us_europe'
         run: python -m unittest discover -s tests -p 'test_historical_maddison.py' -v
 
       - name: Download U.S. and Europe
-        if: inputs.dataset != 'historical'
+        if: github.event_name != 'push' && inputs.dataset != 'historical'
         run: python open_data/us_europe.py --scope "${{ inputs.scope }}" --sources all --out data/us_europe
 
-      - name: Download historical data
-        if: inputs.dataset != 'us_europe'
+      - name: Download historic data source (manual-only)
+        if: github.event_name != 'push' && inputs.dataset != 'us_europe'
         run: |
           if [ "${{ inputs.scope }}" = "smoke" ]; then
             python open_data/historical_maddison.py --start 1800 --end 1959 --out data/historical
           else
             python open_data/historical_maddison.py --start 1 --end 1959 --out data/historical
           fi
+
+      - name: Download expanded real Eurostat employment and employer-wage series
+        if: github.event_name == 'push'
+        run: python open_data/us_europe.py --scope full --sources europe --start 1990 --end 2026 --out data/us_europe
+
+      - name: Verify all configured European source series and original downloaded responses
+        if: github.event_name == 'push'
+        run: |
+          python - <<'PY_EUROSTAT'
+          import csv, hashlib, json
+          from pathlib import Path
+          from open_data.us_europe import EUROSTAT
+          root=Path('data/us_europe')
+          report=json.loads((root/'run_report.json').read_text())
+          assert report['sources_requested']=='europe' and report['scope']=='full'
+          assert report['tasks_requested']==len(EUROSTAT) == 6
+          assert report['tasks_passed']==6 and not report['errors'] and not report['conflicts']
+          manifest=report['manifest']
+          assert {entry['series'] for entry in manifest}==set(EUROSTAT)
+          assert all(entry['source']=='europe' and entry['observations']>0 for entry in manifest)
+          for entry in manifest:
+              p=root/'raw'/entry['filename']
+              assert p.is_file() and hashlib.sha256(p.read_bytes()).hexdigest()==entry['sha256']
+              assert entry['url'].startswith('https://ec.europa.eu/eurostat/api/dissemination/')
+          with (root/'processed/us_europe_panel.csv').open(newline='') as f:
+              values=list(csv.DictReader(f))
+          assert len(values)==report['observations'] and len(values)>0
+          assert {row['series'] for row in values}==set(EUROSTAT)
+          assert len({(row['country_iso3'],row['year'],row['series']) for row in values})==len(values)
+          print('EUROSTAT_ECONOMIC_EXPANSION_SOURCE_VERIFIED',{
+              'series':len(EUROSTAT),'numeric_observations':len(values),
+              'geographies':len({row['country_iso3'] for row in values}),
+              'independent_source_originals':len(manifest)})
+          PY_EUROSTAT
+
+      # Source bytes stay privately durable rather than relying on only a
+      # 90-day Actions artifact. This uses the existing OneDrive connection.
+      - name: Store complete Eurostat source release in private OneDrive with SHA256 round trip
+        if: github.event_name == 'push'
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/atlas-eurostat-rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/atlas-eurostat-rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/atlas-eurostat-rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/atlas-eurostat-rclone/rclone.conf"
+          tar -czf "$RUNNER_TEMP/eurostat-economic-source.tar.gz" -C data us_europe
+          local_sha=$(sha256sum "$RUNNER_TEMP/eurostat-economic-source.tar.gz" | cut -d ' ' -f1)
+          remote="onedrive:Diego/economic research database/atlas/eurostat-economic-v1/run-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+          rclone copyto "$RUNNER_TEMP/eurostat-economic-source.tar.gz" "$remote/eurostat-economic-source.tar.gz" --retries 3
+          roundtrip_sha=$(rclone cat "$remote/eurostat-economic-source.tar.gz" | sha256sum | cut -d ' ' -f1)
+          test "$roundtrip_sha" = "$local_sha"
+          printf '%s  %s\n' "$local_sha" 'eurostat-economic-source.tar.gz' > "$RUNNER_TEMP/eurostat-economic-source.sha256"
+          rclone copyto "$RUNNER_TEMP/eurostat-economic-source.sha256" "$remote/eurostat-economic-source.sha256" --retries 3
+          test "$(rclone cat "$remote/eurostat-economic-source.sha256")" = "$(cat "$RUNNER_TEMP/eurostat-economic-source.sha256")"
+          echo "EUROSTAT_PRIVATE_SOURCE_ROUNDTRIP_VERIFIED $local_sha"
+          rm -f "$RUNNER_TEMP/atlas-eurostat-rclone/rclone.conf"
 
       - name: Save datasets and reports
         if: always()

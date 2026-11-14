@@ -6,6 +6,9 @@ on:
       - 'open_data/expanded_source_catalog.csv'
       - 'open_data/ingest.py'
       - 'open_data/wdi_bulk.py'
+      - 'open_data/us_europe.py'
+      - 'tests/test_us_europe.py'
+      - '.github/workflows/economic-expansion.yml'
       - 'tests/test_wdi_bulk.py'
       - 'tests/test_open_data_v07.py'
       - 'atlas_web/**'
@@ -52,6 +55,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_wid_expansion_scope.py' -v
           python -m unittest discover -s tests -p 'test_atlas_data_watchdog.py' -v
           python -m unittest discover -s tests -p 'test_wdi_bulk.py' -v
+          python -m unittest discover -s tests -p 'test_us_europe.py' -v
           python -m unittest discover -s tests -p 'test_ilostat_native_profile.py' -v
           python - <<'PY_ILOSTAT_EMBED'
           from pathlib import Path
