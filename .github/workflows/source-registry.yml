@@ -27,33 +27,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Read-only private checkpoint compatibility check (temporary branch validation)
-        env:
-          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$RCLONE_CONFIG_B64" || { echo "Configured private source credentials unavailable" >&2; exit 1; }
-          sudo apt-get update -qq >/dev/null
-          sudo apt-get install -y -qq rclone >/dev/null
-          umask 077
-          temp="$(mktemp -d)"
-          trap 'rm -rf "$temp"' EXIT
-          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$temp/rclone.conf"
-          export RCLONE_CONFIG="$temp/rclone.conf"
-          rclone copyto 'onedrive:Diego/economic research database/atlas/ilostat-bulk-v1/checkpoint/state.json' "$temp/state.json" --retries 3 >/dev/null
-          python - "$temp/state.json" <<'PY_CHECKPOINT'
-          import json
-          import sys
-          from pathlib import Path
-          from datetime import datetime,timezone
-          from scripts.atlas_data_watchdog import verify_ilostat
-          state=json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
-          report=verify_ilostat(state,datetime.now(timezone.utc))
-          assert report['status']=='VERIFIED_RAW_SOURCE_FILES_NOT_HARMONIZED'
-          assert report['verified_compressed_files']>=900
-          print('PRIVATE_CHECKPOINT_PATH_BINDING_VALID',report['verified_compressed_files'],'of',report['official_bulk_files'])
-          PY_CHECKPOINT
       - name: Verify source-linkage statuses cannot be overclaimed
         run: |
           python -m unittest discover -s tests -p 'test_source_registry_reconciliation.py' -v
