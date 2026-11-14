@@ -3631,7 +3631,7 @@
           "US"
         ],
         "original_manifest_sha256": "b473a9c1438829c9896e935e20789300cec5ba30a50fba8c832aac21bef38a9a",
-        "refresh_workflow_sha256": "5ef7adbaf700096d13f869c512b646f07afff7f52d0c499fdbf9a5afa5f27f07",
+        "historical_refresh_scope_sha256": "58c243391c277438be0a8d91ce8bb81c229a77419fa61b8b3efbe537a8f776ea",
         "source_fingerprint_metadata_sha256": "99d20eb26511e0367e1b397f40002115461b2b4258080b4060f8df377b9e56ff",
         "source_file_comparison": {
           "status": "RAW_SOURCE_FINGERPRINTS_COMPARED_NOT_OBSERVATION_VALUES",

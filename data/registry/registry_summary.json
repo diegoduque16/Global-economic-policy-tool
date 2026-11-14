@@ -1,7 +1,7 @@
 {
   "registry_version": "0.4.0",
   "source_catalog_sha256": "8f93b17bc24740c69e8ad042d080436ac1f40f9b0201750e17c18a38a2a2da4a",
-  "generated_utc": "2026-11-14T19:32:45.749496+00:00",
+  "generated_utc": "2026-11-14T21:00:48.391708+00:00",
   "source_count": 125,
   "by_status": {
     "reported_live_unverified": 4,
@@ -9,7 +9,7 @@
     "catalogued_only": 16,
     "importer_only": 1
   },
-  "lineage_evidence_map_sha256": "a0d73faa02020e0fb68f280afa7a572c79485103f082455028e9890f47d77cf2",
+  "lineage_evidence_map_sha256": "bafb2d81263dfdcfb389604eb561be9336c5e1de04390fabfd068a945d15131e",
   "by_priority": {
     "P0": 71,
     "P1": 45,
@@ -94,7 +94,7 @@
       "US"
     ],
     "original_manifest_sha256": "b473a9c1438829c9896e935e20789300cec5ba30a50fba8c832aac21bef38a9a",
-    "refresh_workflow_sha256": "5ef7adbaf700096d13f869c512b646f07afff7f52d0c499fdbf9a5afa5f27f07",
+    "historical_refresh_scope_sha256": "58c243391c277438be0a8d91ce8bb81c229a77419fa61b8b3efbe537a8f776ea",
     "source_fingerprint_metadata_sha256": "99d20eb26511e0367e1b397f40002115461b2b4258080b4060f8df377b9e56ff",
     "source_file_comparison": {
       "status": "RAW_SOURCE_FINGERPRINTS_COMPARED_NOT_OBSERVATION_VALUES",
