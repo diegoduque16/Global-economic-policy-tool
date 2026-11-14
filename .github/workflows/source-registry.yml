@@ -68,6 +68,31 @@ jobs:
           print('UNRESOLVED_WDI_GEOGRAPHY_CODES',[x['code'] for x in rows if x['geography_type']=='UNRESOLVED_WORLD_BANK_METADATA'])
           PY_LIVE_WDI_GEO
           rm -rf "$RUNNER_TEMP/wdi-real-data"
+      - name: Temporary end-to-end WDI source and geography snapshot validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python open_data/ingest.py --countries all --start 1960 --end 2026 --group growth --limit 2 --out "$RUNNER_TEMP/wdi-e2e"
+          python - <<'PY_WDI_E2E'
+          import json,os
+          from pathlib import Path
+          import scripts.atlas_data_watchdog as audit
+          audit.WDI_MIN_ROWS=1  # deliberately small two-indicator source test
+          root=Path(os.environ['RUNNER_TEMP'])/'wdi-e2e'
+          result=audit.validate_wdi_download(root)
+          assert result['source_metadata_version_verified'] is True
+          assert result['country_vs_aggregate_resolved'] is True
+          assert result['aggregate_codes']>0 and result['country_or_territory_codes']>0
+          assert result['all_output_numeric_keys_and_values_matched_original_raw'] is True
+          print('LIVE_WDI_END_TO_END_METADATA_VALIDATED',json.dumps({
+              'observations':result['observations'],'countries_or_territories':result['country_or_territory_codes'],
+              'aggregates':result['aggregate_codes'],
+              'source_pages':result['raw_pages'],
+              'provider_metadata_verified':result['source_metadata_version_verified'],
+              'canonical_integration_verified':result['canonical_integration_verified'],
+          },sort_keys=True))
+          PY_WDI_E2E
+          rm -rf "$RUNNER_TEMP/wdi-e2e"
       - name: Verify source-linkage statuses cannot be overclaimed
         run: |
           python -m unittest discover -s tests -p 'test_source_registry_reconciliation.py' -v
