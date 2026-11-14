@@ -401,7 +401,7 @@ def validate_wdi_download(folder: Path) -> dict:
     panel = folder / 'processed' / 'wdi_panel.csv'
     if panel.is_symlink() or not panel.is_file():
         raise ValueError('Missing WDI normalized numeric source panel')
-    count, keys = 0, set()
+    count, keys, geographies, years = 0, set(), set(), set()
     with panel.open(encoding='utf-8',newline='') as fh:
         reader = csv.DictReader(fh)
         required = {'country_iso3','year','indicator','value','unit','source','source_url','downloaded_at_utc'}
@@ -424,6 +424,7 @@ def validate_wdi_download(folder: Path) -> dict:
             if key in keys:
                 raise ValueError('Duplicate WDI country-year-indicator observation')
             keys.add(key); count+=1
+            geographies.add(code); years.add(year)
     if count != report['observations']:
         raise ValueError('WDI actual numeric records disagree with run report')
     regular = {str(p.relative_to(folder)) for p in folder.rglob('*') if p.is_file()}
@@ -432,6 +433,14 @@ def validate_wdi_download(folder: Path) -> dict:
         raise ValueError('Untracked WDI artifact payload')
     return {'status':'WDI_SOURCE_NATIVE_NUMERIC_CHECKS_PASSED_NOT_CANONICAL',
             'observations':count,'raw_pages':len(names),'indicators_with_raw_pages':len(indicators),
+            'geography_codes':len(geographies),
+            'first_observed_year':min(years),'last_observed_year':max(years),
+            # WLD is the World Bank world aggregate, not a country. Preserve all
+            # source-native rows; classify *all* geographies against official
+            # country/aggregate metadata before any country-only research use.
+            'world_aggregate_present':'WLD' in geographies,
+            'country_only_geographies_verified':False,
+            'geography_type_audit':'OFFICIAL_COUNTRY_VS_AGGREGATE_METADATA_STILL_REQUIRED',
             'report_sha256':digest(folder/'run_report.json'),
             'panel_sha256':digest(panel), 'canonical_integration_verified':False}
 
