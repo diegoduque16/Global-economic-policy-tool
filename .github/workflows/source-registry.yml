@@ -26,6 +26,9 @@ on:
       - '.github/workflows/atlas-wid-expand-20-countries.yml'
       - 'tests/test_source_registry_reconciliation.py'
       - 'tests/test_atlas_data_watchdog.py'
+      - 'scripts/ilostat_native_profile.py'
+      - 'tests/test_ilostat_native_profile.py'
+      - '.github/workflows/atlas-ilostat-bulk-resumable-ingestion.yml'
       - '.github/workflows/source-registry.yml'
   schedule:
     - cron: '43 10 * * 1'
@@ -44,6 +47,21 @@ jobs:
           python -m unittest discover -s tests -p 'test_source_registry_reconciliation.py' -v
           python -m unittest discover -s tests -p 'test_wid_revision_audit.py' -v
           python -m unittest discover -s tests -p 'test_atlas_data_watchdog.py' -v
+          python -m unittest discover -s tests -p 'test_ilostat_native_profile.py' -v
+          python - <<'PY_ILOSTAT_EMBED'
+          from pathlib import Path
+          text = Path('.github/workflows/atlas-ilostat-bulk-resumable-ingestion.yml').read_text()
+          begin = "          python - <<'PYCODE'\n"
+          end = "\n          PYCODE"
+          assert text.count(begin) == 1 and text.count(end) == 1
+          code = text.split(begin, 1)[1].split(end, 1)[0]
+          assert all(line.startswith('          ') or not line for line in code.splitlines())
+          script = '\n'.join(line[10:] for line in code.splitlines()) + '\n'
+          namespace = {'__name__': 'atlas_ilostat_embedded_offline_test'}
+          exec(compile(script, 'ILOSTAT embedded GitHub Action source', 'exec'), namespace)
+          namespace['test']()
+          print('ATLAS_ILOSTAT_EMBEDDED_SCRIPT_OFFLINE_VERIFIED')
+          PY_ILOSTAT_EMBED
           python -m unittest discover -s tests -p 'test_open_data_v07.py' -v
           python -m unittest discover -s tests -p 'test_atlas_web.py' -v
           node --check atlas_web/static/app.js

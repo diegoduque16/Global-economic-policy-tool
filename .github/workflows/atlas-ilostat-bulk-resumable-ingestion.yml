@@ -8,6 +8,11 @@ on:
         type: string
         required: true
         default: '20'
+      profile_backfill_files:
+        description: 'Max previously saved SHA-verified raw tables to value-profile (0-20, cap 128 MiB)'
+        type: string
+        required: true
+        default: '5'
       max_file_mib:
         description: 'Maximum compressed MiB per source file; larger files are explicitly deferred'
         type: string
@@ -37,6 +42,7 @@ jobs:
       BATCH_SIZE: ${{ inputs.batch_size || '20' }}
       MAX_FILE_MIB: ${{ inputs.max_file_mib || '512' }}
       MAX_RUN_MIB: ${{ inputs.max_run_mib || '2048' }}
+      PROFILE_BACKFILL_FILES: ${{ inputs.profile_backfill_files || '5' }}
     steps:
       - name: Check out the existing Atlas checkpoint guard
         uses: actions/checkout@v4
@@ -54,7 +60,9 @@ jobs:
           echo "RCLONE_CONFIG=$RUNNER_TEMP/rclone/rclone.conf" >> "$GITHUB_ENV"
       - name: Test Atlas checkpoint guard
         shell: bash
-        run: python -m unittest discover -s tests -p 'test_ilostat_checkpoint_guard.py'
+        run: |
+          python -m unittest discover -s tests -p 'test_ilostat_checkpoint_guard.py' -v
+          python -m unittest discover -s tests -p 'test_ilostat_native_profile.py' -v
 
       - name: Verify ILOSTAT checkpoint before ingestion
         shell: bash
@@ -75,6 +83,10 @@ jobs:
           from urllib.parse import urlencode, urlsplit
           from urllib.request import Request, urlopen
           from urllib.error import HTTPError, URLError
+          from scripts.ilostat_native_profile import (
+              profile_native_file, plan_private_profile_backfill,
+              write_inventory, sha256_bytes,
+          )
 
           HOST = 'rplumber.ilo.org'
           TOC = 'https://rplumber.ilo.org/metadata/toc/indicator?format=.csv&lang=en'
@@ -264,6 +276,59 @@ jobs:
               report['dictionaries_attempted_this_run'] = dic_results
 
 
+          def backfill_existing_profiles(state, work, report):
+              """Read a few existing PRIVATE files; no fresh ILO provider download.
+
+              Original remote SHA/bytes and source row count must match before
+              the source-native profile can augment existing checkpoint state.
+              Copies are local temp files and are deleted even on failures.
+              """
+              max_files=int(os.environ.get('PROFILE_BACKFILL_FILES','5'))
+              plans=plan_private_profile_backfill(
+                  state, source_root=BASE, max_files=max_files,
+                  max_file_bytes=32*1024*1024, max_total_bytes=128*1024*1024)
+              report['historic_profile_backfill_selected']=len(plans)
+              report['historic_profile_backfill_verified']=0
+              report['historic_profile_backfill_failed']=[]
+              for item in plans:
+                  key=item['id']
+                  local=work/('backfill-'+key+'.csv.gz')
+                  try:
+                      run(['rclone','copyto',item['remote'],str(local),'--retries','3'])
+                      if local.stat().st_size!=item['compressed_bytes']:
+                          raise ValueError('HISTORICAL_SOURCE_COMPRESSED_SIZE_MISMATCH')
+                      if digest(local)!=item['sha256']:
+                          raise ValueError('HISTORICAL_SOURCE_SHA256_MISMATCH')
+                      prof=profile_native_file(local,item['toc_records'])
+                      if prof['records_validated']!=item['original_validated_csv_rows']:
+                          raise ValueError('HISTORICAL_SOURCE_NATIVE_ROW_COUNT_MISMATCH')
+                      # Do not expose an uncommitted profile as durable
+                      # evidence if OneDrive checkpoint persistence fails.
+                      state['downloaded'][key]['native_numeric_profile']=prof
+                      try:
+                          save_checkpoint(state,work)
+                      except Exception:
+                          state['downloaded'][key].pop('native_numeric_profile',None)
+                          raise
+                      report['historic_profile_backfill_verified']+=1
+                      print('ILOSTAT_PROFILE_BACKFILLED',
+                            json.dumps({'id':key,'numeric_native_rows':prof['numeric_obs_value_rows'],
+                                        'blank_native_values':prof['blank_obs_value_rows'],
+                                        'nonnumeric_native_values':prof['other_nonnumeric_or_nonfinite_rows']}),
+                            flush=True)
+                  except ValueError:
+                      # A source integrity failure cannot be ignored or put into
+                      # the release inventory as a verified profile.
+                      raise
+                  except Exception as exc:
+                      # Temporary private storage failures do not erase original
+                      # checkpoint entries or stop newly verified source uploads.
+                      report['historic_profile_backfill_failed'].append({
+                          'id':key, 'error_type':type(exc).__name__})
+                  finally:
+                      local.unlink(missing_ok=True)
+
+
           def main():
               if not (1 <= BATCH <= 150 and 64 <= MAX_FILE//(1024*1024) <= 8192 and MAX_RUN>=MAX_FILE):
                   raise ValueError('Unsafe batch size or file/run size caps')
@@ -327,7 +392,11 @@ jobs:
                           if remaining < MAX_FILE:
                               break
                           bytes_downloaded=request(url,local,MAX_FILE,3)
-                          rows,header=verify_gz(local,r.get('n.records',''))
+                          # Stream every source-native row once, validating gzip
+                          # integrity, row counts, actual finite numeric values,
+                          # blanks and unrecognized value markers. No harmonization.
+                          native_profile=profile_native_file(local,r.get('n.records',''))
+                          rows,header=native_profile['records_validated'],native_profile['csv_header']
                           sha=digest(local)
                           last_tag=re.sub('[^0-9A-Za-z]','',r.get('last.update','unknown'))[:20] or 'unknown'
                           remote=TARGET+'/'+key+'/'+key+'-'+last_tag+'-'+sha[:16]+'.csv.gz'
@@ -335,6 +404,7 @@ jobs:
                           verified={'last_update':r.get('last.update',''),'toc_records':r.get('n.records',''),
                                     'records_validated':rows,'compressed_bytes':bytes_downloaded,
                                     'csv_header':header,'sha256':sha,'source_url':url,'remote':remote,
+                                    'native_numeric_profile':native_profile,
                                     'verified_utc':NOW,'state':'NATIVE_NOT_HARMONIZED'}
                           state['downloaded'][key]=verified
                           state['deferred'].pop(key,None)
@@ -357,6 +427,9 @@ jobs:
                       report['attempted'].append(record)
                       print('ILOSTAT_RESULT',json.dumps({k:record[k] for k in record if k in ('id','result','rows','compressed_bytes','error')}),flush=True)
                       time.sleep(MIN_DELAY)
+                  # Backfill a bounded subset of the 920+ existing SHA-pinned
+                  # private files while no new provider calls are required.
+                  backfill_existing_profiles(state,work,report)
                   downloaded=set(state['downloaded'])
                   report['cumulative_downloaded_files']=sum(key in toc for key in downloaded)
                   report['cumulative_verified_observations_by_bulk_file']=sum(
@@ -372,6 +445,19 @@ jobs:
                   report['checkpoint_remote']=MANIFEST
                   report['source_native_readiness']='NOT_HARMONIZED_OR_CAUSALLY_VALIDATED'
                   report['replication_note']='Raw ILOSTAT indicator CSV.gz datasets can overlap with existing warehouse records; do not add to canonical counts without keyed deduplication and QA.'
+                  # Publish metadata-only evidence from the same already
+                  # private SHA-pinned checkpoint. Historical files without a
+                  # source-native numeric profile are explicitly UNKNOWN.
+                  checkpoint_blob=(json.dumps(state,indent=2,sort_keys=True)+'\n').encode('utf-8')
+                  inventory=write_inventory(OUT,state,toc,checkpoint_sha256=sha256_bytes(checkpoint_blob))
+                  if (inventory['source_tables_matching_current_toc_vintage'] >
+                          report['cumulative_downloaded_files']):
+                      raise ValueError('ILOSTAT source table inventory exceeds current TOC coverage')
+                  report['numeric_profile_evidence_stage']=inventory['stage']
+                  report['native_source_tables_value_profiled']=inventory['source_tables_with_numeric_value_profile']
+                  report['native_source_tables_not_yet_value_profiled']=inventory['historical_source_tables_not_yet_profiled']
+                  report['finite_numeric_rows_in_profiled_source_tables_only']=inventory[
+                      'finite_numeric_obs_value_rows_in_profiled_tables_ONLY']
                   (OUT/'summary.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
                   with (OUT/'batch_results.csv').open('w',encoding='utf-8',newline='') as f:
                       cols=['id','toc_last_update','toc_records','result','rows','compressed_bytes','sha256','error','url']
