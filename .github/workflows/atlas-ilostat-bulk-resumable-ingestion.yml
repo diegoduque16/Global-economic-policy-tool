@@ -302,8 +302,14 @@ jobs:
                       prof=profile_native_file(local,item['toc_records'])
                       if prof['records_validated']!=item['original_validated_csv_rows']:
                           raise ValueError('HISTORICAL_SOURCE_NATIVE_ROW_COUNT_MISMATCH')
+                      # Do not expose an uncommitted profile as durable
+                      # evidence if OneDrive checkpoint persistence fails.
                       state['downloaded'][key]['native_numeric_profile']=prof
-                      save_checkpoint(state,work)
+                      try:
+                          save_checkpoint(state,work)
+                      except Exception:
+                          state['downloaded'][key].pop('native_numeric_profile',None)
+                          raise
                       report['historic_profile_backfill_verified']+=1
                       print('ILOSTAT_PROFILE_BACKFILLED',
                             json.dumps({'id':key,'numeric_native_rows':prof['numeric_obs_value_rows'],
