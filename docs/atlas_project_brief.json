@@ -3,7 +3,7 @@
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
   "updated_date": "2026-11-14",
-  "status_basis": "Snapshot checked against production GitHub Actions on November 14, 2026 at approximately 4:17 p.m. EST. This is not live telemetry; linked workflows and artifacts take precedence after this timestamp.",
+  "status_basis": "Snapshot checked against completed GitHub Actions runs on November 14, 2026 at approximately 4:20 p.m. EST. This is a dated reference, not live telemetry; verify run results before quoting them later.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -64,9 +64,9 @@
     },
     {
       "name": "World Inequality Database (WID)",
-      "stage": "16 additional countries verified; 4 African candidates underway",
-      "evidence": "Historical WID panel: 23 countries and 21,430 selected numeric distribution observations. The old 20-country run refreshed the baseline only, so was not expansion. On November 14 four completed new-country batches verified 16 codes (FI, BE, AT, CH, PT, PL, CZ, IE, AR, PE, UY, CR, CN, ID, PH, TH), with 12,028 source-native selected income/wealth distribution observations backed up with private source SHA verification and zero baseline country overlap. African candidate batch EG, MA, SN, UG had not finished as of this snapshot.",
-      "next": "Finish the African WID batch; count only the successful country/source rows and failed IDs. Then expand beyond the attained new-country set without double-counting refreshes, and separately examine distribution-variable coverage.",
+      "stage": "20 genuinely new countries completed and privately source-verified",
+      "evidence": "Historical original WID panel: 23 countries, 21,430 selected numeric observations. The earlier monthly '20-country expansion' only refreshed baseline countries, not expansion. The November 14 five-batch WID collection successfully added 20 disjoint new country codes (FI, BE, AT, CH, PT, PL, CZ, IE, AR, PE, UY, CR, CN, ID, PH, TH, EG, MA, SN, UG) with 14,472 source-native selected numeric income/wealth distribution observations; all 20 country downloads backed up to private OneDrive with SHA verification, and all five batches reported zero failures and zero original-baseline overlap. The total is a separate source-native count, not an increment to canonical observations.",
+      "next": "Expand beyond the new 43-country combined observed scope where official country data are available, extend distribution-variable coverage, and independently handle source vintages, metadata, overlap and eventual warehouse integration. Do not claim all WID countries or indicators are complete.",
       "links": [
         {
           "label": "New-country PR #22",
@@ -177,14 +177,20 @@
       "title": "Establish one permanent Atlas operating reference",
       "description": "Preserve completion-first direction, status boundaries, verified workflow evidence and a cumulative dated decision log in one version-controlled JSON file. Publish it as a dedicated website Project Brief with a machine-readable link and require future repository work to read it first.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/docs/atlas_project_brief.json"
+    },
+    {
+      "date": "2026-11-14",
+      "title": "Complete first genuine WID geographic expansion",
+      "description": "All 20 official WID country CSV downloads outside the original 23-country panel succeeded across five independent batches, yielding 14,472 selected source-native income/wealth numeric observations backed up in private OneDrive. No original-baseline country overlap; no canonical/public integration yet.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43640485476"
     }
   ],
   "next_actions": [
-    "Check the next ILOSTAT scheduled source-ID batch after the verified 969/1,964 checkpoint and the still-running WID Africa batch; never substitute outdated run status or assert complete collection on a batch-level success.",
+    "Check any future ILOSTAT scheduled source-ID runs after 969/1,964 and retain exact numeric/file evidence; verify GitHub statuses again before quoting these November 14 results.",
     "Continue acquiring the 995 currently missing official ILOSTAT bulk tables; retry temporary source HTTP 502 failures with existing resumable logic, preserve immutable checkpoints.",
     "Back up the 59-series WDI artifact privately and verify the restored original SHA before retention expires.",
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
-    "Expand WID geographic coverage and verify which new candidate countries yielded real nonempty distribution observations.",
+    "Continue WID beyond the now completed 20-new-country batch (20/20 verified, 14,472 selected numeric values, separate from 23-country historical baseline) and broaden income and wealth distribution-variable coverage by missing official IDs.",
     "Complete data acquisition in other high-priority areas based on concrete missing native series—not an assumption that 47 unmapped catalog entries are empty.",
     "Keep this dated briefing and its evidence links current when any material Atlas collection scope, successful release, or project direction changes."
   ],
