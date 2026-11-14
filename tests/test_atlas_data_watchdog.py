@@ -177,6 +177,15 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(result['observations'],123)
         verify_remote.assert_called_once_with(archive_root+'/'+name)
 
+    def test_wdi_backup_failure_is_visible_but_not_a_fake_success(self):
+        from unittest.mock import patch
+        with patch.object(m,'backup_recent_wdi',side_effect=RuntimeError('private temporary outage')):
+            report=m.safe_backup_recent_wdi('diegoduque16/Global-economic-policy-tool',
+                                            self.now,self.root)
+        self.assertEqual(report['status'],'WDI_PRIVATE_BACKUP_NOT_VERIFIED')
+        self.assertEqual(report['error_type'],'RuntimeError')
+        self.assertFalse(report['canonical_integration_verified'])
+
     def test_wdi_new_source_ledger_not_additive(self):
         ledger=m.make_ledger({'validated_raw_csv_rows_NOT_all_numeric':100},{'observations':3},
                              {'observed_numeric_cells':10},{'canonical_observations_previously_verified':5},
