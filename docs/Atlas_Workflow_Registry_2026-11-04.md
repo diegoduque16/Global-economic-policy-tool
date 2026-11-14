@@ -166,3 +166,14 @@ The disposition is provisional. **REVIEW is not permission to delete.**
 - Consult the [research protocol](https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/docs/RESEARCH_PROTOCOL.md) before making causal conclusions.
 
 **No GitHub workflow was modified or disabled to produce this registry.**
+
+
+---
+
+## Current inventory reconciliation — 14 November 2026
+
+The 4 November table above remains a historical inventory of **111** workflow files. A read-only comparison against the 14 November `main` Git tree finds **112** workflow files, with one new additional workflow since this register: `atlas-ilostat-checkpoint-guard-tests.yml` (ILOSTAT checkpoint tests, not an additional ingestion process). The percent-encoded space in the table link to `atlas-first-wid-wdi-research 2.yml` is the same existing path, **not** a new workflow.
+
+All **12** listed scheduled workflows are still present. The 4 November **24 review candidates** remain candidates for dependency analysis, not approved for deletion. The two identically hashed WID workflow files remain exact-content duplicates. These findings are reconciled with all **391 GitHub Actions run records** in the 14 November [data-first continuation addendum](ATLAS_CONSOLIDATION_DECISION_2026-11-12.md#14-november-2026-data-first-continuation-and-non-duplication-checkpoint).
+
+**Current scope:** collecting, preserving, validating, harmonizing and safely expanding economic data. Economic research work is deliberately deferred. No existing workflow was changed or disabled by this audit.
