@@ -72,10 +72,17 @@ class AtlasWebTests(unittest.TestCase):
         self.assertEqual(o["snapshots"][0]["snapshot_id"],"atlas-test")
         self.assertFalse(o["counts_additive"])
         self.assertFalse(o["research_ready"])
+        self.assertIsNotNone(o["catalog"])
+        self.assertGreater(o["catalog"]["source_descriptions"],100)
+        self.assertGreater(o["catalog"]["priority_sources"],50)
+        self.assertIn("exact_series_audits_verified_by_registry",o["catalog"])
 
     def test_series_country_filters_and_original_values(self):
         self.assertEqual([x["name"] for x in self.store.series("wdi","source_separated","GD")],["GDP"])
         self.assertEqual({x["code"] for x in self.store.geographies("wdi","source_separated","GDP")},{"USA","GBR"})
+        geos={r["code"]:r["name"] for r in self.store.geographies("wdi","source_separated","GDP")}
+        self.assertEqual(geos["USA"],"United States")
+        self.assertEqual(geos["GBR"],"United Kingdom")
         got=self.store.rows("wdi","source_separated","GDP",["USA","GBR"],2020,2021)
         self.assertEqual(got["returned"],3)
         self.assertTrue(got["can_plot"])
