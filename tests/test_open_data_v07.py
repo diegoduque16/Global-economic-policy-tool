@@ -10,6 +10,44 @@ class TestOpenData(unittest.TestCase):
   self.assertIsNone(normalize({'countryiso3code':'USA','date':'2020','value':None},'X','url','now'))
  def test_bad_country(self):
   self.assertIsNone(normalize({'countryiso3code':'','date':'2020','value':2},'X','url','now'))
+ def test_reject_nonfinite_and_non_numeric_values(self):
+  for value in (float('nan'),float('inf'),-float('inf'),'NaN','Infinity','bad',True):
+   with self.subTest(value=str(value)):
+    with self.assertRaisesRegex(ValueError,'numeric observation'):
+     normalize({'countryiso3code':'USA','date':'2020','value':value},'X','url','now')
+ def test_reject_out_of_range_year(self):
+  def mock(url):
+   return json.dumps([{'page':1,'pages':1},[{'countryiso3code':'USA','date':'2019','value':3.3}]]).encode()
+  with tempfile.TemporaryDirectory() as tmp:
+   result=run(tmp,'USA',2020,2021,['TEST'],mock)
+   self.assertEqual(result['observations'],0)
+   self.assertIn('outside requested years',result['errors'][0]['error'])
+   self.assertEqual(result['validation_state'],'COLLECTION_INCOMPLETE_OR_CONFLICTING')
+ def test_reject_mismatched_pagination(self):
+  def mock(url):
+   return json.dumps([{'page':2,'pages':2},[{'countryiso3code':'USA','date':'2020','value':3.3}]]).encode()
+  with tempfile.TemporaryDirectory() as tmp:
+   result=run(tmp,'USA',2020,2021,['TEST'],mock)
+   self.assertEqual(result['observations'],0)
+   self.assertIn('page number/count',result['errors'][0]['error'])
+ def test_reject_partial_indicator_series_on_invalid_value(self):
+  def mock(url):
+   page=2 if 'page=2' in url else 1
+   val='NaN' if page==2 else 3.3
+   return json.dumps([{'page':page,'pages':2},[{'countryiso3code':'USA','date':str(2019+page),'value':val}]]).encode()
+  with tempfile.TemporaryDirectory() as tmp:
+   result=run(tmp,'USA',2020,2021,['TEST'],mock)
+   self.assertEqual(result['observations'],0)
+   self.assertEqual(len(result['errors']),1)
+   self.assertEqual(result['raw_pages'],2)
+   self.assertEqual(result['validation_state'],'COLLECTION_INCOMPLETE_OR_CONFLICTING')
+ def test_valid_result_remains_noncanonical(self):
+  def mock(url):
+   return json.dumps([{'page':1,'pages':1},[{'countryiso3code':'USA','date':'2020','value':3.3}]]).encode()
+  with tempfile.TemporaryDirectory() as tmp:
+   result=run(tmp,'USA',2020,2021,['TEST'],mock)
+   self.assertEqual(result['observations'],1)
+   self.assertEqual(result['validation_state'],'COLLECTED_BASIC_FORMAT_CHECKS_PASSED_NOT_CANONICAL')
  def test_pagination_manifest(self):
   def mock(url):
    page=2 if 'page=2' in url else 1
