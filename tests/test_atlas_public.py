@@ -33,10 +33,28 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertTrue(result["public_edition"])
             self.assertEqual(result["public_records"],300240)
             for name in ("index.html","app.js","style.css","public_adapter.js",
-                         "_headers","data/catalog.json","data/LICENSE-ATTRIBUTION.txt"):
+                         "_headers","data/catalog.json","data/LICENSE-ATTRIBUTION.txt",
+                         "project/index.html","project/brief.json","project/project.css"):
                 self.assertTrue((output/name).is_file(),name)
             html=(output/"index.html").read_text()
             self.assertIn("World Economic Atlas",html)
+            self.assertIn('href="/project/"',html)
+            self.assertIn("Project brief &amp; decisions",html)
+            public_brief = json.loads((output/"project/brief.json").read_text())
+            self.assertEqual(public_brief["project"],"World Economic Atlas")
+            self.assertEqual(public_brief["schema_version"],1)
+            self.assertGreaterEqual(len(public_brief["workstreams"]),5)
+            self.assertTrue(public_brief["assistant_start_here"])
+            self.assertIn("Completion first",public_brief["direction"][0])
+            project_page=(output/"project/index.html").read_text()
+            self.assertIn("Latest agreed direction",project_page)
+            self.assertIn("Decisions and changes",project_page)
+            self.assertIn("Instructions for continuing Atlas",project_page)
+            self.assertIn('href="/project/brief.json"',project_page)
+            self.assertNotIn("onedrive:Diego/",project_page)
+            self.assertNotIn("rclone.conf",project_page)
+            self.assertNotIn("warehouse.sqlite",project_page)
+
             self.assertIn('id="quick-country"',html)
             self.assertIn('id="quick-country-search"',html)
             self.assertIn('id="quick-indicator"',html)
