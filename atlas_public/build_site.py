@@ -104,10 +104,7 @@ def build(data=None, output=None):
     if original not in client:
         raise ValueError("Original Atlas CSV export hook changed")
     client = client.replace(original, addition)
-    label = 'label:x.name+" ("+fmt(x.rows)+" rows)"'
-    if label not in client:
-        raise ValueError("Existing indicator dropdown label changed")
-    client = client.replace(label, 'label:(x.title?x.title+" · ":"")+x.name+" ("+fmt(x.rows)+" rows)"')
+    # The shared explorer now renders human-readable indicator names directly.
     original_stats = (
         ' $("stat-native").textContent=fmt(x.native_records);\n'
         ' $("stat-native-sources").textContent=fmt(x.native_sources);'
