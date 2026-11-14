@@ -5,6 +5,7 @@ import json
 import shutil
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -58,6 +59,35 @@ class WatchdogTests(unittest.TestCase):
         self.assertIn("PREVIOUS_WDI_PRIVATE_ARCHIVE_BYTES_VERIFIED", workflow)
         self.assertIn("NEW_WDI_SOURCE_ARCHIVE_PRIVATE_BYTES_VERIFIED", workflow)
         self.assertIn("if: github.event_name == 'push'", workflow)
+
+    def test_bulk_validator_import_from_isolated_standalone_script(self):
+        # Regression for production watchdog run 43642665591: direct script
+        # launched from scripts/ lacks the sibling open_data package on sys.path.
+        # -I isolates Python from cwd/PYTHONPATH; no data/network required.
+        script=Path(__file__).resolve().parents[1]/'scripts/atlas_data_watchdog.py'
+        with tempfile.TemporaryDirectory() as folder:
+            source=Path(folder)/'source'
+            source.mkdir()
+            (source/'run_report.json').write_text(
+                json.dumps({'transport':'WORLD_BANK_OFFICIAL_WDI_BULK_CSV'}))
+            program=(
+                'import importlib.util, pathlib, sys\n'
+                'spec=importlib.util.spec_from_file_location("isolated_watchdog",sys.argv[1])\n'
+                'watchdog=importlib.util.module_from_spec(spec)\n'
+                'spec.loader.exec_module(watchdog)\n'
+                'try:\n'
+                '    watchdog.validate_wdi_download(pathlib.Path(sys.argv[2]))\n'
+                'except ValueError as exc:\n'
+                '    assert "scope/report mismatch" in str(exc),str(exc)\n'
+                'else:\n'
+                '    raise AssertionError("Expected offline synthetic source rejection")\n'
+                'print("STANDALONE_WDI_BULK_IMPORT_OK")\n'
+            )
+            proc=subprocess.run(
+                [sys.executable,'-I','-c',program,str(script),str(source)],
+                cwd=folder,text=True,capture_output=True,timeout=30)
+            self.assertEqual(proc.returncode,0,proc.stdout+'\\n'+proc.stderr)
+            self.assertIn('STANDALONE_WDI_BULK_IMPORT_OK',proc.stdout)
 
     def test_wdi_full_source_raw_sha_and_numeric_verified(self):
         from unittest.mock import patch

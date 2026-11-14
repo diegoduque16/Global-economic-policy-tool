@@ -7,6 +7,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/atlas-data-pipeline-watchdog.yml'
+      - 'scripts/atlas_data_watchdog.py'
   workflow_dispatch:
     inputs:
       deep_verify:
