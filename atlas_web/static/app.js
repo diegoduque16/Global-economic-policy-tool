@@ -41,6 +41,14 @@ function populateOverview(){
  $("stat-native").textContent=fmt(x.native_records);
  $("stat-native-sources").textContent=fmt(x.native_sources);
  $("snapshot").textContent=x.snapshots?.[0]?.snapshot_id||"Existing SQLite";
+ const catalog=x.catalog;
+ $("catalog-summary").textContent=catalog?
+   fmt(catalog.source_descriptions)+" catalogued source descriptions · "+fmt(catalog.priority_sources)+" priorities":
+   "Atlas maintains a broader catalogue of economic sources.";
+ $("catalog-explainer").textContent=catalog?
+   "The catalogue is not the same as queryable data: "+fmt(catalog.exact_series_audits_verified_by_registry)+
+   " exact series-key audits are certified by the registry. Only the warehouse collections above can be explored here.":
+   "Only sources present in this loaded SQLite snapshot can be queried; other source archives are not automatically integrated.";
 }
 function drawCatalog(){
  const container=$("catalog-grid");container.replaceChildren();
@@ -295,6 +303,7 @@ function download(){
 function attach(){
  $("nav-explore").addEventListener("click",()=>mode("explore"));
  $("nav-catalog").addEventListener("click",()=>mode("catalog"));
+ $("open-source-catalog").addEventListener("click",()=>mode("catalog"));
  $("family").addEventListener("change",loadFamily);
  $("series").addEventListener("change",loadGeographies);
  let debounce;
