@@ -80,4 +80,7 @@ jobs:
             exit 0
           fi
           git commit -m "Publish source-verified WDI public data edition [skip ci]"
+          # A parallel source-registry check or reviewer may advance this branch.
+          # Rebase only the generated public files; never force-push.
+          git pull --rebase origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
