@@ -1,6 +1,12 @@
 name: Atlas - Automatic Economic Data Coverage, Resumption and Backup Watchdog
 
 on:
+  # One full existing-watchdog pass immediately after a backup gate change
+  # lands on main; normal daily schedule and manual options remain unchanged.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/atlas-data-pipeline-watchdog.yml'
   workflow_dispatch:
     inputs:
       deep_verify:
@@ -172,6 +178,32 @@ jobs:
               --out "$RUNNER_TEMP/atlas-watchdog-output" \
               --repo "$GH_REPO" --auto-repair
           fi
+      - name: Require actual private World Bank WDI source archive verification on push
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_WDI_GATE'
+          import json
+          import os
+          from pathlib import Path
+          report=json.loads((Path(os.environ['RUNNER_TEMP'])/
+              'atlas-watchdog-output/source_coverage_audit.json').read_text())
+          backup=report.get('wdi_source_backup') or {}
+          assert backup.get('status') in (
+              'NEW_WDI_SOURCE_ARCHIVE_PRIVATE_BYTES_VERIFIED',
+              'PREVIOUS_WDI_PRIVATE_ARCHIVE_BYTES_VERIFIED'
+          ), f"World Bank private source archive still NOT verified: {backup.get('status')}"
+          assert backup.get('run_id')==43637384781, 'Expected verified 59-series WDI production run'
+          assert backup.get('observations')==572179, 'Unexpected numeric WDI source count'
+          assert len(backup.get('archive_sha256',''))==64
+          assert backup.get('canonical_integration_verified') is False
+          print('ATLAS_WDI_59_PRIVATE_ORIGINAL_SOURCE_BACKUP_VERIFIED', {
+              'source_run_id':backup['run_id'],
+              'numeric_values':backup['observations'],
+              'private_archive_sha256':backup['archive_sha256'],
+              'canonical_integration':False})
+          PY_WDI_GATE
       - name: Back up privacy-safe control reports and round-trip verify every byte
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.audit_wid_revisions != true }}
         shell: bash
