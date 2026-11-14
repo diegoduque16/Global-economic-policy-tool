@@ -134,3 +134,44 @@ footer{font-size:11px;color:#9aa8b9;margin:36px 0 8px;line-height:1.5}
 @media(max-width:1180px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.catalog-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-header{flex-wrap:wrap}}
 @media(max-width:800px){.app{display:block}.side{min-height:0;padding:17px 18px 18px}.brand{margin-bottom:15px}.primary-nav{grid-template-columns:1fr 1fr;margin-bottom:13px}.side-heading.filter-title{margin-top:5px}.side .filter-block{display:inline-block;vertical-align:top;width:calc(50% - 4px);padding:0 6px 12px}.side .filter-block:nth-of-type(5){width:100%}.side .geo-options{max-height:120px}.side .sidebar-foot{display:none}.side .apply-btn{width:calc(100% - 12px);margin:0 6px}.content{padding:28px 20px}.intro{flex-wrap:wrap}.snapshot-tag{min-width:0}.topbar{padding:0 20px}.two-cards{grid-template-columns:1fr}.catalog-grid{grid-template-columns:1fr}}
 @media(max-width:520px){.kpis{grid-template-columns:1fr 1fr;gap:9px}.metric-card{padding:14px 12px}.metric-card strong{font-size:23px}.metric-title{font-size:10px}.side .filter-block{width:100%}.topbar-right{gap:9px}.live-pill{font-size:10px}.github-link{font-size:10px}.chart-type{padding:7px 8px}.chart{min-height:270px}.chart-empty{height:270px}.graph-card{padding:15px}.chart-header{gap:10px}.snapshot-tag{display:none}}
+
+/* Guided explorer: first-class, readable country and indicator controls. */
+.content{display:flex;flex-direction:column}
+.content>.intro{order:1}
+.content>#explore-view,.content>#catalog-view{order:2}
+.content>.kpis{order:3;margin-top:24px}
+.content>.catalog-overview{order:4;margin-top:0}
+.content>footer{order:5}
+.quick-explorer{background:#fff;border:1px solid #dce6f5;border-radius:18px;
+  padding:clamp(20px,2.5vw,32px);box-shadow:0 15px 48px #183c7210;margin-bottom:27px}
+.quick-intro{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:24px}
+.quick-eyebrow{display:block;color:#4b75b8;letter-spacing:1.65px;font-size:10px;font-weight:800;margin-bottom:7px}
+.quick-intro h2{margin:0;color:#172d4b;font-size:clamp(22px,2.2vw,29px);letter-spacing:-.7px}
+.quick-intro p{color:#71839d;line-height:1.6;margin:8px 0 0;font-size:13px}
+.quick-data-pill{font-size:10px;background:#edf7f2;color:#237b5a;border:1px solid #d8ecdf;
+  border-radius:99px;padding:8px 12px;white-space:nowrap;font-weight:750}
+.quick-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr) minmax(180px,.8fr);gap:15px}
+.quick-field{display:flex;flex-direction:column;min-width:0}
+.quick-field>label{display:flex;align-items:center;gap:8px;color:#284364;font-size:12px;font-weight:800;margin-bottom:10px}
+.quick-step{display:grid;place-items:center;width:23px;height:23px;border-radius:7px;color:#fff;background:#3672e1;font-size:11px}
+.quick-field>input,.quick-field>select,.quick-years input{min-width:0;width:100%;height:45px;
+  border:1px solid #d6e1ef;background:#fff;color:#233d60;border-radius:10px;padding:0 12px;outline-offset:2px}
+.quick-field>input[type="search"]{background:#f8faff;margin-bottom:8px}
+.quick-field input::placeholder{color:#8da0b7}
+.quick-field>input:focus,.quick-field>select:focus,.quick-years input:focus{border-color:#3672e1;box-shadow:0 0 0 3px #3573e315}
+.quick-field>select{font-weight:700}
+.quick-field>small{font-size:10px;line-height:1.55;color:#8293ab;margin-top:9px}
+.quick-years{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.quick-years label{font-size:10px;color:#8190a5;display:block;margin-bottom:6px}
+.quick-action{background:#3672e1;border:0;color:#fff;border-radius:10px;padding:11px 15px;min-height:40px;
+  font-size:12px;font-weight:800;display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+.quick-action:hover{background:#245fc6}
+.quick-action:disabled{opacity:.6;cursor:not-allowed}
+.geo-item.selected{background:#233b5d}
+@media(max-width:1190px){.quick-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.quick-field:last-child{grid-column:1/-1}.quick-field:last-child .quick-years{max-width:360px}}
+@media(max-width:800px){.quick-fields{grid-template-columns:1fr}.quick-field:last-child{grid-column:auto}.quick-field:last-child .quick-years{max-width:none}
+ .quick-explorer{padding:20px}.quick-intro{flex-wrap:wrap}.quick-data-pill{order:-1}
+ .content>.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.quick-explorer{padding:17px;border-radius:13px}.quick-fields{gap:22px}.quick-intro{margin-bottom:18px}
+ .quick-intro h2{font-size:23px}.quick-field>input,.quick-field>select{height:48px}.quick-action{min-height:46px}
+ .content>.kpis{margin-top:18px}}
