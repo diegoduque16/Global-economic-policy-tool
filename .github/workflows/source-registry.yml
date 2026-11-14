@@ -20,7 +20,6 @@ on:
     - cron: '43 10 * * 1'
 permissions:
   contents: read
-  actions: read
 jobs:
   build-registry:
     runs-on: ubuntu-latest
@@ -29,37 +28,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: One-time WDI private source archive deployment and full restored SHA validation
-        env:
-          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$RCLONE_CONFIG_B64" || { echo 'Private OneDrive secret unavailable'; exit 1; }
-          sudo apt-get update -qq >/dev/null
-          sudo apt-get install -y -qq rclone >/dev/null
-          umask 077
-          configdir="$(mktemp -d)"
-          trap 'rm -rf "$configdir"; rm -rf "$RUNNER_TEMP/wdi-live-backup"' EXIT
-          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$configdir/rclone.conf"
-          export RCLONE_CONFIG="$configdir/rclone.conf"
-          mkdir -p "$RUNNER_TEMP/wdi-live-backup"
-          python - <<'PY_WDI_LIVE'
-          from datetime import datetime,timezone
-          from pathlib import Path
-          import os
-          from scripts.atlas_data_watchdog import backup_recent_wdi
-          report=backup_recent_wdi(os.environ['GH_REPO'],datetime.now(timezone.utc),
-                                   Path(os.environ['RUNNER_TEMP'])/'wdi-live-backup')
-          valid={'NEW_WDI_SOURCE_ARCHIVE_PRIVATE_BYTES_VERIFIED',
-                 'PREVIOUS_WDI_PRIVATE_ARCHIVE_BYTES_VERIFIED'}
-          if report['status'] not in valid or report.get('observations',0)<300240:
-              raise ValueError('WDI private archive did not pass original-source numeric/SHA validation')
-          print('LIVE_WDI_PRIVATE_ARCHIVE_VERIFIED',report['status'],
-                'observations',report['observations'],'run',report['run_id'])
-          PY_WDI_LIVE
       - name: Verify source-linkage statuses cannot be overclaimed
         run: |
           python -m unittest discover -s tests -p 'test_source_registry_reconciliation.py' -v
