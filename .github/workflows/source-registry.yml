@@ -68,31 +68,53 @@ jobs:
           print('UNRESOLVED_WDI_GEOGRAPHY_CODES',[x['code'] for x in rows if x['geography_type']=='UNRESOLVED_WORLD_BANK_METADATA'])
           PY_LIVE_WDI_GEO
           rm -rf "$RUNNER_TEMP/wdi-real-data"
-      - name: Temporary end-to-end WDI source and geography snapshot validation
+      - name: Temporary full WDI replay from checksum-pinned pages with fresh provider geography metadata
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python open_data/ingest.py --countries all --start 1960 --end 2026 --group growth --limit 2 --out "$RUNNER_TEMP/wdi-e2e"
-          python - <<'PY_WDI_E2E'
-          import json,os
+          mkdir -p "$RUNNER_TEMP/wdi-source" "$RUNNER_TEMP/wdi-replay"
+          gh run download 42581151428 --repo "$GITHUB_REPOSITORY" --name world-bank-wdi-6 --dir "$RUNNER_TEMP/wdi-source"
+          python - <<'PY_WDI_REPLAY'
+          import json,os,sys,urllib.request
           from pathlib import Path
+          sys.path.insert(0,str(Path('open_data').resolve()))
+          from wdi_geography import BASE
+          import ingest
           import scripts.atlas_data_watchdog as audit
-          audit.WDI_MIN_ROWS=1  # deliberately small two-indicator source test
-          root=Path(os.environ['RUNNER_TEMP'])/'wdi-e2e'
-          result=audit.validate_wdi_download(root)
-          assert result['source_metadata_version_verified'] is True
-          assert result['country_vs_aggregate_resolved'] is True
-          assert result['aggregate_codes']>0 and result['country_or_territory_codes']>0
-          assert result['all_output_numeric_keys_and_values_matched_original_raw'] is True
-          print('LIVE_WDI_END_TO_END_METADATA_VALIDATED',json.dumps({
-              'observations':result['observations'],'countries_or_territories':result['country_or_territory_codes'],
-              'aggregates':result['aggregate_codes'],
-              'source_pages':result['raw_pages'],
-              'provider_metadata_verified':result['source_metadata_version_verified'],
-              'canonical_integration_verified':result['canonical_integration_verified'],
-          },sort_keys=True))
-          PY_WDI_E2E
-          rm -rf "$RUNNER_TEMP/wdi-e2e"
+          root=Path(os.environ['RUNNER_TEMP'])
+          old=root/'wdi-source'
+          old_report=json.loads((old/'run_report.json').read_text())
+          byurl={x['url']:old/'raw'/x['file'] for x in old_report['manifest']}
+          assert len(byurl)==576 and old_report['observations']==300240
+          groups=json.loads(Path('open_data/wdi_indicators.json').read_text())
+          indicators=list(dict.fromkeys(k for group in groups.values() for k in group))
+          def replay(url):
+              if url in byurl:
+                  return byurl[url].read_bytes()
+              if url.startswith(BASE+'?'):
+                  req=urllib.request.Request(url,headers={'User-Agent':'GlobalEconomicPolicyAtlas/1.0'})
+                  with urllib.request.urlopen(req,timeout=60) as response:
+                      return response.read()
+              raise ValueError('Unexpected source URL during original-page replay')
+          dest=root/'wdi-replay'
+          result=ingest.run(dest,'all',1960,2026,indicators,replay)
+          if result['errors'] or result['conflicts'] or result['observations']!=300240:
+              raise ValueError('Original source-page replay failed: '+str(result['errors'][:2]))
+          out=audit.validate_wdi_download(dest)
+          assert out['source_metadata_version_verified'] and out['country_vs_aggregate_resolved']
+          assert out['country_or_territory_codes']==217 and out['aggregate_codes']==44
+          assert out['aggregate_observation_rows']==54913 and out['unresolved_codes']==0
+          print('LIVE_WDI_REPLAY_PROVENANCE_VALIDATED',json.dumps({
+            'original_numeric_rows':out['observations'],
+            'source_raw_pages':out['raw_pages'],
+            'country_or_territory_codes':out['country_or_territory_codes'],
+            'aggregate_codes':out['aggregate_codes'],
+            'unresolved_codes':out['unresolved_codes'],
+            'canonical_warehouse_updated':out['canonical_integration_verified']},sort_keys=True))
+          PY_WDI_REPLAY
+          rm -rf "$RUNNER_TEMP/wdi-source" "$RUNNER_TEMP/wdi-replay"
       - name: Verify source-linkage statuses cannot be overclaimed
         run: |
           python -m unittest discover -s tests -p 'test_source_registry_reconciliation.py' -v
