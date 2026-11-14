@@ -2,6 +2,16 @@
 
 **Domain:** worldeconatlas.com
 
+## Project Brief & Decision Log (November 14, 2026)
+
+The site builds a public-safe, dated **Project Brief** at `/project/` from a **single versioned source** in `docs/atlas_project_brief.json`. A permanent sidebar link and homepage banner make it easy to find. The same source is copied to `/project/brief.json` for future ChatGPT and coding sessions to use as starting context.
+
+The brief records the user's chosen completion-first direction, historical background and nonadditive database totals, confirmed source-collection results, in-progress limitations, active GitHub workflow links, outstanding work, and a source-linked decision log. It is **not** live GitHub Actions telemetry; every future session must check the linked jobs for newer results. The project-wide `AGENTS.md` makes this step mandatory for development work.
+
+**When updating Atlas:** edit `docs/atlas_project_brief.json` in the same PR as any major verified outcome or direction change. Preserve prior decisions and evidence; do not create another competing status system. Regenerate the static site with `python atlas_public/build_site.py` and run `python -m unittest discover -s tests -p 'test_atlas_public.py' -v`.
+
+This reference page contains no private OneDrive URLs or raw economic source files; new verified data remain unpublished until separately approved. A merged GitHub commit does not itself verify that Cloudflare has deployed the latest site.
+
 ## Public data scope
 
 The site reuses the existing Atlas data-explorer interface with a static adapter that loads **real, verified World Bank WDI source observations**, not sample economic figures.

@@ -13,6 +13,8 @@ on:
       - 'tests/test_open_data_v07.py'
       - 'atlas_web/**'
       - 'atlas_public/**'
+      - 'docs/atlas_project_brief.json'
+      - 'AGENTS.md'
       - 'tests/test_atlas_public.py'
       - 'tests/test_atlas_research_export.py'
       - 'open_data/wdi_indicators.json'
@@ -75,6 +77,17 @@ jobs:
           python -m unittest discover -s tests -p 'test_atlas_web.py' -v
           node --check atlas_web/static/app.js
           python -m unittest discover -s tests -p 'test_atlas_public.py' -v
+          python - <<'PY_CONTEXT'
+          from pathlib import Path
+          import json
+          project=json.loads(Path('docs/atlas_project_brief.json').read_text())
+          assert project['schema_version']==1 and project['project']=='World Economic Atlas'
+          assert len(project['workstreams'])>=5 and len(project['decisions'])>=6
+          agents=Path('AGENTS.md').read_text()
+          assert 'docs/atlas_project_brief.json' in agents
+          assert 'Check GitHub Actions runs' in agents
+          print('ATLAS_PROJECT_CONTEXT_VERIFIED',project['updated_date'])
+          PY_CONTEXT
           python -m unittest discover -s tests -p 'test_atlas_research_export.py' -v
           python atlas_public/build_site.py
           python - <<'PY_SQLITE'

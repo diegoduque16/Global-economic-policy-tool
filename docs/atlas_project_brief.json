@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "project": "World Economic Atlas",
+  "site": "https://worldeconatlas.com",
+  "updated_date": "2026-11-14",
+  "status_basis": "Snapshot checked against completed GitHub Actions runs on November 14, 2026 at approximately 4:20 p.m. EST. This is a dated reference, not live telemetry; verify run results before quoting them later.",
+  "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
+  "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
+  "direction": [
+    "Completion first: determine the exact intended scope of each dataset, compare it with verified saved source IDs/series, and fetch the missing data. Count actual new verified observations, files and geographic coverage—not workflow runs, catalog entries or metadata.",
+    "Use and repair existing GitHub collectors, the existing 125-source catalog, source registry, warehouse, watchdog and private backup. Do not create parallel generic downloaders, registries, warehouses, audit systems or dashboards.",
+    "Preserve official raw sources, URLs, vintage, units, flags, geographies, source SHA-256, retrieval and storage receipts. Validation happens inside each download; it is a gate to usable data, not a separate research program.",
+    "Keep source-native data, historical canonical records, derived panels and published website editions distinct. Do not add overlapping counts or infer a provider's complete universe from a selected series collection.",
+    "Do not run new causal economic studies or generate policy findings until data collection, definitions, versions and treatment validation are complete. The present work phase is collection and integration.",
+    "Keep source data and private warehouse archives out of the public website unless the specific release, licensing and data-quality gates are passed. A GitHub success is not proof that Cloudflare published the changes."
+  ],
+  "numbers": [
+    {
+      "label": "Catalogued source descriptions",
+      "value": "125",
+      "detail": "71 high-priority P0; catalog status is not proof of collection"
+    },
+    {
+      "label": "Historical canonical warehouse",
+      "value": "2,780,117",
+      "detail": "Source-separated observations in 24 families; historical pinned baseline"
+    },
+    {
+      "label": "Additional indexed source-native layer",
+      "value": "2,104,609",
+      "detail": "Five collections; possibly overlapping, not additive"
+    },
+    {
+      "label": "Published WDI edition",
+      "value": "300,240",
+      "detail": "32 series, 261 geographies (44 aggregates), pinned November 9"
+    },
+    {
+      "label": "Expanded WDI source",
+      "value": "572,179",
+      "detail": "59 configured series, 265 geography codes including aggregates; not yet the public edition"
+    }
+  ],
+  "workstreams": [
+    {
+      "name": "ILOSTAT official bulk",
+      "stage": "Latest 50-file batch completed; broader archive incomplete",
+      "evidence": "November 14 improved 50-file run completed: 969/1,964 official source tables verified, 995 remaining. This run added 49 new files, reported one temporary World Bank-independent ILOSTAT HTTP 502 failure for EMP_PIFL_SEX_AGE_ECO_RT_A, and verified zero lost old files with SHA-checked private checkpoint backup. The earlier checkpoint had 920.",
+      "next": "Continue the existing 50-file resumable schedule to retrieve the 995 outstanding official files. Retry the single HTTP 502 source on later runs; do not claim a green workflow means all attempted files succeeded.",
+      "links": [
+        {
+          "label": "Last completed 920-file checkpoint",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43629083582"
+        },
+        {
+          "label": "Latest successful batch (49 added, 1 failed source)",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43639113626"
+        },
+        {
+          "label": "Batch-size PR #21",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/21"
+        }
+      ]
+    },
+    {
+      "name": "World Inequality Database (WID)",
+      "stage": "20 genuinely new countries completed and privately source-verified",
+      "evidence": "Historical original WID panel: 23 countries, 21,430 selected numeric observations. The earlier monthly '20-country expansion' only refreshed baseline countries, not expansion. The November 14 five-batch WID collection successfully added 20 disjoint new country codes (FI, BE, AT, CH, PT, PL, CZ, IE, AR, PE, UY, CR, CN, ID, PH, TH, EG, MA, SN, UG) with 14,472 source-native selected numeric income/wealth distribution observations; all 20 country downloads backed up to private OneDrive with SHA verification, and all five batches reported zero failures and zero original-baseline overlap. The total is a separate source-native count, not an increment to canonical observations.",
+      "next": "Expand beyond the new 43-country combined observed scope where official country data are available, extend distribution-variable coverage, and independently handle source vintages, metadata, overlap and eventual warehouse integration. Do not claim all WID countries or indicators are complete.",
+      "links": [
+        {
+          "label": "New-country PR #22",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/22"
+        },
+        {
+          "label": "WID 20-country run",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43640485476"
+        }
+      ]
+    },
+    {
+      "name": "Eurostat macro and labor costs",
+      "stage": "Six-series source release verified and privately backed up",
+      "evidence": "November 14 new Eurostat collector run completed successfully: six official source series, 3,436 numeric observations and 31 geography codes. Includes GDP and unemployment plus employment 20–64, hourly wages/salaries and total hourly employer labor cost. Original source checks and private OneDrive archive SHA-256 round-trip passed. Not yet published as Atlas's canonical or public dataset.",
+      "next": "Reconcile exact series-vintage/geo/year keys with historical Eurostat observations, integrate nonoverlapping data into a versioned warehouse edition, then selectively expand employment, wages and industry coverage.",
+      "links": [
+        {
+          "label": "Expansion PR #23",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/23"
+        },
+        {
+          "label": "Successful Eurostat run",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43640875170"
+        }
+      ]
+    },
+    {
+      "name": "World Bank WDI",
+      "stage": "59 configured source series complete; public release separate",
+      "evidence": "Official WDI bulk ZIP recovered the failed API collector. Successful full source download validated 59/59 configured indicators, 572,179 numeric values and 265 geography codes including regional/income aggregates, without key/value conflicts. The public website remains the earlier verified 32-series edition. The latest WDI bulk file's permanent private backup and new public-version gates have not been confirmed.",
+      "next": "Confirm permanent private backup; classify countries versus aggregates, verify vintage and indicator rights; then produce a separately numbered public edition and integrate source-native data without overwriting the existing release.",
+      "links": [
+        {
+          "label": "Successful 59-series WDI run",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43637384781"
+        },
+        {
+          "label": "Bulk recovery PR #18",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/18"
+        },
+        {
+          "label": "Archive format fix PR #19",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/19"
+        },
+        {
+          "label": "Verified outcome PR #20",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/20"
+        }
+      ]
+    },
+    {
+      "name": "FRED, BLS, U.S. Census, fiscal and remaining P0 sources",
+      "stage": "Partially covered or scope not yet reconciled",
+      "evidence": "Catalog lists 13 selected FRED series and partial source-family evidence for several BLS, Census, IMF, OECD and tax sources. Of 71 P0 catalog entries, the original registry links 23 to historical partial families and one to separate WID numeric data; 47 have no explicit source-specific mapping. Unmapped does NOT prove absent or uncollected.",
+      "next": "Identify exact missing official indicator/table IDs from existing stored data, then extend current collectors by measured gaps. Prioritize employment, wages, firms, productivity, taxes and income distribution.",
+      "links": [
+        {
+          "label": "125-source master catalog",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/open_data/expanded_source_catalog.csv"
+        },
+        {
+          "label": "Source evidence registry",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/data/registry/registry.json"
+        }
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "date": "2026-11-12",
+      "title": "Consolidate existing infrastructure",
+      "description": "Do not spawn additional registries, warehouses, generic ingesters or dashboards. Keep the historical baseline and source-native materializations distinct.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/docs/ATLAS_CONSOLIDATION_DECISION_2026-11-12.md"
+    },
+    {
+      "date": "2026-11-14",
+      "title": "Clarify the highest-level goal",
+      "description": "The user explicitly chose completion and acquisition of genuinely missing data over producing audit reports. Source-level integrity remains a built-in quality gate.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/open_data/expanded_source_catalog.csv"
+    },
+    {
+      "date": "2026-11-14",
+      "title": "Recover full World Bank collection",
+      "description": "Replaced outage-prone full WDI API crawl with the official source ZIP; 59 selected indicators and 572,179 source values passed independent original-source numeric verification.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43637384781"
+    },
+    {
+      "date": "2026-11-14",
+      "title": "Make ILOSTAT collection faster, without losing safeguards",
+      "description": "Changed the existing resumable scheduled loader from 20 to 50 missing tables per run; retained private SHA-verified OneDrive checkpoints and existing schedules.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/21"
+    },
+    {
+      "date": "2026-11-14",
+      "title": "Expand WID outside the 23-country baseline",
+      "description": "Replaced the old duplicative 20-country refresh matrix with 20 candidate countries outside the original numerical panel, preserving frozen historical refresh evidence. Eight new countries had succeeded by this snapshot.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/22"
+    },
+    {
+      "date": "2026-11-14",
+      "title": "Collect more Eurostat labor and wage data",
+      "description": "Expanded the existing Eurostat economic downloader from 3 to 6 source-defined series; all 3,436 numerical observations and private backup succeeded.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43640875170"
+    },
+    {
+      "date": "2026-11-14",
+      "title": "Establish one permanent Atlas operating reference",
+      "description": "Preserve completion-first direction, status boundaries, verified workflow evidence and a cumulative dated decision log in one version-controlled JSON file. Publish it as a dedicated website Project Brief with a machine-readable link and require future repository work to read it first.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/docs/atlas_project_brief.json"
+    },
+    {
+      "date": "2026-11-14",
+      "title": "Complete first genuine WID geographic expansion",
+      "description": "All 20 official WID country CSV downloads outside the original 23-country panel succeeded across five independent batches, yielding 14,472 selected source-native income/wealth numeric observations backed up in private OneDrive. No original-baseline country overlap; no canonical/public integration yet.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43640485476"
+    }
+  ],
+  "next_actions": [
+    "Check any future ILOSTAT scheduled source-ID runs after 969/1,964 and retain exact numeric/file evidence; verify GitHub statuses again before quoting these November 14 results.",
+    "Continue acquiring the 995 currently missing official ILOSTAT bulk tables; retry temporary source HTTP 502 failures with existing resumable logic, preserve immutable checkpoints.",
+    "Back up the 59-series WDI artifact privately and verify the restored original SHA before retention expires.",
+    "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
+    "Continue WID beyond the now completed 20-new-country batch (20/20 verified, 14,472 selected numeric values, separate from 23-country historical baseline) and broaden income and wealth distribution-variable coverage by missing official IDs.",
+    "Complete data acquisition in other high-priority areas based on concrete missing native series—not an assumption that 47 unmapped catalog entries are empty.",
+    "Keep this dated briefing and its evidence links current when any material Atlas collection scope, successful release, or project direction changes."
+  ],
+  "assistant_start_here": [
+    "Read the current source of truth at docs/atlas_project_brief.json (also published as /project/brief.json) before continuing Atlas. This file captures the user's chosen goal and dated decisions; it is not live telemetry.",
+    "Read the live GitHub Actions run outcomes for workflows referenced here. Do not repeat historical 'running' or 'missing' counts as current without checking completion logs and artifacts.",
+    "Fetch source files and the existing workflow code before proposing a duplicate new collector; prefer actual source download and integration over audits or project-planning output.",
+    "Never claim new source-native counts are additive to historical canonical records, or that a successful artifact is published to Cloudflare or the production website.",
+    "After implementing material work, update the project brief with links and verified outcomes as part of the same PR, and verify the site build. If the live website cannot be checked, explicitly say deployment is unverified."
+  ]
+}
