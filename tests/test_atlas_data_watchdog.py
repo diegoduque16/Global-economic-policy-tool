@@ -22,7 +22,7 @@ class WatchdogTests(unittest.TestCase):
     def test_checkpoint_counts_nonadditive_raw_rows(self):
         data={'schema_version':1,'last_run_utc':'2026-10-30T11:20:00Z','latest_toc':{'entries':1964},
               'downloaded':{'EMP_TEST_NB_A':{'records_validated':12,'compressed_bytes':100,
-              'sha256':'a'*64,'remote':m.ILOSTAT_ROOT+'/indicator-data/EMP_TEST_NB_A/a.csv.gz',
+              'sha256':'a'*64,'remote':m.ILOSTAT_ROOT+'/indicator-data/EMP_TEST_NB_A/EMP_TEST_NB_A-20261030-'+('a'*16)+'.csv.gz',
               'state':'NATIVE_NOT_HARMONIZED'}}}
         o=m.verify_ilostat(data,self.now)
         self.assertEqual(o['remaining_bulk_files'],1963)
@@ -30,6 +30,38 @@ class WatchdogTests(unittest.TestCase):
         self.assertFalse(o['raw_values_joined_to_warehouse'])
         data['downloaded']['EMP_TEST_NB_A']['records_validated']=-1
         with self.assertRaisesRegex(ValueError,'validated physical'):m.verify_ilostat(data,self.now)
+
+    def test_checkpoint_rejects_mismatched_dataset_and_sha_filename(self):
+        row = {'records_validated':12, 'compressed_bytes':100,
+               'sha256':'a'*64,
+               'remote':m.ILOSTAT_ROOT+'/indicator-data/EMP_TEST_NB_A/EMP_TEST_NB_A-20261030-'+('a'*16)+'.csv.gz',
+               'state':'NATIVE_NOT_HARMONIZED'}
+        state = {'schema_version':1,'last_run_utc':'2026-10-30T11:20:00Z',
+                 'latest_toc':{'entries':1964},'downloaded':{'EMP_TEST_NB_A':row}}
+        self.assertEqual(m.verify_ilostat(state,self.now)['verified_compressed_files'],1)
+        row['remote'] = row['remote'].replace('-'+('a'*16)+'.csv.gz', '-'+('b'*16)+'.csv.gz')
+        with self.assertRaisesRegex(ValueError, 'filename/source SHA'):
+            m.verify_ilostat(state,self.now)
+        row['remote'] = m.ILOSTAT_ROOT+'/indicator-data/EMP_TEST_NB_A/EMP_OTHER-20261030-'+('a'*16)+'.csv.gz'
+        with self.assertRaisesRegex(ValueError, 'filename/source SHA'):
+            m.verify_ilostat(state,self.now)
+        row['remote'] = m.ILOSTAT_ROOT+'/indicator-data/EMP_TEST_NB_A/subdir/EMP_TEST_NB_A-20261030-'+('a'*16)+'.csv.gz'
+        with self.assertRaisesRegex(ValueError, 'filename/source SHA'):
+            m.verify_ilostat(state,self.now)
+
+    def test_checkpoint_rejects_boolean_source_counts(self):
+        row = {'records_validated':True, 'compressed_bytes':100,
+               'sha256':'a'*64,
+               'remote':m.ILOSTAT_ROOT+'/indicator-data/EMP_TEST_NB_A/EMP_TEST_NB_A-20261030-'+('a'*16)+'.csv.gz',
+               'state':'NATIVE_NOT_HARMONIZED'}
+        state = {'schema_version':1,'last_run_utc':'2026-10-30T11:20:00Z',
+                 'latest_toc':{'entries':1964},'downloaded':{'EMP_TEST_NB_A':row}}
+        with self.assertRaisesRegex(ValueError, 'validated physical'):
+            m.verify_ilostat(state,self.now)
+        row['records_validated'] = 12
+        row['compressed_bytes'] = True
+        with self.assertRaisesRegex(ValueError, 'validated physical'):
+            m.verify_ilostat(state,self.now)
 
     def test_wid_sqlite_real_type_and_pinned_sha(self):
         path=self.root/'wid.sqlite'
