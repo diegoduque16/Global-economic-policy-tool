@@ -1,5 +1,5 @@
 """Public World Bank WDI ingestion. Uses only Python standard library."""
-import argparse,csv,datetime,hashlib,json,math,time,urllib.parse,urllib.request
+import argparse,csv,datetime,hashlib,json,math,time,urllib.error,urllib.parse,urllib.request
 from pathlib import Path
 
 BASE="https://api.worldbank.org/v2"
@@ -53,7 +53,9 @@ def normalize(record,indicator,source_url,downloaded_at):
 def run(out,country,start,end,indicators,fetch=fetch_json):
     out=Path(out); (out/"raw").mkdir(parents=True,exist_ok=True); (out/"processed").mkdir(parents=True,exist_ok=True)
     stamp=datetime.datetime.now(datetime.timezone.utc).isoformat(); manifest=[]; records=[]; errors=[]
-    for indicator in indicators:
+    consecutive_upstream_failures=0
+    outage_abort=False
+    for index, indicator in enumerate(indicators):
         indicator_records=[]
         try:
             for url,raw,meta,rows in pages(country,indicator,start,end,fetch):
@@ -68,7 +70,27 @@ def run(out,country,start,end,indicators,fetch=fetch_json):
                         indicator_records.append(item)
             # Never publish a partial indicator series after a page or value fails.
             records.extend(indicator_records)
-        except Exception as exc:errors.append({"indicator":indicator,"error":str(exc)})
+            consecutive_upstream_failures=0
+        except Exception as exc:
+            errors.append({"indicator":indicator,"error":str(exc)})
+            # Distinguish a sustained upstream World Bank service outage from a
+            # malformed source value or a misconfigured indicator code. Once
+            # three consecutive ALL-COUNTRIES indicators hit an upstream outage,
+            # stop repeatedly hammering an unavailable API. The report remains
+            # INCOMPLETE and cannot be published as a partial dataset.
+            transient=(isinstance(exc,urllib.error.HTTPError) and exc.code in (429,500,502,503,504)
+                       or isinstance(exc,urllib.error.URLError) and not isinstance(exc,urllib.error.HTTPError)
+                       or isinstance(exc,(TimeoutError,ConnectionError)))
+            if country=='all' and transient:
+                consecutive_upstream_failures+=1
+            else:
+                consecutive_upstream_failures=0
+            if country=='all' and consecutive_upstream_failures>=3:
+                outage_abort=True
+                for deferred in indicators[index+1:]:
+                    errors.append({"indicator":deferred,
+                                   "error":"NOT_ATTEMPTED_UPSTREAM_SERVICE_UNAVAILABLE"})
+                break
     seen={}; conflicts=[]
     for r in records:
         key=(r['country_iso3'],r['year'],r['indicator'])
@@ -77,7 +99,10 @@ def run(out,country,start,end,indicators,fetch=fetch_json):
     fields=['country_iso3','year','indicator','value','unit','source','source_url','downloaded_at_utc','obs_status','decimal']
     with (out/'processed'/'wdi_panel.csv').open('w',newline='') as f:
         writer=csv.DictWriter(f,fieldnames=fields);writer.writeheader();writer.writerows(sorted(seen.values(),key=lambda r:(r['country_iso3'],r['indicator'],r['year'])))
-    report={"downloaded_at_utc":stamp,"country_query":country,"start":start,"end":end,"indicator_count":len(indicators),"raw_pages":len(manifest),"observations":len(seen),"conflicts":conflicts,"errors":errors,"manifest":manifest,"causal_claims_supported":False,"validation_state":("COLLECTION_INCOMPLETE_OR_CONFLICTING" if errors or conflicts or not seen else "COLLECTED_BASIC_FORMAT_CHECKS_PASSED_NOT_CANONICAL")}
+    report={"downloaded_at_utc":stamp,"country_query":country,"start":start,"end":end,"indicator_count":len(indicators),"raw_pages":len(manifest),"observations":len(seen),"conflicts":conflicts,"errors":errors,"manifest":manifest,"upstream_outage_abort":outage_abort,
+            "attempted_indicators":len(indicators)-sum(
+                x["error"]=="NOT_ATTEMPTED_UPSTREAM_SERVICE_UNAVAILABLE" for x in errors),
+            "causal_claims_supported":False,"validation_state":("COLLECTION_INCOMPLETE_OR_CONFLICTING" if errors or conflicts or not seen else "COLLECTED_BASIC_FORMAT_CHECKS_PASSED_NOT_CANONICAL")}
     (out/'run_report.json').write_text(json.dumps(report,indent=2));return report
 
 if __name__=='__main__':
