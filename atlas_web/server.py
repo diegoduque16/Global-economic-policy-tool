@@ -194,17 +194,30 @@ class AtlasStore:
         keys = [(r["geography"],r["series"],r["period"]) for r in items]
         duplicate_keys = len(keys)-len(set(keys))
         blocked = []
-        if truncated: blocked.append("Selection exceeds the displayed row limit; narrow the filters.")
-        if len(units)>1: blocked.append("Multiple source units; do not plot on one scale.")
-        if len(periods)>1: blocked.append("Mixed frequencies; narrow the selection.")
-        if duplicate_keys: blocked.append("Multiple observations share a geography, period and series; use the table to inspect disaggregations.")
-        if layer=="source_native": blocked.append("Source-native units/definitions have not been independently harmonized.")
-        if any(r["value"] is None for r in items): blocked.append("Some source-native values are suppressed or nonnumeric; these are retained in the table.")
+        warnings = []
+        if truncated:
+            blocked.append("Selection exceeds the displayed row limit; narrow the filters.")
+        if len(units)>1:
+            blocked.append("Multiple source units; do not plot on one scale.")
+        if len(periods)>1:
+            blocked.append("Mixed source frequencies; narrow the selection.")
+        if duplicate_keys:
+            blocked.append("Repeated geography/period/series keys; inspect source disaggregations in Table.")
+        year_keys = [(r["geography"], r["year"]) for r in items if r["year"] is not None]
+        if len(year_keys) != len(set(year_keys)):
+            blocked.append("Multiple observations within a year; use Table rather than an annual x-axis.")
+        if any(r["period"] not in (str(r["year"]), None, "") for r in items):
+            blocked.append("Nonannual periods require a more precise period axis; inspect in Table.")
+        if layer == "source_native":
+            warnings.append("Exploratory only: source-native units and definitions have not been independently harmonized.")
+        if any(r["value"] is None for r in items):
+            warnings.append("Suppressed or nonnumeric source values are retained in Table and excluded from charts.")
         return {"rows":items, "returned":len(items), "truncated":truncated,
                 "units":units,"frequencies":periods,
-                "duplicate_keys":duplicate_keys, "chart_warnings":blocked,
+                "duplicate_keys":duplicate_keys, "chart_warnings":blocked+warnings,
+                "chart_blockers":blocked,
                 "layer":layer, "family":fid, "series":series,
-                "can_plot":not blocked and bool(items),
+                "can_plot":not blocked and any(r["value"] is not None for r in items),
                 "not_cross_provider_harmonized":True}
 
     def export_csv(self, *args):
