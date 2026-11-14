@@ -20,6 +20,8 @@
         <button class="nav-link selected" id="nav-explore"><span class="nav-icon">◈</span> Data explorer</button>
         <button class="nav-link" id="nav-catalog"><span class="nav-icon">▦</span> Source catalog</button>
       </nav>
+      <button id="toggle-filters" class="mobile-toggle" aria-expanded="false" aria-controls="sidebar-filters">Advanced filters and comparisons ▾</button>
+      <div id="sidebar-filters" class="sidebar-filters">
       <div class="side-heading filter-title">BUILD A VIEW</div>
       <div class="filter-block">
         <label for="family">Source collection</label>
@@ -45,6 +47,7 @@
         </div>
       </div>
       <button id="apply" class="apply-btn">Explore selection <span aria-hidden="true">→</span></button>
+      </div>
       <div class="sidebar-foot">
         <div class="privacy-dot"></div><div><strong>Private workspace</strong><small>Queries your local Atlas SQLite snapshot. No database upload.</small></div>
       </div>
