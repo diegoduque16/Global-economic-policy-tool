@@ -16,7 +16,7 @@ class WidExpansionScopeTest(unittest.TestCase):
         self.assertEqual(len(prior), 23)
         self.assertEqual(len(set(prior)), 23)
         workflow = WORKFLOW.read_text()
-        groups = re.findall(r"(?m)^          - batch: ([a-z-]+)\n            countries: ([A-Z,]+)$", workflow)
+        groups = re.findall(r"(?m)^          - batch: ([a-z0-9-]+)\n            countries: ([A-Z,]+)$", workflow)
         self.assertEqual(len(groups), 5)
         codes = [code for _, names in groups for code in names.split(",")]
         self.assertEqual(len(codes), 20)
