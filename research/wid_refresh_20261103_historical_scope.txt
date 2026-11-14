@@ -1,0 +1,15 @@
+# Immutable source-country scope for the successful WID refresh run 41588514160.
+# The five batch-country lists below reproduce the original November 3, 2026
+# source refresh, which included only existing baseline countries. They are
+# matched against research/wid_refresh_20261103_source_fingerprints.json.
+# They must NOT be confused with the distinct live new-country expansion matrix.
+          - batch: europe-a
+            countries: GB,DE,SE,IT
+          - batch: europe-b
+            countries: ES,NL,DK,NO
+          - batch: americas
+            countries: BR,MX,CA,CL
+          - batch: asia-pacific
+            countries: AU,JP,KR,IN
+          - batch: africa
+            countries: ZA,NG,KE,GH
