@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 # Reuse Atlas 1's historical partial crosswalk; do not create a competing registry.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from research.atlas1_reconcile_inventory import EVIDENCE as ATLAS1_FAMILY_MAP
+from scripts.audit_public_wdi_series import audit_public_wdi, write_series_csv
 
 HISTORICAL_MAP_URL = 'https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/40631309627'
 SEPARATE_SOURCE_RUNS = {
@@ -221,9 +222,14 @@ def priority_evidence_rows(registry: list[dict]) -> list[dict]:
             'last_collected_at_utc': '',
             'last_warehouse_integrated_at_utc': '',
             'research_ready': 'false',
-            'next_gate': ('COMPARE_SOURCE_SERIES_PERIOD_GEO_UNIT_VINTAGE'
+            'next_gate': ('VERIFY_NEW_WDI_RUN_AND_CANONICAL_VINTAGE' if 'published_wdi_source_edition' in ev
+                          else 'COMPARE_SOURCE_SERIES_PERIOD_GEO_UNIT_VINTAGE'
                           if ev['overlap_review'].startswith('POTENTIAL')
                           else 'VERIFY_PROVIDER_NATIVE_SERIES_AND_PROVENANCE'),
+            'published_wdi_edition_series': str(ev.get('published_wdi_source_edition', {}).get('source_series_count', '')),
+            'published_wdi_edition_observations': str(ev.get('published_wdi_source_edition', {}).get('source_observation_count', '')),
+            'published_wdi_edition_run': str(ev.get('published_wdi_source_edition', {}).get('source_run_id', '')),
+            'published_wdi_numeric_key_audit': ev.get('published_wdi_source_edition', {}).get('status', ''),
         })
     return rows
 
@@ -281,7 +287,18 @@ def build(source: Path = INPUT):
 
 def main():
     blob,registry=build()
+    # Audits ACTUAL checked-in public WDI numbers and their series SHA fingerprints.
+    # This supplements the registry's historical source-family map; it never
+    # upgrades the entire provider, original raw files, or canonical warehouse.
+    public_wdi, public_series = audit_public_wdi()
+    wdi_registry = next((x for x in registry
+                         if x['dataset']=='World Bank World Development Indicators (32 selected)'), None)
+    if wdi_registry is None:
+        raise ValueError('WDI source catalog identity changed')
+    wdi_registry['evidence_linkage']['published_wdi_source_edition'] = public_wdi
+    wdi_registry['evidence_linkage']['last_collected_at_utc'] = public_wdi['source_downloaded_at_utc']
     OUTPUT.mkdir(parents=True,exist_ok=True)
+    write_series_csv(OUTPUT/'public_wdi_series_evidence.csv', public_series)
     status=Counter(r['normalized_status'] for r in registry)
     domains=Counter(r['domain'] for r in registry)
     priority=Counter(r['priority'] for r in registry)
@@ -289,7 +306,7 @@ def main():
     if sum(v['priority'] == 'P0' for v in registry) != len(p0):
         raise ValueError('P0 view does not match source registry')
     basis_counts = Counter(v['evidence_basis'] for v in p0)
-    report={'registry_version':'0.3.0','source_catalog_sha256':hashlib.sha256(blob).hexdigest(),
+    report={'registry_version':'0.4.0','source_catalog_sha256':hashlib.sha256(blob).hexdigest(),
             'generated_utc':datetime.now(timezone.utc).isoformat(),
             'source_count':len(registry),'by_status':dict(status),
             'lineage_evidence_map_sha256':hashlib.sha256(json.dumps({
@@ -301,6 +318,9 @@ def main():
                 'overlap_review_required':sorted(OVERLAP_REVIEW_REQUIRED),
             },sort_keys=True).encode('utf-8')).hexdigest(),
             'by_priority':dict(priority),'by_domain':dict(domains),
+            'verified_public_wdi_source_edition': public_wdi,
+            'public_wdi_source_edition_evidence_sha256': hashlib.sha256(
+                json.dumps(public_wdi,sort_keys=True).encode('utf-8')).hexdigest(),
             'wid_country_refresh_scope_audit':next(x['evidence_linkage']['wid_refresh_country_scope']
                 for x in registry if x['dataset']=='World Inequality Database WID'),
             'verified_research_ready_count':0,
@@ -309,9 +329,10 @@ def main():
                 'by_evidence_basis':dict(basis_counts),
                 'potential_overlap_source_count':sum(x['overlap_review']=='POTENTIAL_OVERLAP_NEEDS_KEY_AUDIT' for x in p0),
                 'exact_series_key_audits_completed':0,
+                'public_wdi_series_key_audits_completed_not_raw_page_or_canonical': len(public_series),
                 'fully_ingested_source_count_proven_by_this_builder':0,
                 'observation_counts_are_additive':False,
-                'basis':'Existing Atlas 1 crosswalk and pinned separate source runs; NOT fresh numerical verification',
+                'basis':'Existing Atlas 1 crosswalk and pinned separate source runs; public WDI per-series numbers rechecked from source-verified published JSON, NOT original raw API or canonical verification',
             },
             'interpretation':'Catalog status only; labels LIVE are not independently validated by this build',
             'next_actions':['Independently audit live workflows and artifacts',
