@@ -89,12 +89,28 @@ class AtlasStore:
             if "snapshots" in self.tables(db):
                 snapshots = [dict(r) for r in db.execute(
                     "SELECT snapshot_id, created_utc, data_harmonized FROM snapshots ORDER BY created_utc DESC LIMIT 5")]
+        # Read the established Atlas registry summary; never build another
+        # catalogue or reclassify stale LIVE labels as verified datasets.
+        registry_path = HERE.parent / "data" / "registry" / "registry_summary.json"
+        catalog = None
+        if registry_path.is_file():
+            registry = json.loads(registry_path.read_text(encoding="utf-8"))
+            evidence = registry.get("priority_p0_evidence_summary") or {}
+            catalog = {
+                "source_descriptions": int(registry.get("source_count", 0)),
+                "priority_sources": int((registry.get("by_priority") or {}).get("P0", 0)),
+                "domains": registry.get("by_domain") or {},
+                "priority_evidence": evidence.get("by_evidence_basis") or {},
+                "exact_series_audits_verified_by_registry": int(evidence.get("exact_series_key_audits_completed", 0)),
+                "note": "Registry statuses are historic evidence mappings, not proof of complete ingested datasets.",
+            }
         return {
             "canonical_records": sum(int(x["observations"] or 0) for x in canonical),
             "canonical_families": len(canonical),
             "native_records": sum(int(x["observations"] or 0) for x in native),
             "native_sources": len(native),
             "snapshots": snapshots,
+            "catalog": catalog,
             "counts_additive": False,
             "research_ready": False,
             "note": ("Canonical observations and additional source-native rows can overlap. "
