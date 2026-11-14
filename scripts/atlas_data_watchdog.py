@@ -112,7 +112,7 @@ def verify_ilostat(state: dict, now: datetime) -> dict:
         # private-source checksum verification.
         filename = remote[len(prefix):]
         if not re.fullmatch(re.escape(key) + r'-[A-Za-z0-9]+-' +
-                            re.escape(sha[:16]) + r'\\.csv\\.gz', filename):
+                            re.escape(sha[:16]) + r'\.csv\.gz', filename):
             raise ValueError('ILOSTAT checkpoint remote filename/source SHA mismatch')
         total_source_rows += n
         total_bytes += b
