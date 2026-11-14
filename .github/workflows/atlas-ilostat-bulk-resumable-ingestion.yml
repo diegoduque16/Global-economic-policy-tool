@@ -1,13 +1,19 @@
 name: Atlas - Ingest ILOSTAT full official bulk indicator archive into OneDrive
 
 on:
+  # Re-run the existing guarded ingester once after an ingestion-workflow fix
+  # merges to main. Scheduled runs remain the normal completion mechanism.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/atlas-ilostat-bulk-resumable-ingestion.yml'
   workflow_dispatch:
     inputs:
       batch_size:
-        description: 'Number of source tables to attempt in this run (next unfinished tables)'
+        description: 'Verified source tables to attempt per run (up to 150; resume missing IDs only)'
         type: string
         required: true
-        default: '20'
+        default: '50'
       profile_backfill_files:
         description: 'Max previously saved SHA-verified raw tables to value-profile (0-20, cap 128 MiB)'
         type: string
@@ -39,7 +45,7 @@ jobs:
     timeout-minutes: 240
     env:
       RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-      BATCH_SIZE: ${{ inputs.batch_size || '20' }}
+      BATCH_SIZE: ${{ inputs.batch_size || '50' }}
       MAX_FILE_MIB: ${{ inputs.max_file_mib || '512' }}
       MAX_RUN_MIB: ${{ inputs.max_run_mib || '2048' }}
       PROFILE_BACKFILL_FILES: ${{ inputs.profile_backfill_files || '5' }}
@@ -96,7 +102,7 @@ jobs:
           TARGET = BASE + '/indicator-data'
           MANIFEST = BASE + '/checkpoint/state.json'
           NOW = datetime.now(timezone.utc).isoformat()
-          BATCH = int(os.environ.get('BATCH_SIZE', '20'))
+          BATCH = int(os.environ.get('BATCH_SIZE', '50'))
           MAX_FILE = int(os.environ.get('MAX_FILE_MIB', '512')) * 1024 * 1024
           MAX_RUN = int(os.environ.get('MAX_RUN_MIB', '2048')) * 1024 * 1024
           OUT = Path('ilostat_bulk_run_report')
@@ -438,6 +444,17 @@ jobs:
                       int(v.get('compressed_bytes',0)) for k,v in state['downloaded'].items() if k in toc)
                   report['total_available_bulk_files']=len(toc)
                   report['remaining_not_verified']=len(toc)-report['cumulative_downloaded_files']
+                  # Completion means the WHOLE official TOC has verified saved
+                  # originals; not simply that the requested batch succeeded.
+                  # Failed, skipped or oversized sources stay visibly incomplete.
+                  report['completion_state']=('COMPLETE_OFFICIAL_TOC_SOURCE_FILES'
+                      if report['remaining_not_verified']==0
+                      else 'INCOMPLETE_OFFICIAL_TOC_SOURCE_FILES')
+                  report['completion_fraction']=round(
+                      report['cumulative_downloaded_files']/len(toc),6)
+                  report['minimum_batches_for_unverified_files_at_current_default']=(
+                      report['remaining_not_verified']+BATCH-1)//BATCH
+
                   report['newly_verified_this_run']=sum(x['result']=='uploaded_verified' for x in report['attempted'])
                   report['failed_this_run']=sum(x['result']=='failed' for x in report['attempted'])
                   report['deferred_this_run']=sum(x['result']=='deferred_size_cap' for x in report['attempted'])
