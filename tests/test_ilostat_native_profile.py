@@ -156,7 +156,9 @@ class NativeILOSTATNumericProfileTests(unittest.TestCase):
             build_source_inventory(state_from_profile(p), toc(), checkpoint_sha256="b" * 64)
 
     def test_private_profile_backfill_is_bounded_and_stays_on_existing_archive(self):
-        state = state_from_profile()
+        # This fixture models complete archived records, not the deliberately
+        # minimal older checkpoint stub used by other tests.
+        state = {"schema_version": 1, "downloaded": {}}
         base = "onedrive:Atlas/private/ilostat"
         for i in range(8):
             table = f"EMP_NEW_{i:03d}_NB_A"
