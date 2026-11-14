@@ -2,6 +2,8 @@
 import csv
 import hashlib
 import json
+import sqlite3
+import zipfile
 from pathlib import Path
 import tempfile
 import unittest
@@ -77,6 +79,41 @@ class AtlasResearchExports(unittest.TestCase):
                 self.assertEqual(len(blob), meta["bytes"])
                 self.assertEqual(hashlib.sha256(blob).hexdigest(), meta["sha256"])
 
+    def test_sqlite_research_download_preserves_real_keys_and_separate_aggregates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data = self.small_release(root)
+            report = build_research_exports(data, root / "export")
+            info = report["sqlite_research_edition"]
+            self.assertEqual(info["all_observations"], 6)
+            self.assertEqual(info["country_observations"], 5)
+            self.assertEqual(info["aggregate_observations"], 1)
+            self.assertFalse(info["cross_provider_harmonized"])
+            bundle = root / "export" / "atlas_wdi_research.sqlite.zip"
+            self.assertTrue(bundle.is_file())
+            self.assertFalse((root/"export"/"atlas_wdi_research.sqlite").exists())
+            with zipfile.ZipFile(bundle) as archive:
+                self.assertEqual(archive.namelist(), ["atlas_wdi_research.sqlite"])
+                self.assertIsNone(archive.testzip())
+                database = root / "recovered.sqlite"
+                database.write_bytes(archive.read("atlas_wdi_research.sqlite"))
+            with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as db:
+                self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM country_observations").fetchone()[0], 5)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM aggregate_observations").fetchone()[0], 1)
+                self.assertEqual(db.execute(
+                    "SELECT value FROM country_observations WHERE geography_code='USA' "
+                    "AND year=2020 AND indicator_code='GDP.TEST'").fetchone()[0], 0)
+                self.assertEqual(db.execute(
+                    "SELECT COUNT(*) FROM country_observations WHERE geography_code='GHA' "
+                    "AND indicator_code='TAX.TEST'").fetchone()[0], 0)
+                self.assertEqual(db.execute(
+                    "SELECT value FROM aggregate_observations WHERE geography_code='WLD'").fetchone()[0], 1.8)
+                self.assertEqual(db.execute(
+                    "SELECT value FROM source_edition WHERE property='source_run_id'").fetchone()[0], "123")
+                self.assertEqual(db.execute(
+                    "SELECT value FROM source_edition WHERE property='causal_inference_ready'").fetchone()[0], "false")
+
     def test_duplicate_numeric_or_geography_integrity_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -123,6 +160,11 @@ class AtlasResearchExports(unittest.TestCase):
             self.assertEqual(report["source_run_id"], 42581151428)
             self.assertGreater(report["country_year_records"], 10000)
             self.assertTrue(report["country_aggregates_never_mixed"])
+            self.assertEqual(report["sqlite_research_edition"]["all_observations"], 300240)
+            self.assertEqual(report["sqlite_research_edition"]["indicators"], 32)
+            self.assertLess(report["sqlite_research_edition"]["archive_bytes"], 25_000_000)
+            self.assertIn("atlas_wdi_research.sqlite.zip", report["output_files"])
+            self.assertFalse((Path(tmp)/"atlas_wdi_research.sqlite").exists())
 
 
 if __name__ == "__main__":

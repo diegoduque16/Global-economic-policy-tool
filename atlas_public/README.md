@@ -71,6 +71,7 @@ The public site initially contains **only WDI**. Expanding to other source famil
 
 The public build generates research downloads from the **same already verified 32 WDI series**. This is a new convenient *representation* of existing real source values, not an independent new data source.
 
+- `/research/atlas_wdi_research.sqlite.zip` — searchable, indexed **SQLite research dataset** with provider-defined units and source fingerprints; contains only the same verified 32-series WDI edition. Includes `country_observations` and `aggregate_observations` SQL views, kept separate. The ZIP and its SHA256 appear in `research_manifest.json`.
 - `/research/wdi_country_year_long.csv` — source observations with geography code, year, indicator code, numeric value. Country/territory codes only.
 - `/research/wdi_country_year_wide.csv` — one row for each observed country-year and one column per WDI series; unavailable cells are **blank, never zero**.
 - `/research/wdi_aggregate_year_long.csv` — 44 World Bank aggregate codes, **not added to countries**.
@@ -100,3 +101,66 @@ The existing `.github/workflows/world-bank.yml` now uses `open_data/wdi_indicato
 New collection goes to a versioned **GitHub Actions artifact**, not automatically to public Pages or the canonical warehouse. The collector must complete, report no errors, include actual numeric values for all 59 series, and pass the existing raw-API-to-processed-row SHA256/numeric identity audit. A separately audited public release or canonical integration is required before the dashboard or research CSVs can truthfully claim the new values.
 
 The pinned November 9 public publisher deliberately uses `atlas_public/wdi_20261109_definitions.json`, **not** the expanded working catalog. This prevents retroactively relabeling 32-series source data as the expanded 59-series release.
+
+### SQL research workflow (no special software required)
+
+Download `/research/atlas_wdi_research.sqlite.zip` and unzip the single
+`atlas_wdi_research.sqlite` file. The database can be opened in R, Stata,
+Python's `sqlite3`, or a desktop SQLite browser. The archive itself is not a
+replacement for the original verified World Bank API pages; it is a
+source-preserving transformation of the pinned public edition.
+
+```bash
+unzip atlas_wdi_research.sqlite.zip
+sqlite3 -readonly atlas_wdi_research.sqlite
+```
+
+List indicators, including provider-defined units and archived file SHA:
+
+```sql
+SELECT indicator_code, title, topic, unit, source_run_id
+FROM indicators ORDER BY topic, title;
+```
+
+Extract observed GDP growth and unemployment for selected countries.
+Missing years **do not receive made-up zeros**:
+
+```sql
+SELECT o.geography_code, g.geography_name, o.year,
+       o.indicator_code, o.value
+FROM country_observations o
+JOIN geographies g USING (geography_code)
+WHERE o.geography_code IN ('USA', 'GHA', 'COL')
+  AND o.indicator_code IN ('NY.GDP.MKTP.KD.ZG', 'SL.UEM.TOTL.ZS')
+  AND o.year BETWEEN 2000 AND 2025
+ORDER BY o.geography_code, o.year, o.indicator_code;
+```
+
+Check missingness before comparing a pair of indicators:
+
+```sql
+SELECT geography_code, COUNT(DISTINCT year) AS years_with_both
+FROM (
+    SELECT geography_code, year
+    FROM country_observations
+    WHERE indicator_code IN ('NY.GDP.MKTP.KD.ZG', 'SL.UEM.TOTL.ZS')
+    GROUP BY geography_code, year
+    HAVING COUNT(DISTINCT indicator_code) = 2
+)
+GROUP BY geography_code
+ORDER BY years_with_both DESC;
+```
+
+Inspect source provenance:
+
+```sql
+SELECT property, value FROM source_edition ORDER BY property;
+```
+
+**Cautions:** this is the 32-series pinned November 2026 **WDI**
+public source edition, not the separate historical 2.78 million-row private
+canonical warehouse. Countries/territories are World Bank classifications,
+not a set of sovereign states. Regional aggregates stay in their own view.
+Source definitions are retained as `source_defined`; check official World
+Bank series metadata, revisions, and licensing exceptions before inference.
+A descriptive relationship does not identify a tax-policy or AI effect.

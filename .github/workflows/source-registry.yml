@@ -50,6 +50,26 @@ jobs:
           python -m unittest discover -s tests -p 'test_atlas_public.py' -v
           python -m unittest discover -s tests -p 'test_atlas_research_export.py' -v
           python atlas_public/build_site.py
+          python - <<'PY_SQLITE'
+          import hashlib, json, zipfile
+          from pathlib import Path
+          site = Path('atlas_public/dist')
+          html = (site/'index.html').read_text()
+          assert '/research/atlas_wdi_research.sqlite.zip' in html
+          archive = site/'research/atlas_wdi_research.sqlite.zip'
+          assert archive.is_file() and archive.stat().st_size < 25_000_000
+          manifest = json.loads((site/'research/research_manifest.json').read_text())
+          info = manifest['sqlite_research_edition']
+          assert info['all_observations'] == 300240
+          assert info['indicators'] == 32
+          assert info['country_aggregate_separated_in_sql_views'] is True
+          assert manifest['output_files'][archive.name]['sha256'] == hashlib.sha256(archive.read_bytes()).hexdigest()
+          with zipfile.ZipFile(archive) as content:
+              assert content.namelist() == ['atlas_wdi_research.sqlite']
+              assert content.testzip() is None
+          print('ATLAS_SQLITE_RESEARCH_DOWNLOAD_VERIFIED', info['all_observations'],
+                info['archive_bytes'], 'bytes')
+          PY_SQLITE
           python - <<'PY_WDI_SCOPE'
           import json
           from pathlib import Path
