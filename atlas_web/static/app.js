@@ -118,7 +118,7 @@ async function loadGeographies(){
 function renderGeographies(){
  const container=$("geo-options"),q=$("geo-search").value.trim().toLowerCase();
  container.replaceChildren();
- const matches=state.geographies.filter(x=>x.code.toLowerCase().includes(q)).slice(0,80);
+ const matches=state.geographies.filter(x=>x.code.toLowerCase().includes(q)||String(x.name||"").toLowerCase().includes(q)).slice(0,80);
  if(!matches.length){container.append(el("div","geo-empty","No matching geographic codes"));return;}
  for(const geo of matches){
   const label=el("label","geo-item"),input=document.createElement("input");
@@ -127,7 +127,7 @@ function renderGeographies(){
    if(input.checked&&state.selected.size>=8){input.checked=false;notice("Choose at most eight geographies.");return;}
    if(input.checked)state.selected.add(geo.code);else state.selected.delete(geo.code);
   });
-  label.append(input,el("b","",geo.code),el("span","",fmt(geo.rows)+" rows"));
+  label.append(input,el("b","",geo.code),el("span","",(geo.name!==geo.code?geo.name+" · ":"")+fmt(geo.rows)+" rows"));
   container.append(label);
  }
 }
