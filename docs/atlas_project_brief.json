@@ -3,7 +3,7 @@
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
   "updated_date": "2026-11-14",
-  "status_basis": "Snapshot checked against completed GitHub Actions runs on November 14, 2026 at approximately 4:20 p.m. EST. This is a dated reference, not live telemetry; verify run results before quoting them later.",
+  "status_basis": "Snapshot checked against completed GitHub Actions results through November 14, 2026 at approximately 4:35 p.m. EST. This page is a dated reference, not live telemetry; check linked runs for subsequent changes.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -104,9 +104,9 @@
     },
     {
       "name": "World Bank WDI",
-      "stage": "59-series source verified; private backup import failure under repair",
-      "evidence": "Official WDI bulk ZIP recovered the failed API collector. Successful full source download validated 59/59 configured indicators, 572,179 numeric values and 265 geography codes including regional/income aggregates, without key/value conflicts. The public website remains the earlier verified 32-series edition. The latest WDI bulk file's permanent private backup and new public-version gates have not been confirmed.",
-      "next": "The immediate private-backup watcher run 43642665591 failed its fail-closed WDI archive gate because the existing watchdog script could not import the sibling official WDI bulk validator as a standalone GitHub script (ModuleNotFoundError). A direct-script import fix is in progress; recheck the new push-triggered watchdog before claiming permanent backup.",
+      "stage": "59 selected indicators source-verified AND permanently privately backed up; public release separate",
+      "evidence": "Official full WDI bulk ZIP run 43637384781 verified 59 of 59 selected source indicators, 572,179 numeric source observations and 265 geographic codes including aggregates, with zero key/value conflicts. Follow-up watchdog run 43643193303 completed successfully and independently validated the source ZIP-to-panel values, created a permanent private OneDrive archive of the complete original source bundle, and reread it with SHA-256 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a. The official original ZIP SHA was dba33648d6f453a635b076a62b91db5939f5e640c8dcfeabd094219210533100. Public Atlas still uses the earlier approved 32-series WDI edition; canonical integration and new public release are not claimed.",
+      "next": "The 59-series original-source private backup is complete. Next distinguish 265 geography codes between country/territory and aggregates using official classifications, review provider source vintage and indicator-specific redistribution terms, then integrate the verified source-native panel and prepare a separately versioned 59-series public release. Do not change current 32-series release without source licensing/QA.",
       "links": [
         {
           "label": "Successful 59-series WDI run",
@@ -131,6 +131,14 @@
         {
           "label": "Original standalone importer failure",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43642665591"
+        },
+        {
+          "label": "Permanent private WDI source backup verified",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43643193303"
+        },
+        {
+          "label": "Direct-script validator repair PR #26",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/26"
         }
       ]
     },
@@ -217,12 +225,18 @@
       "title": "Launch second completion-first WID expansion wave",
       "description": "Reused the existing monthly WID downloader to attempt 20 more official country CSVs, excluding both the baseline 23 countries and the 20 newly verified in the preceding wave. First-wave verified source counts are frozen to prevent repeat acquisition. The new run is underway, not yet a claim of 20 additional successful sources.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/27"
+    },
+    {
+      "date": "2026-11-14",
+      "title": "Permanently back up complete 59-series World Bank WDI source",
+      "description": "Following the fail-closed import repair, successful watchdog run 43643193303 re-parsed and checked the official WDI bulk ZIP against its processed 572,179 observed values, wrote the full original source archive to private OneDrive, and verified its restored SHA-256 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a. Canonical integration and public 59-series publication remain separate.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43643193303"
     }
   ],
   "next_actions": [
     "Check any future ILOSTAT scheduled source-ID runs after 969/1,964 and retain exact numeric/file evidence; verify GitHub statuses again before quoting these November 14 results.",
     "Continue acquiring the 995 currently missing official ILOSTAT bulk tables; retry temporary source HTTP 502 failures with existing resumable logic, preserve immutable checkpoints.",
-    "Complete and verify the standalone official-WDI validator import fix. Check the new push-triggered watchdog's archived-source SHA-256 round-trip of WDI run 43637384781; no confirmed private backup yet.",
+    "WDI original 59-series source archive is permanently privately backed up (run 43643193303, verified archive SHA 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a). Do source-series geography classification, vintage/license checks and explicitly versioned canonical/public integration; do not recollect only to redo the backup.",
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
     "Check second WID expansion run 43643338607: count actual successful source-verified country files and values out of 20 candidate countries; preserve original 23 and first 20 separate, no overlap or canonical/public inclusion.",
     "Complete data acquisition in other high-priority areas based on concrete missing native series—not an assumption that 47 unmapped catalog entries are empty.",
