@@ -385,6 +385,13 @@ def validate_wdi_download(folder: Path) -> dict:
         # Preserve the same independent source-to-processed verification gate
         # when the original Indicators API is temporarily unavailable.
         # Never relabel a bulk source ZIP as API pages or accept unknown modes.
+        # The watchdog is executed as "python scripts/atlas_data_watchdog.py"
+        # in GitHub Actions, which adds scripts/ (not the repository root) to
+        # sys.path. The bulk validator lives in the sibling open_data/ folder.
+        # Resolve from this script's location, never from the caller's cwd.
+        repository_root = str(Path(__file__).resolve().parents[1])
+        if repository_root not in sys.path:
+            sys.path.insert(0, repository_root)
         from open_data.wdi_bulk import validate_bulk_download
         return validate_bulk_download(folder)
     if report.get('transport') not in (None, 'WORLD_BANK_INDICATORS_API'):
