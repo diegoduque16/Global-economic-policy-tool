@@ -27,7 +27,7 @@ class WatchdogTests(unittest.TestCase):
         indicator='NY.GDP.MKTP.KD.ZG'
         url='https://api.worldbank.org/v2/country/all/indicator/'+indicator+'?format=json&page=1'
         raw=json.dumps([{'page':1,'pages':1},
-                        [{'countryiso3code':'USA','date':'2020','value':2.5}]]).encode()
+                        [{'indicator':{'id':indicator},'countryiso3code':'USA','date':'2020','value':2.5}]]).encode()
         sha=hashlib.sha256(raw).hexdigest()
         name=indicator+'_1_'+sha[:12]+'.json'
         (root/'raw'/name).write_bytes(raw)
@@ -54,6 +54,47 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(result['observations'],1)
         self.assertEqual(result['raw_pages'],1)
         self.assertFalse(result['canonical_integration_verified'])
+
+    def test_wdi_processed_value_must_match_original_raw_source(self):
+        from unittest.mock import patch
+        root,report,name=self.make_wdi_fixture()
+        panel=root/'processed'/'wdi_panel.csv'
+        panel.write_text(panel.read_text().replace(',2.5,',',2.6,'))
+        with patch.object(m,'WDI_MIN_ROWS',1):
+            with self.assertRaisesRegex(ValueError,'not backed by original API value'):
+                m.validate_wdi_download(root)
+
+    def test_wdi_world_aggregate_is_flagged_not_filtered(self):
+        from unittest.mock import patch
+        root,report,name=self.make_wdi_fixture()
+        indicator=report['manifest'][0]['indicator']
+        rawfile=root/'raw'/name
+        payload=json.loads(rawfile.read_text())
+        payload[1].append({'indicator':{'id':indicator},
+                           'countryiso3code':'WLD','date':'2020','value':4.0})
+        updated=json.dumps(payload).encode()
+        sha=hashlib.sha256(updated).hexdigest()
+        newname=indicator+'_1_'+sha[:12]+'.json'
+        rawfile.rename(root/'raw'/newname)
+        (root/'raw'/newname).write_bytes(updated)
+        report['manifest'][0]['file']=newname
+        report['manifest'][0]['sha256']=sha
+        report['manifest'][0]['returned']=2
+        report['observations']=2
+        (root/'run_report.json').write_text(json.dumps(report))
+        panel=root/'processed'/'wdi_panel.csv'
+        with panel.open() as handle:
+            rows=list(csv.DictReader(handle))
+        rows.append({**rows[0],'country_iso3':'WLD','value':'4.0'})
+        with panel.open('w',newline='') as handle:
+            writer=csv.DictWriter(handle,fieldnames=list(rows[0]))
+            writer.writeheader();writer.writerows(rows)
+        with patch.object(m,'WDI_MIN_ROWS',1):
+            audit=m.validate_wdi_download(root)
+        self.assertEqual(audit['observations'],2)
+        self.assertEqual(audit['geography_codes'],2)
+        self.assertTrue(audit['world_aggregate_present'])
+        self.assertFalse(audit['country_only_geographies_verified'])
 
     def test_wdi_reject_corrupt_raw_page_and_failed_collector(self):
         from unittest.mock import patch
