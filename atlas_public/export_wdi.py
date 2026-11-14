@@ -180,8 +180,22 @@ def publish(source_dir, output_dir):
             encoding="utf-8")
         records.append({**definition, "rows": len(data), "first_year": min(years),
                         "last_year": max(years), "geographies": len(places)})
+    # Read the existing Atlas registry only as planning context; its catalog
+    # entries do not imply that additional provider data are publicly released.
+    registry_path = ROOT / "data" / "registry" / "registry_summary.json"
+    broad = {}
+    if registry_path.is_file():
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        evidence = registry.get("priority_p0_evidence_summary") or {}
+        broad = {
+            "source_descriptions": registry.get("source_count", 0),
+            "priority_sources": (registry.get("by_priority") or {}).get("P0", 0),
+            "exact_series_audits_verified_by_registry":
+                evidence.get("exact_series_key_audits_completed", 0),
+        }
     catalog = {
         "schema_version": 1,
+        "broader_catalog": broad,
         "public_edition": True,
         "project": "World Economic Atlas",
         "public_dataset": "World Bank World Development Indicators — selected indicators",
