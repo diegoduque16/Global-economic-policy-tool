@@ -41,6 +41,16 @@ class AtlasStore:
         self.path = Path(path).resolve()
         if not self.path.is_file():
             raise FileNotFoundError(f"Atlas SQLite snapshot not found: {self.path}")
+        # Reuse the project's existing ISO-3 reference; do not create a second
+        # geography registry or infer that aggregate codes are countries.
+        self.geography_names = {"WLD": "World aggregate"}
+        iso_path = HERE.parent / "research" / "iso3_country_codes.csv"
+        if iso_path.is_file():
+            with iso_path.open(encoding="utf-8-sig", newline="") as source:
+                for row in csv.DictReader(source):
+                    code, name = row.get("iso3", ""), row.get("name", "")
+                    if code and name:
+                        self.geography_names[code] = name
         with self.connect() as db:
             required = {"observations", "source_files"}
             if not required.issubset(self.tables(db)):
@@ -156,7 +166,10 @@ class AtlasStore:
                          AND (?='' OR series_code=?)
                          AND (?='' OR geo_code LIKE ?)
                          GROUP BY geo_code ORDER BY rows DESC LIMIT 350"""
-            return [dict(r) for r in db.execute(sql, (fid, series, series, q, "%" + q + "%"))]
+            geographies = [dict(r) for r in db.execute(sql, (fid, series, series, q, "%" + q + "%"))]
+            for row in geographies:
+                row["name"] = self.geography_names.get(row.get("code"), row.get("code", ""))
+            return geographies
 
     def rows(self, fid, layer, series, geos, first, last, limit=LIMIT):
         self.family(fid, layer)
