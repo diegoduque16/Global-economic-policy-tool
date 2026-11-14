@@ -12,6 +12,12 @@ registry. It also protects successful full World Bank refreshes triggered by
 changes to the catalog/workflow, and avoids repeated requests during an upstream
 World Bank outage.
 
+> **Recovery update, November 14, 2026:** The original API attempt failed,
+> but the official World Bank bulk-source replacement subsequently **passed**
+> exact raw-source numeric checks in run
+> [43637384781](https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43637384781).
+> This does not change the current 32-series public website release.
+
 ## What is actually verified
 
 | Layer | Known evidence | Allowed interpretation |
@@ -20,7 +26,7 @@ World Bank outage.
 | Public series registry audit | `scripts/audit_public_wdi_series.py` checks **all checked-in public rows**, indicator identities, non-finite/duplicate keys, geography labels, per-series counts, years, SHA256 | 32 **public-edition numeric series** audited; original API raw pages not independently fetched again and canonical inclusion not established |
 | Historical canonical SQLite | 2,780,117 rows / 24 families in SHA-pinned historical snapshot; private | Baseline only. Do not sum with WDI edition or ILOSTAT raw files |
 | Latest ILOSTAT bulk | 14 November successful run `43629083582` verified 920 of 1,964 source-native tables, 20 new unique tables, no table lost | Raw source table files, **not** numeric warehouse rows or verified cross-provider comparability |
-| World Bank expansion | 59 curated indicator codes (27 additions). Run `43630664421` **FAILED** with zero downloaded rows due to broad World Bank API 502/503 and read-timeout errors | Do **not** represent as newly acquired numbers; protect the 32-series release |
+| World Bank expansion | 59 curated indicator codes, **572,179 source-native numeric observations** across **265 World Bank geographic codes** (including aggregates), independently verified against the official World Bank bulk ZIP in run `43637384781`. Original ZIP SHA256: `dba33648d6f453a635b076a62b91db5939f5e640c8dcfeabd094219210533100`. Original API run `43630664421` failed with zero values. | **Verified private/source-stage GitHub artifact only**, not canonical warehouse integration, not 59-series live publication, and not a count additive to the 32-series edition |
 | WID | 21,430 historical numeric records, 23 countries; refreshed 20 countries' files need exact observation revision audit | Separate source, not certified current warehouse inclusion or increased geographic coverage |
 | Curated registry | 125 catalog entries; 71 P0; 23 partial historical family mappings + 1 separate WID mapping + 47 without explicit evidence mapping | Discovery / planning only, not 125 ingested datasets |
 
@@ -70,15 +76,22 @@ Non-transient invalid-indicator errors still remain fully reported.
 
 ## Next promotion gates
 
-1. Re-run the **existing** World Bank collector after provider recovery;
-   check all 59 indicator identities and original numeric raw-page checksums.
-2. Persist and round-trip verify a new successful full source artifact in
-   the pre-existing private OneDrive archive using the watchdog, recording
-   the exact source run, run number and SHA256.
-3. Confirm source scope, licensed redistribution rights, provider-specific
-   definitions, coverage and country-versus-aggregate classes. Build a
-   **separately versioned** 59-series release, without overwriting the pinned
-   32-series public version or claiming a fresh canonical snapshot.
+1. **Completed:** the existing full collector recovered through the official
+   World Bank WDI bulk ZIP (distinct from Indicators API pages). Source run
+   `43637384781` passed all 59 original indicator definitions and exact
+   original-source numeric key/value checks: 572,179 observations and 265
+   geographic codes including aggregates. The GitHub Actions source artifact
+   is `world-bank-wdi-9` (artifact ID `14129679689`, 84,513,186 compressed
+   bytes). That artifact is temporary, retained for 90 days, **not** a permanent
+   OneDrive archive or a live Atlas publication.
+2. **Pending:** independently round-trip verify and preserve the successful
+   ZIP-backed source artifact in the existing private OneDrive watchdog
+   archive, recording source run, original ZIP SHA256 and source metadata.
+3. **Pending:** verify original-source vintage, licensing rights,
+   provider-specific definitions, country-versus-aggregate classification,
+   and coverage of the expanded 59 series. Prepare a separately versioned
+   59-series research release; do not overwrite the pinned 32-series public
+   edition or claim canonical integration.
 4. Continue existing ILOSTAT collection, but reconcile individual table IDs,
    value flags, geography, sector/age/sex classifications and duplicate
    source-native observation keys before including any numbers in the
