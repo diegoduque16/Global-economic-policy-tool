@@ -13,8 +13,10 @@ import shutil
 
 if __package__:
     from .research_export import build_research_exports
+    from .project_brief import build as build_project_brief
 else:
     from research_export import build_research_exports
+    from project_brief import build as build_project_brief
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
@@ -49,9 +51,19 @@ def build(data=None, output=None, *, include_research=True):
         shutil.copy2(BASE_SITE / name, output / name)
     shutil.copytree(data, output / "data")
     shutil.copy2(HERE / "public_adapter.js", output / "public_adapter.js")
+    # One public-safe source under version control produces both the project page
+    # and its machine-readable context. Never publish private raw assets here.
+    build_project_brief(destination=output / "project")
     if include_research:
         build_research_exports(data, output / "research")
     html = (output / "index.html").read_text(encoding="utf-8")
+    nav_marker = '      </nav>\n      <button id="toggle-filters"'
+    if html.count(nav_marker) != 1:
+        raise ValueError("Sidebar project brief navigation placement changed")
+    html = html.replace(nav_marker,
+        '        <a class="nav-link" href="/project/" id="nav-project">'
+        '<span class="nav-icon" aria-hidden="true">▤</span> Project brief &amp; decisions</a>\n'
+        + nav_marker)
     if '<script src="/app.js" defer></script>' not in html:
         raise ValueError("Atlas UI script insertion point changed")
     html = html.replace('<script src="/app.js" defer></script>',
@@ -98,6 +110,14 @@ def build(data=None, output=None, *, include_research=True):
     if marker not in html:
         raise ValueError("Public attribution placement not found")
     html = html.replace(marker, attribution + "\n\n        " + marker)
+    project_banner = (
+        '<section class="project-link-banner" aria-label="Atlas current direction">'
+        '<div><span>PROJECT DIRECTION</span><strong>Where Atlas stands</strong>'
+        '<p>Completion-first data collection · verified results · decisions and next steps.</p></div>'
+        '<a href="/project/">Read project brief &amp; decision log →</a>'
+        '</section>'
+    )
+    html = html.replace(marker, project_banner + "\n        " + marker)
     if include_research:
         hook = '<section class="catalog-overview" id="catalog-overview" aria-label="Source coverage">'
         if hook not in html:
@@ -166,6 +186,21 @@ def build(data=None, output=None, *, include_research=True):
         "@media(max-width:1170px){.research-downloads{flex-direction:column;align-items:stretch}"
         ".research-links{min-width:0}}"
         "@media(max-width:540px){.research-downloads{padding:18px}.research-links{grid-template-columns:1fr}}\n"
+    )
+    css += (
+        "\n.primary-nav a.nav-link{text-decoration:none}"
+        ".project-link-banner{display:flex;align-items:center;justify-content:space-between;"
+        "gap:18px;background:#fff;border:1px solid #d8e5f5;border-radius:12px;"
+        "padding:20px 23px;margin:0 0 23px}"
+        ".project-link-banner span{display:block;color:#3f70b5;font-size:10px;font-weight:800;"
+        "letter-spacing:1.1px;margin-bottom:6px}"
+        ".project-link-banner strong{font-size:17px;color:#203f68}"
+        ".project-link-banner p{margin:6px 0 0;color:#607a98;font-size:12px;line-height:1.6}"
+        ".project-link-banner a{white-space:nowrap;text-decoration:none;background:#eaf1ff;"
+        "color:#245ba2;font-weight:750;padding:12px 15px;border-radius:8px;font-size:12px}"
+        ".project-link-banner a:hover{background:#dce9ff}"
+        "@media(max-width:720px){.project-link-banner{flex-direction:column;align-items:stretch}"
+        ".project-link-banner a{white-space:normal;text-align:center}}\n"
     )
     (output / "style.css").write_text(css, encoding="utf-8")
     (output / "_headers").write_text(
