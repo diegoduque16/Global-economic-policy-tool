@@ -224,11 +224,22 @@ class AtlasStore:
         payload=self.rows(*args,limit=CSV_LIMIT)
         if not payload["rows"]:
             raise ValueError("No records to export")
+        if payload["truncated"]:
+            raise ValueError("CSV export exceeds 10,000 rows; narrow the years or geographies")
         cols=["provider","geography","year","period","series","value","raw_value",
               "unit","frequency","source_status","source_url"]
         output=io.StringIO()
         writer=csv.DictWriter(output,fieldnames=cols,extrasaction="ignore")
-        writer.writeheader();writer.writerows(payload["rows"])
+        writer.writeheader()
+        for row in payload["rows"]:
+            safe = {}
+            for key in cols:
+                value = row.get(key, "")
+                if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
+                    # Prevent spreadsheet-formula injection when exported CSV is opened.
+                    value = "'" + value
+                safe[key] = value
+            writer.writerow(safe)
         return output.getvalue()
 
 
