@@ -96,9 +96,9 @@
     },
     {
       "name": "World Bank WDI",
-      "stage": "59 configured source series verified; independent permanent-backup gate starting",
+      "stage": "59-series source verified; private backup import failure under repair",
       "evidence": "Official WDI bulk ZIP recovered the failed API collector. Successful full source download validated 59/59 configured indicators, 572,179 numeric values and 265 geography codes including regional/income aggregates, without key/value conflicts. The public website remains the earlier verified 32-series edition. The latest WDI bulk file's permanent private backup and new public-version gates have not been confirmed.",
-      "next": "The existing watchdog now runs a full private-backup verification on the watchdog workflow's next main-branch change, and will fail the push run unless the verified WDI 59-series artifact is stored, restored, and SHA-256 confirmed in private OneDrive. Check the new GitHub run result; do not claim backup is confirmed until verified. Then classify aggregates and license the next public edition.",
+      "next": "The immediate private-backup watcher run 43642665591 failed its fail-closed WDI archive gate because the existing watchdog script could not import the sibling official WDI bulk validator as a standalone GitHub script (ModuleNotFoundError). A direct-script import fix is in progress; recheck the new push-triggered watchdog before claiming permanent backup.",
       "links": [
         {
           "label": "Successful 59-series WDI run",
@@ -119,6 +119,10 @@
         {
           "label": "Existing private backup watchdog",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/.github/workflows/atlas-data-pipeline-watchdog.yml"
+        },
+        {
+          "label": "Original standalone importer failure",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43642665591"
         }
       ]
     },
@@ -193,12 +197,18 @@
       "title": "Prioritize durable original-source protection for expanded WDI",
       "description": "The existing automatic coverage watchdog is being configured to run immediately after its main workflow change and to fail rather than greenwash an unverified backup of the temporary 59-series WDI artifact. This is a planned verification gate, not a backed-up-source success claim.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/.github/workflows/atlas-data-pipeline-watchdog.yml"
+    },
+    {
+      "date": "2026-11-14",
+      "title": "Fix private-backup watchdog direct-script import instead of hiding failure",
+      "description": "Initial WDI permanent-backup watchdog correctly failed because direct execution from scripts/ could not import the sibling open_data.wdi_bulk validator. The fix resolves the package path from the watchdog file location and adds a -I isolated subprocess regression; do not count private backup until rerun passes.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43642665591"
     }
   ],
   "next_actions": [
     "Check any future ILOSTAT scheduled source-ID runs after 969/1,964 and retain exact numeric/file evidence; verify GitHub statuses again before quoting these November 14 results.",
     "Continue acquiring the 995 currently missing official ILOSTAT bulk tables; retry temporary source HTTP 502 failures with existing resumable logic, preserve immutable checkpoints.",
-    "Verify the new watchdog backup job for WDI source run 43637384781, including source archive reread and original SHA256. Backup is NOT yet confirmed here; only mark complete when the private verification gate succeeds.",
+    "Complete and verify the standalone official-WDI validator import fix. Check the new push-triggered watchdog's archived-source SHA-256 round-trip of WDI run 43637384781; no confirmed private backup yet.",
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
     "Continue WID beyond the now completed 20-new-country batch (20/20 verified, 14,472 selected numeric values, separate from 23-country historical baseline) and broaden income and wealth distribution-variable coverage by missing official IDs.",
     "Complete data acquisition in other high-priority areas based on concrete missing native series—not an assumption that 47 unmapped catalog entries are empty.",
