@@ -20,8 +20,12 @@ import re
 import sqlite3
 import subprocess
 import sys
+from collections import Counter
 import tarfile
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'open_data'))
+from wdi_geography import BASE as WDI_GEOGRAPHY_BASE, metadata_page, country_map, classify_observed
 
 REMOTE_ROOT = 'onedrive:Diego/economic research database'
 ILOSTAT_ROOT = REMOTE_ROOT + '/atlas/ilostat-bulk-v1'
@@ -448,6 +452,7 @@ def validate_wdi_download(folder: Path) -> dict:
     if panel.is_symlink() or not panel.is_file():
         raise ValueError('Missing WDI normalized numeric source panel')
     count, keys, geographies, years = 0, set(), set(), set()
+    geo_counts = Counter()
     with panel.open(encoding='utf-8',newline='') as fh:
         reader = csv.DictReader(fh)
         required = {'country_iso3','year','indicator','value','unit','source','source_url','downloaded_at_utc'}
@@ -473,10 +478,74 @@ def validate_wdi_download(folder: Path) -> dict:
                 raise ValueError('WDI processed numeric row is not backed by original API value')
             keys.add(key); count+=1
             geographies.add(code); years.add(year)
+            geo_counts[code] += 1
     if count != report['observations'] or count != len(raw_values) or keys != set(raw_values):
         raise ValueError('WDI normalized panel is not identical to recorded nonmissing source values')
+    # Preserve legacy archives without invented classifications. New source runs
+    # must bind their provider geography CSV back to original SHA-pinned API pages.
+    geo = report.get('geography_metadata')
+    geo_result = {'geography_type_audit':'LEGACY_NO_OFFICIAL_PROVIDER_GEOGRAPHY_SNAPSHOT',
+                  'country_vs_aggregate_resolved':False,
+                  'source_metadata_version_verified':False}
+    geo_files = set()
+    if geo is not None:
+        if not isinstance(geo,dict) or geo.get('status') not in (
+            'PROVIDER_COUNTRY_AGGREGATE_METADATA_VERIFIED',
+            'PROVIDER_GEOGRAPHY_PARTIALLY_UNRESOLVED',
+        ) or geo.get('source_url') != WDI_GEOGRAPHY_BASE:
+            raise ValueError('WDI provider geography source validation unavailable')
+        pages = geo.get('metadata_pages')
+        if not isinstance(pages,list) or not 1 <= len(pages) <= 12:
+            raise ValueError('WDI country metadata page manifest missing')
+        originals, used_names, used_urls = [], set(), set()
+        for i, entry in enumerate(pages,1):
+            if not isinstance(entry,dict) or type(entry.get('page')) is not int or entry['page'] != i:
+                raise ValueError('WDI geographic metadata manifest page mismatch')
+            name, url, sha = (entry.get(k) for k in ('file','url','sha256'))
+            expected_url = WDI_GEOGRAPHY_BASE+'?format=json&per_page=500&page='+str(i)
+            if url != expected_url or not isinstance(name,str):
+                raise ValueError('WDI geographic metadata source URL mismatch')
+            sha = ensure_sha(sha)
+            expected_file = f'country_metadata_{i}_{sha[:12]}.json'
+            if name != expected_file or name in used_names or url in used_urls:
+                raise ValueError('WDI geographic metadata source filename mismatch')
+            p = folder / 'geography_raw' / name
+            if p.is_symlink() or not p.is_file() or digest(p) != sha:
+                raise ValueError('WDI geographic metadata original SHA256 mismatch')
+            raw=p.read_bytes()
+            _,_,rows=metadata_page(raw,i)
+            if type(entry.get('returned')) is not int or entry['returned'] != len(rows):
+                raise ValueError('WDI geographic metadata raw row count mismatch')
+            originals.append(raw); used_names.add(name); used_urls.add(url)
+            geo_files.add('geography_raw/'+name)
+        mapping=country_map(originals)
+        expected_geo, expected_summary=classify_observed(mapping,dict(geo_counts))
+        if geo.get('summary')!=expected_summary:
+            raise ValueError('WDI geography classification report contradicts original source')
+        expected_status = ('PROVIDER_COUNTRY_AGGREGATE_METADATA_VERIFIED'
+                           if expected_summary['country_vs_aggregate_resolved']
+                           else 'PROVIDER_GEOGRAPHY_PARTIALLY_UNRESOLVED')
+        if geo['status']!=expected_status:
+            raise ValueError('WDI geography resolution status contradicts source')
+        geography_path=folder/'processed'/'wdi_geography.csv'
+        if geography_path.is_symlink() or not geography_path.is_file():
+            raise ValueError('WDI provider geography crosswalk file missing')
+        with geography_path.open(encoding='utf-8',newline='') as file:
+            reader=csv.DictReader(file)
+            fields=['code','name','region_id','region_name','geography_type','observation_rows']
+            if reader.fieldnames!=fields:
+                raise ValueError('WDI provider geography CSV fields changed')
+            observed_geo=list(reader)
+        expected_strings=[{k:str(v) for k,v in row.items()} for row in expected_geo]
+        if observed_geo!=expected_strings:
+            raise ValueError('WDI country/aggregate classifications differ from original metadata')
+        geo_files.add('processed/wdi_geography.csv')
+        geo_result={**expected_summary,
+                    'geography_type_audit':geo['status'],
+                    'source_metadata_version_verified':True,
+                    'country_vs_aggregate_resolved':expected_summary['country_vs_aggregate_resolved']}
     regular = {str(p.relative_to(folder)) for p in folder.rglob('*') if p.is_file()}
-    expected = {'run_report.json','processed/wdi_panel.csv'} | {'raw/'+name for name in names}
+    expected = {'run_report.json','processed/wdi_panel.csv'} | {'raw/'+name for name in names} | geo_files
     if regular != expected or any(p.is_symlink() for p in folder.rglob('*')):
         raise ValueError('Untracked WDI artifact payload')
     return {'status':'WDI_SOURCE_NATIVE_NUMERIC_CHECKS_PASSED_NOT_CANONICAL',
@@ -491,7 +560,7 @@ def validate_wdi_download(folder: Path) -> dict:
             # country/aggregate metadata before any country-only research use.
             'world_aggregate_present':'WLD' in geographies,
             'country_only_geographies_verified':False,
-            'geography_type_audit':'OFFICIAL_COUNTRY_VS_AGGREGATE_METADATA_STILL_REQUIRED',
+            **geo_result,
             'report_sha256':digest(folder/'run_report.json'),
             'panel_sha256':digest(panel), 'canonical_integration_verified':False}
 
