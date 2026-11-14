@@ -192,6 +192,12 @@ def build_sqlite_release(directory: Path, catalog: dict, report: dict) -> dict:
                 checks["indicators"] != len(series)):
             raise ValueError("SQLite cross-check of actual observed numeric records failed")
         con.commit()
+    except Exception:
+        # An invalid source must never leave a partly constructed database
+        # that could be mistaken for a completed research edition.
+        con.close()
+        db_path.unlink(missing_ok=True)
+        raise
     finally:
         con.close()
 
@@ -222,6 +228,9 @@ def build_sqlite_release(directory: Path, catalog: dict, report: dict) -> dict:
             "cross_provider_harmonized": False,
             "causal_inference_ready": False,
         }
+    except Exception:
+        zip_path.unlink(missing_ok=True)
+        raise
     finally:
         if db_path.exists():
             db_path.unlink()
