@@ -516,6 +516,21 @@ def backup_recent_wdi(repo: str, now: datetime, output: Path) -> dict:
             'canonical_integration_verified':False}
 
 
+def safe_backup_recent_wdi(repo: str, now: datetime, output: Path) -> dict:
+    """Record source-backup failures without suppressing the independent health audit."""
+    try:
+        return backup_recent_wdi(repo, now, output)
+    except Exception as exc:
+        # A WDI cloud outage must not suppress normal WID/ILOSTAT coverage reports.
+        # Never turn a failed private backup into a success claim.
+        print(f'::warning::WDI private source backup NOT VERIFIED ({type(exc).__name__}); '
+              'inspect the WDI archive and watchdog logs',file=sys.stderr)
+        return {'status':'WDI_PRIVATE_BACKUP_NOT_VERIFIED',
+                'error_type':type(exc).__name__,
+                'canonical_integration_verified':False,
+                'next_gate':'INSPECT_SOURCE_ARTIFACT_AND_PRIVATE_ARCHIVE'}
+
+
 def make_ledger(ilostat: dict, wid: dict, joined: dict, canonical: dict, batch: dict, wdi: dict | None = None) -> list[dict]:
     rows = [
         {'source': 'canonical_warehouse', 'stage': 'validated_real_numeric_sqlite_previous_run', 'physical_values': canonical['canonical_observations_previously_verified'], 'numeric_rows_this_run_verified': 'no', 'additive_to_other_rows': 'no'},
@@ -634,7 +649,7 @@ def main(argv=None):
             dispatch_ilostat(a.repo)
             repair['action'] = 'dispatched_existing_bounded_20_file_ingestion'
         batch = backup_recent_batch(a.repo, now, a.out)
-        wdi_source = backup_recent_wdi(a.repo, now, a.out)
+        wdi_source = safe_backup_recent_wdi(a.repo, now, a.out)
     else:
         repair = {'action': 'offline_checks_only'}
         batch = {'status': 'NOT_CHECKED_OFFLINE'}
