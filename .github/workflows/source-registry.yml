@@ -26,6 +26,9 @@ on:
       - '.github/workflows/atlas-wid-expand-20-countries.yml'
       - 'tests/test_source_registry_reconciliation.py'
       - 'tests/test_atlas_data_watchdog.py'
+      - 'scripts/ilostat_native_profile.py'
+      - 'tests/test_ilostat_native_profile.py'
+      - '.github/workflows/atlas-ilostat-bulk-resumable-ingestion.yml'
       - '.github/workflows/source-registry.yml'
   schedule:
     - cron: '43 10 * * 1'
@@ -44,6 +47,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_source_registry_reconciliation.py' -v
           python -m unittest discover -s tests -p 'test_wid_revision_audit.py' -v
           python -m unittest discover -s tests -p 'test_atlas_data_watchdog.py' -v
+          python -m unittest discover -s tests -p 'test_ilostat_native_profile.py' -v
           python -m unittest discover -s tests -p 'test_open_data_v07.py' -v
           python -m unittest discover -s tests -p 'test_atlas_web.py' -v
           node --check atlas_web/static/app.js
