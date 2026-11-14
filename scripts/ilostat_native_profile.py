@@ -214,3 +214,51 @@ def write_inventory(directory: Path, state: dict, toc: dict, *, checkpoint_sha25
     (directory / "source_native_numeric_coverage.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return report
+
+
+def plan_private_profile_backfill(state: dict, *, source_root: str,
+                                  max_files: int = 5,
+                                  max_file_bytes: int = 32 * 1024 * 1024,
+                                  max_total_bytes: int = 128 * 1024 * 1024) -> list[dict]:
+    """Identify SHA-pinned historical tables for bounded, read-only local scans.
+
+    Never fetch provider data anew; paths must bind the saved provider table ID
+    and SHA. A caller independently verifies exact downloaded compressed bytes
+    and original SHA before updating the existing private checkpoint.
+    """
+    if (type(max_files) is not int or not 0 <= max_files <= 20 or
+            type(max_file_bytes) is not int or not 1 <= max_file_bytes <= 2 ** 30 or
+            type(max_total_bytes) is not int or max_total_bytes < max_file_bytes):
+        raise ValueError("Unsafe bounded historical profile backfill limits")
+    if not isinstance(state.get("downloaded"), dict) or not source_root.startswith("onedrive:"):
+        raise ValueError("Unrecognized private source checkpoint or root")
+    selected = []
+    total = 0
+    for table, entry in sorted(state["downloaded"].items()):
+        if len(selected) >= max_files:
+            break
+        if not isinstance(entry, dict) or entry.get("native_numeric_profile") is not None:
+            continue
+        sha, remote, size = entry.get("sha256"), entry.get("remote"), entry.get("compressed_bytes")
+        if not isinstance(table, str) or not IDENTITY.fullmatch(table):
+            raise ValueError("Untrusted historical ILOSTAT table ID")
+        if not isinstance(sha, str) or not SHA256.fullmatch(sha):
+            raise ValueError("Untrusted historical ILOSTAT source fingerprint")
+        if type(size) is not int or size <= 0:
+            raise ValueError("Missing historical ILOSTAT compressed source size")
+        prefix = source_root.rstrip("/") + "/indicator-data/" + table + "/"
+        if not isinstance(remote, str) or not remote.startswith(prefix):
+            raise ValueError("Historical source remote outside the existing private archive")
+        filename = remote[len(prefix):]
+        if not re.fullmatch(re.escape(table) + r"-[A-Za-z0-9]{1,20}-" +
+                            re.escape(sha[:16]) + r"\.csv\.gz", filename):
+            raise ValueError("Historical source filename does not bind original SHA")
+        if size > max_file_bytes or total + size > max_total_bytes:
+            continue
+        selected.append({
+            "id": table, "sha256": sha, "remote": remote,
+            "compressed_bytes": size, "original_validated_csv_rows": entry["records_validated"],
+            "toc_records": entry.get("toc_records", "")
+        })
+        total += size
+    return selected
