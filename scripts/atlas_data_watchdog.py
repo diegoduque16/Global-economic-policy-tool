@@ -454,6 +454,7 @@ def validate_wdi_download(folder: Path) -> dict:
     if panel.is_symlink() or not panel.is_file():
         raise ValueError('Missing WDI normalized numeric source panel')
     count, keys, geographies, years = 0, set(), set(), set()
+    indicator_counts = {}
     with panel.open(encoding='utf-8',newline='') as fh:
         reader = csv.DictReader(fh)
         required = {'country_iso3','year','indicator','value','unit','source','source_url','downloaded_at_utc'}
@@ -478,15 +479,22 @@ def validate_wdi_download(folder: Path) -> dict:
             if key not in raw_values or raw_values[key]!=value:
                 raise ValueError('WDI processed numeric row is not backed by original API value')
             keys.add(key); count+=1
+            indicator_counts[indicator] = indicator_counts.get(indicator, 0) + 1
             geographies.add(code); years.add(year)
     if count != report['observations'] or count != len(raw_values) or keys != set(raw_values):
         raise ValueError('WDI normalized panel is not identical to recorded nonmissing source values')
+    if type(report.get('indicator_count')) is not int or report['indicator_count'] != len(indicators):
+        raise ValueError('WDI claimed indicator count contradicts verified raw source series')
+    if set(indicator_counts) != indicators or any(n < 1 for n in indicator_counts.values()):
+        raise ValueError('WDI missing actual numeric values for a claimed indicator')
     regular = {str(p.relative_to(folder)) for p in folder.rglob('*') if p.is_file()}
     expected = {'run_report.json','processed/wdi_panel.csv'} | {'raw/'+name for name in names}
     if regular != expected or any(p.is_symlink() for p in folder.rglob('*')):
         raise ValueError('Untracked WDI artifact payload')
     return {'status':'WDI_SOURCE_NATIVE_NUMERIC_CHECKS_PASSED_NOT_CANONICAL',
             'observations':count,'raw_pages':len(names),'indicators_with_raw_pages':len(indicators),
+            'verified_indicator_codes':sorted(indicators),
+            'observations_by_indicator':dict(sorted(indicator_counts.items())),
             'geography_codes':len(geographies),
             'first_observed_year':min(years),'last_observed_year':max(years),
             'raw_source_rows_examined':raw_source_rows,
