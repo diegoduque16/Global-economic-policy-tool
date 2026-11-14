@@ -62,6 +62,7 @@ class WatchdogTests(unittest.TestCase):
             (root/'raw'/name).write_bytes(b'corrupted')
             with self.assertRaisesRegex(ValueError,'SHA256'):
                 m.validate_wdi_download(root)
+            shutil.rmtree(root)
             root,report,name=self.make_wdi_fixture()
             report['errors']=[{'indicator':'TEST','error':'failed'}]
             (root/'run_report.json').write_text(json.dumps(report))
