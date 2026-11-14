@@ -351,9 +351,15 @@ def backup_recent_batch(repo: str, now: datetime, output: Path) -> dict:
 
 
 def select_wdi_run(runs: list, now: datetime) -> dict | None:
-    """Only successful production scheduled WDI runs; reject smoke/test branches."""
+    """Latest full-capable mainline WDI source run; reject smoke/test branches.
+
+    The approved world-bank.yml push trigger on main always runs the full scope
+    (on a curated-indicator or workflow change), unlike workflow_dispatch smoke.
+    Regardless of trigger, backup_recent_wdi verifies every original raw API
+    page, key, value, full global scope and SHA before saving anything.
+    """
     eligible = [x for x in runs
-                if x.get('event') == 'schedule'
+                if x.get('event') in ('schedule','push')
                 and x.get('head_branch') == 'main'
                 and x.get('status') == 'completed'
                 and x.get('conclusion') == 'success']
