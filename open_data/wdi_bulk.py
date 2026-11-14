@@ -318,7 +318,7 @@ def validate_bulk_download(folder: Path) -> dict:
         raise ValueError("Incomplete World Bank official ZIP-to-panel verification")
     regular = {str(p.relative_to(folder)) for p in folder.rglob("*") if p.is_file()}
     if (regular != {"run_report.json", RAW_ZIP, PANEL} or
-            any(p.is_symlink() for p in folder.rglob("*")):
+            any(p.is_symlink() for p in folder.rglob("*"))):
         raise ValueError("Untracked or unsafe files in WDI bulk source artifact")
     return {
         "status": "WDI_OFFICIAL_BULK_ORIGINAL_ZIP_NUMERICALLY_VERIFIED_NOT_CANONICAL",
