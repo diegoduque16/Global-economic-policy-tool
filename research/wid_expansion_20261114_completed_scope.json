@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "source_run_id": 43640485476,
+  "source_run_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43640485476",
+  "source_run_conclusion": "success",
+  "reference_manifest": "research/wid_23_source_manifest.json",
+  "collection_stage": "source_native_descriptive_verified_private_onedrive_not_canonical",
+  "new_country_batches": [
+    {
+      "batch": "europe-west-new",
+      "countries": {
+        "FI": 968,
+        "BE": 728,
+        "AT": 728,
+        "CH": 824
+      },
+      "verified_numeric_values": 3248
+    },
+    {
+      "batch": "europe-east-new",
+      "countries": {
+        "PT": 904,
+        "PL": 840,
+        "CZ": 728,
+        "IE": 912
+      },
+      "verified_numeric_values": 3384
+    },
+    {
+      "batch": "americas-new",
+      "countries": {
+        "AR": 836,
+        "PE": 648,
+        "UY": 648,
+        "CR": 648
+      },
+      "verified_numeric_values": 2780
+    },
+    {
+      "batch": "asia-new",
+      "countries": {
+        "CN": 648,
+        "ID": 704,
+        "PH": 632,
+        "TH": 632
+      },
+      "verified_numeric_values": 2616
+    },
+    {
+      "batch": "africa-new",
+      "countries": {
+        "EG": 632,
+        "MA": 632,
+        "SN": 544,
+        "UG": 636
+      },
+      "verified_numeric_values": 2444
+    }
+  ],
+  "new_country_count": 20,
+  "source_native_verified_numeric_values": 14472,
+  "private_onedrive_sha_verified_for_each_country": true,
+  "overlap_with_original_23": 0,
+  "canonical_warehouse_modified": false,
+  "public_website_source_values_published": false,
+  "cautions": [
+    "Counts are source-native income/wealth share observations from official WID country CSV files, selected concepts and percentiles only, not all provider WID data.",
+    "This frozen record prevents repeating completed countries in future geographic expansion; any changed source vintage needs a separate release.",
+    "These counts cannot be added to the canonical warehouse without exact source-identity, time, country, and definition deduplication."
+  ]
+}
