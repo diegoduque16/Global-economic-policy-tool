@@ -37,15 +37,21 @@ jobs:
           python-version: '3.12'
 
       - name: Test downloader
-        run: python -m unittest discover -s tests -p 'test_open_data_v07.py' -v
+        run: |
+          python -m unittest discover -s tests -p 'test_open_data_v07.py' -v
+          python -m unittest discover -s tests -p 'test_wdi_bulk.py' -v
+          python -m unittest discover -s tests -p 'test_atlas_data_watchdog.py' -v
 
       - name: Download sample WDI data
         if: github.event_name == 'workflow_dispatch' && inputs.scope == 'smoke'
         run: python open_data/ingest.py --countries 'USA;GBR;ZAF' --start 2000 --end 2025 --group growth --limit 2 --out data/wdi
 
-      - name: Download global WDI data
+      # During upstream API 502/503 outages use the World Bank's own WDI
+      # ZIP distribution (not a third-party mirror); retain SHA-pinned
+      # original bytes for independent numeric key/value verification.
+      - name: Download global WDI data from official World Bank bulk source
         if: github.event_name == 'schedule' || github.event_name == 'push' || inputs.scope == 'full'
-        run: python open_data/ingest.py --countries all --start 1960 --end 2026 --group all --out data/wdi
+        run: python open_data/ingest.py --transport bulk --countries all --start 1960 --end 2026 --group all --out data/wdi
 
       - name: Validate downloaded dataset
         run: |
@@ -60,7 +66,7 @@ jobs:
               raise SystemExit('Validation failed')
           PY
 
-      - name: Verify every official indicator and numeric key against original API responses
+      - name: Verify every official indicator and numeric key against original World Bank ZIP or API source
         if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full'
         run: |
           python - <<'PY'
@@ -82,12 +88,20 @@ jobs:
           assert set(actual) == expected, 'Missing approved official WDI series with actual numeric data'
           verified = validate_wdi_download(Path('data/wdi'))
           assert verified['all_output_numeric_keys_and_values_matched_original_raw']
-          assert verified['indicators_with_raw_pages'] == len(expected)
+          assert verified['verified_indicator_codes'] == sorted(expected)
           assert verified['observations'] == sum(actual.values())
+          if report.get('transport') == 'WORLD_BANK_OFFICIAL_WDI_BULK_CSV':
+              assert verified['transport'] == 'WORLD_BANK_OFFICIAL_WDI_BULK_CSV'
+              assert verified['raw_pages'] == 0
+              assert verified.get('official_bulk_zip_sha256') == report['bulk_zip_sha256']
+          else:
+              assert verified['indicators_with_raw_pages'] == len(expected)
           print('WORLD_BANK_RESEARCH_SOURCE_VERIFIED', {
               'indicators': len(expected),
               'numeric_observations': verified['observations'],
               'geographies_including_aggregates': verified['geography_codes'],
+              'original_source_transport': verified.get('transport', 'WORLD_BANK_INDICATORS_API'),
+              'original_bulk_source_sha256': verified.get('official_bulk_zip_sha256'),
               'no_cross_provider_harmonization': True
           })
           PY
