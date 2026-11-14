@@ -6,7 +6,11 @@
     "NE.GDI.FTOT.ZS": "Gross fixed capital formation (% GDP)",
     "NE.CON.PRVT.ZS": "Household final consumption (% GDP)",
     "NE.CON.GOVT.ZS": "Government final consumption (% GDP)",
-    "NY.GDP.DEFL.KD.ZG": "GDP deflator inflation"
+    "NY.GDP.DEFL.KD.ZG": "GDP deflator inflation",
+    "NY.GDP.MKTP.CD": "GDP (current US$)",
+    "NY.GDP.PCAP.CD": "GDP per capita (current US$)",
+    "NY.GDP.PCAP.PP.CD": "GDP per capita PPP (current international $)",
+    "NY.GNP.PCAP.CD": "GNI per capita (current US$, Atlas method)"
   },
   "labor": {
     "SL.UEM.TOTL.ZS": "Unemployment modeled ILO (%)",
@@ -15,24 +19,37 @@
     "SL.EMP.VULN.ZS": "Vulnerable employment (%)",
     "SL.AGR.EMPL.ZS": "Agriculture employment share (%)",
     "SL.IND.EMPL.ZS": "Industry employment share (%)",
-    "SL.SRV.EMPL.ZS": "Services employment share (%)"
+    "SL.SRV.EMPL.ZS": "Services employment share (%)",
+    "SL.UEM.1524.ZS": "Youth unemployment ages 15–24 (modeled ILO, % labor force)",
+    "SL.UEM.TOTL.FE.ZS": "Female unemployment (modeled ILO, % female labor force)",
+    "SL.UEM.TOTL.MA.ZS": "Male unemployment (modeled ILO, % male labor force)",
+    "SL.GDP.PCAP.EM.KD": "GDP per person employed (constant 2021 PPP $)",
+    "SL.TLF.TOTL.IN": "Total labor force"
   },
   "fiscal": {
     "GC.TAX.TOTL.GD.ZS": "Tax revenue (% GDP)",
     "GC.REV.XGRT.GD.ZS": "Revenue excluding grants (% GDP)",
     "GC.XPN.TOTL.GD.ZS": "Expense (% GDP)",
-    "GC.DOD.TOTL.GD.ZS": "Central government debt (% GDP)"
+    "GC.DOD.TOTL.GD.ZS": "Central government debt (% GDP)",
+    "GC.TAX.YPKG.RV.ZS": "Taxes on income, profits and capital gains (% of revenue)",
+    "GC.TAX.GSRV.RV.ZS": "Taxes on goods and services (% of revenue)"
   },
   "distribution": {
     "SI.POV.GINI": "Gini index",
     "SI.POV.DDAY": "Poverty headcount at $3.00 2021 PPP (%)",
-    "NY.GDP.PCAP.PP.KD": "GDP per capita PPP constant international $"
+    "NY.GDP.PCAP.PP.KD": "GDP per capita PPP constant international $",
+    "SI.DST.FRST.20": "Income share held by lowest 20% (survey, %)",
+    "SI.DST.05TH.20": "Income share held by highest 20% (survey, %)"
   },
   "demographics": {
     "SP.POP.TOTL": "Population",
     "SP.POP.1564.TO.ZS": "Population ages 15-64 (%)",
     "SP.URB.TOTL.IN.ZS": "Urban population (%)",
-    "SE.TER.ENRR": "Tertiary school enrollment (%)"
+    "SE.TER.ENRR": "Tertiary school enrollment (%)",
+    "SP.POP.GROW": "Population growth (annual %)",
+    "SP.POP.65UP.TO.ZS": "Population ages 65+ (% of total)",
+    "SP.DYN.LE00.IN": "Life expectancy at birth (years)",
+    "SP.DYN.TFRT.IN": "Fertility rate (births per woman)"
   },
   "digital": {
     "IT.NET.USER.ZS": "Internet users (%)",
@@ -43,6 +60,24 @@
     "NE.EXP.GNFS.ZS": "Exports goods and services (% GDP)",
     "NE.IMP.GNFS.ZS": "Imports goods and services (% GDP)",
     "BX.KLT.DINV.WD.GD.ZS": "FDI net inflows (% GDP)",
-    "FP.CPI.TOTL.ZG": "Consumer price inflation (%)"
+    "FP.CPI.TOTL.ZG": "Consumer price inflation (%)",
+    "BN.CAB.XOKA.GD.ZS": "Current account balance (% of GDP)",
+    "NE.TRD.GNFS.ZS": "Trade in goods and services (% of GDP)",
+    "BX.KLT.DINV.CD.WD": "FDI net inflows (current US$)",
+    "PA.NUS.FCRF": "Official exchange rate (local currency per US$)"
+  },
+  "education": {
+    "SE.XPD.TOTL.GD.ZS": "Government expenditure on education (% of GDP)"
+  },
+  "health": {
+    "SH.XPD.CHEX.GD.ZS": "Current health expenditure (% of GDP)"
+  },
+  "innovation": {
+    "GB.XPD.RSDV.GD.ZS": "Research and development expenditure (% GDP)",
+    "IT.CEL.SETS.P2": "Mobile cellular subscriptions (per 100 people)"
+  },
+  "energy": {
+    "EG.ELC.ACCS.ZS": "Access to electricity (% of population)",
+    "EG.FEC.RNEW.ZS": "Renewable energy consumption (% of total final energy)"
   }
 }
