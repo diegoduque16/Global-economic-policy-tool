@@ -32,8 +32,8 @@ jobs:
           python-version: '3.12'
       - name: Retrieve existing Atlas WDI source artifact; do not repeat collection
         env:
-          GH_TOKEN: \${{ github.token }}
-          GH_REPO: \${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
@@ -80,4 +80,4 @@ jobs:
             exit 0
           fi
           git commit -m "Publish source-verified WDI public data edition [skip ci]"
-          git push origin "HEAD:\${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
