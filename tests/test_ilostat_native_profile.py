@@ -11,6 +11,7 @@ import unittest
 
 from scripts.ilostat_native_profile import (
     PROFILE_STAGE, build_source_inventory, profile_native_file, write_inventory,
+    plan_private_profile_backfill,
 )
 
 
@@ -153,6 +154,52 @@ class NativeILOSTATNumericProfileTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "does not reconcile"):
             build_source_inventory(state_from_profile(p), toc(), checkpoint_sha256="b" * 64)
+
+    def test_private_profile_backfill_is_bounded_and_stays_on_existing_archive(self):
+        state = state_from_profile()
+        base = "onedrive:Atlas/private/ilostat"
+        for i in range(8):
+            table = f"EMP_NEW_{i:03d}_NB_A"
+            sha = f"{i + 1:064x}"
+            state["downloaded"][table] = {
+                "state": "NATIVE_NOT_HARMONIZED",
+                "sha256": sha,
+                "records_validated": 10,
+                "compressed_bytes": 1_000_000,
+                "toc_records": "10",
+                "remote": f"{base}/indicator-data/{table}/{table}-20261114-{sha[:16]}.csv.gz",
+            }
+        chosen = plan_private_profile_backfill(
+            state, source_root=base, max_files=3,
+            max_file_bytes=2_000_000, max_total_bytes=2_000_000
+        )
+        self.assertEqual(len(chosen), 2)
+        self.assertTrue(all(item["remote"].startswith(base + "/") for item in chosen))
+        state["downloaded"][chosen[0]["id"]]["native_numeric_profile"] = {"recorded": True}
+        new = plan_private_profile_backfill(
+            state, source_root=base, max_files=3,
+            max_file_bytes=2_000_000, max_total_bytes=3_000_000
+        )
+        self.assertEqual(len(new), 3)
+        self.assertNotIn(chosen[0]["id"], [x["id"] for x in new])
+
+    def test_private_profile_backfill_rejects_remote_path_or_sha_substitution(self):
+        state = state_from_profile()
+        base = "onedrive:Atlas/private/ilostat"
+        entry = state["downloaded"]["EMP_TEST_NB_A"]
+        entry["compressed_bytes"] = 100
+        entry["remote"] = f"{base}/indicator-data/EMP_TEST_NB_A/EMP_TEST_NB_A-20261114-{'a'*16}.csv.gz"
+        self.assertEqual(len(plan_private_profile_backfill(state, source_root=base)), 1)
+        entry["remote"] = "onedrive:Other/private/checkpoint.json"
+        with self.assertRaisesRegex(ValueError, "outside"):
+            plan_private_profile_backfill(state, source_root=base)
+        entry["remote"] = f"{base}/indicator-data/EMP_TEST_NB_A/EMP_TEST_NB_A-20261114-{'b'*16}.csv.gz"
+        with self.assertRaisesRegex(ValueError, "bind original SHA"):
+            plan_private_profile_backfill(state, source_root=base)
+        entry["remote"] = f"{base}/indicator-data/EMP_TEST_NB_A/EMP_TEST_NB_A-20261114-{'a'*16}.csv.gz"
+        entry["compressed_bytes"] = True
+        with self.assertRaisesRegex(ValueError, "compressed source size"):
+            plan_private_profile_backfill(state, source_root=base)
 
     def test_public_inventory_cannot_claim_canonical_integration(self):
         p = {
