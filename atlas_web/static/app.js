@@ -2,7 +2,8 @@
 // Atlas browser client. Real values come exclusively from /api/rows, not demo arrays.
 const $=id=>document.getElementById(id);
 const COLORS=["#3271df","#e38b43","#16a899","#8f64cf","#d4557b","#5c9c43","#7c879a","#c09343"];
-const state={families:[],overview:null,geographies:[],selected:new Set(),lastResponse:null,chartType:"line",pending:0};
+const state={families:[],overview:null,seriesResults:[],geographies:[],selected:new Set(),lastResponse:null,chartType:"line",pending:0,geoPending:0};
+const geoName=code=>state.geographies.find(g=>g.code===code)?.name||code;
 const fmt=n=>Number(n||0).toLocaleString("en-US");
 const short=n=>Number(n).toLocaleString("en-US",{maximumFractionDigits:4});
 const pretty=s=>String(s||"").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase());
@@ -23,10 +24,10 @@ function mode(view){
  $("nav-explore").classList.toggle("selected",explore);
  $("nav-catalog").classList.toggle("selected",!explore);
  $("explore-view").hidden=!explore;$("catalog-view").hidden=explore;
- $("page-title").textContent=explore?"Explore the economic landscape":"Atlas source collections";
+ $("page-title").textContent=explore?(state.overview?.public_edition?"Explore the world economy":"Explore the economic landscape"):"Atlas source collections";
  $("breadcrumb-section").textContent=explore?"Data explorer":"Source catalog";
  $("intro-desc").textContent=explore?
-  "Visualize real observations from Atlas’s consolidated data warehouse. Browse indicators, compare geographies, explore time periods, and inspect underlying records.":
+  (state.overview?.public_edition?"Explore 300,240 verified World Bank observations. Pick a country and indicator to start.":"Visualize real observations from Atlas’s consolidated data warehouse. Browse indicators, compare geographies, explore time periods, and inspect underlying records."):
   "Find the data Atlas has consolidated, inspect its source-native layers, and open any available collection in the visual explorer.";
 }
 function selectOptions(node,records,placeholder){
@@ -80,8 +81,9 @@ function fillFamilies(){
 }
 async function loadFamily(){
  const f=currentFamily();
- state.geographies=[];state.selected.clear();state.lastResponse=null;
- $("search-indicator").value="";$("geo-search").value="";
+ state.geographies=[];state.selected.clear();state.seriesResults=[];state.lastResponse=null;
+ $("search-indicator").value="";$("quick-indicator-search").value="";
+ $("geo-search").value="";$("quick-country-search").value="";
  $("source-caption").textContent=f?.layer==="source_native"?
   "Source-native records; original definitions and units are not harmonized.":
   "Source-separated values; not a harmonized statistical panel.";
@@ -90,42 +92,96 @@ async function loadFamily(){
 }
 async function loadSeries(query=""){
  const f=currentFamily();if(!f)return;
- const req=++state.pending;
+ const req=++state.pending,previous=$("series").value;
  $("series").replaceChildren(new Option("Searching available indicators…",""));
+ $("quick-indicator").replaceChildren(new Option("Searching indicators…",""));
  try{
   const results=await api("/api/series",{family:f.id,layer:f.layer,q:query});
   if(req!==state.pending)return;
-  selectOptions($("series"),results.filter(x=>x.name).map(x=>({
-   value:x.name,label:x.name+" ("+fmt(x.rows)+" rows)"})),"No matching indicators");
-  const choices=[...$("series").options];
-  const preferred=choices.find(x=>x.value==="NY.GDP.MKTP.KD.ZG")||choices[0];
-  if(preferred)$("series").value=preferred.value;
+  state.seriesResults=results.filter(x=>x.name);
+  selectOptions($("series"),state.seriesResults.map(x=>({
+   value:x.name,label:(x.title?x.title+" · ":"")+x.name+" ("+fmt(x.rows)+" rows)"
+  })),"No matching indicators");
+  selectOptions($("quick-indicator"),state.seriesResults.map(x=>({
+   value:x.name,label:(x.title||x.name)+(x.title?" · "+x.name:"")
+  })),"No matching indicators");
+  const choices=[...$("series").options].filter(x=>x.value);
+  const preferred=choices.find(x=>x.value===previous)||
+   choices.find(x=>x.value==="NY.GDP.MKTP.KD.ZG")||choices[0];
+  if(preferred){$("series").value=preferred.value;$("quick-indicator").value=preferred.value;}
+  const selected=state.seriesResults.find(x=>x.name===$("series").value);
+  $("quick-indicator-hint").textContent=selected?
+   "Series: "+selected.name+" · "+fmt(selected.rows)+" verified observations":
+   "No indicators match your search. Try a broader term.";
   await loadGeographies();
  }catch(e){if(req===state.pending)showError(e);}
 }
 async function loadGeographies(){
- const f=currentFamily(),series=$("series").value;
- state.selected.clear();state.geographies=[];state.lastResponse=null;notice("");
- if(!f||!series){render();return;}
+ const f=currentFamily(),series=$("series").value,req=++state.geoPending;
+ const previous=new Set(state.selected);
+ state.lastResponse=null;notice("");
+ if(!f||!series){
+  state.geographies=[];state.selected.clear();
+  renderCountryPicker();renderGeographies();render();return;
+ }
  try{
-  state.geographies=(await api("/api/geographies",{family:f.id,layer:f.layer,series})).filter(x=>x.code);
-  const preferred=["USA","GBR","DEU","GHA","FRA","CAN"].filter(code=>state.geographies.some(x=>x.code===code));
-  for(const code of preferred.slice(0,3))state.selected.add(code);
-  if(!state.selected.size)for(const x of state.geographies.slice(0,3))state.selected.add(x.code);
-  renderGeographies();await apply();
- }catch(e){showError(e);}
+  const geos=(await api("/api/geographies",{family:f.id,layer:f.layer,series})).filter(x=>x.code);
+  if(req!==state.geoPending)return;
+  state.geographies=geos;
+  state.selected=new Set([...previous].filter(code=>geos.some(x=>x.code===code)));
+  if(!state.selected.size){
+   const first=geos.find(x=>x.code==="USA")||
+    geos.find(x=>x.geography_type!=="aggregate")||geos[0];
+   if(first)state.selected.add(first.code);
+  }
+  renderGeographies();renderCountryPicker();await apply();
+ }catch(e){if(req===state.geoPending)showError(e);}
+}
+function renderCountryPicker(){
+ const picker=$("quick-country"),search=$("quick-country-search").value.trim().toLowerCase();
+ const current=[...state.selected][0]||"";
+ const selectedGeo=state.geographies.find(x=>x.code===current);
+ const filtered=state.geographies.filter(x=>
+  x.code.toLowerCase().includes(search)||String(x.name||"").toLowerCase().includes(search));
+ const sorted=filtered.sort((a,b)=>
+  Number(a.geography_type==="aggregate")-Number(b.geography_type==="aggregate")||
+  String(a.name||a.code).localeCompare(String(b.name||b.code)));
+ picker.replaceChildren(new Option("Select a country or region…",""));
+ if(selectedGeo&&!sorted.some(x=>x.code===current)&&search)
+  picker.add(new Option("Current: "+selectedGeo.name+" ("+current+")",current));
+ const countries=document.createElement("optgroup"),regions=document.createElement("optgroup");
+ countries.label="Countries and territories";regions.label="Regions and aggregates";
+ for(const geo of sorted){
+  const item=new Option((geo.name||geo.code)+" ("+geo.code+")",geo.code);
+  (geo.geography_type==="aggregate"?regions:countries).append(item);
+ }
+ if(countries.children.length)picker.append(countries);
+ if(regions.children.length)picker.append(regions);
+ picker.value=current;
+ if(!current)picker.value="";
+ $("quick-country-hint").textContent=state.selected.size>1?
+  "Comparing "+state.selected.size+" areas. Choose one here or edit comparisons in the sidebar.":
+  selectedGeo?"Showing "+selectedGeo.name+". Search or open the menu to change country.":
+  "No country selected. Choose a country to explore.";
 }
 function renderGeographies(){
  const container=$("geo-options"),q=$("geo-search").value.trim().toLowerCase();
  container.replaceChildren();
- const matches=state.geographies.filter(x=>x.code.toLowerCase().includes(q)||String(x.name||"").toLowerCase().includes(q)).slice(0,80);
- if(!matches.length){container.append(el("div","geo-empty","No matching geographic codes"));return;}
+ const matches=state.geographies.filter(x=>
+  x.code.toLowerCase().includes(q)||String(x.name||"").toLowerCase().includes(q))
+  .sort((a,b)=>Number(state.selected.has(b.code))-Number(state.selected.has(a.code))||
+   String(a.name||a.code).localeCompare(String(b.name||b.code))).slice(0,80);
+ if(!matches.length){container.append(el("div","geo-empty","No matching countries or geographic areas"));return;}
  for(const geo of matches){
   const label=el("label","geo-item"),input=document.createElement("input");
   input.type="checkbox";input.checked=state.selected.has(geo.code);
+  label.classList.toggle("selected",input.checked);
   input.addEventListener("change",()=>{
-   if(input.checked&&state.selected.size>=8){input.checked=false;notice("Choose at most eight geographies.");return;}
+   if(input.checked&&state.selected.size>=8){
+    input.checked=false;notice("Choose at most eight geographic areas.");return;
+   }
    if(input.checked)state.selected.add(geo.code);else state.selected.delete(geo.code);
+   renderGeographies();renderCountryPicker();void apply();
   });
   label.append(input,el("b","",geo.code),el("span","",(geo.name!==geo.code?geo.name+" · ":"")+fmt(geo.rows)+" rows"));
   container.append(label);
