@@ -143,6 +143,47 @@ class SourceRegistryReconciliationTests(unittest.TestCase):
             self.assertEqual(wid['wid_value_level_revision_audit_complete'],'false')
 
 
+    def test_exact_public_wdi_series_evidence_is_source_specific_and_noncanonical(self):
+        from scripts.audit_public_wdi_series import audit_public_wdi
+        result, series = audit_public_wdi()
+        self.assertEqual(result['source_series_count'],32)
+        self.assertEqual(result['source_observation_count'],300240)
+        self.assertEqual(result['country_or_territory_codes'],217)
+        self.assertEqual(result['aggregate_codes'],44)
+        self.assertEqual(len({s['indicator_code'] for s in series}),32)
+        self.assertEqual(sum(s['verified_numeric_keys'] for s in series),300240)
+        self.assertEqual(sum(s['country_or_territory_observations']+
+                             s['aggregate_observations'] for s in series),300240)
+        self.assertTrue(all(s['checked_original_raw_pages_this_run']=='false' for s in series))
+        self.assertFalse(result['canonical_inclusion_independently_verified'])
+        self.assertFalse(result['complete_world_bank_indicator_universe'])
+
+    def test_registry_exposes_wdi_series_without_claiming_other_sources_ready(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(m,'OUTPUT',Path(folder)):
+            with contextlib.redirect_stdout(io.StringIO()):
+                m.main()
+            p=Path(folder)
+            report=json.loads((p/'registry_summary.json').read_text())
+            registry=json.loads((p/'registry.json').read_text())
+            with (p/'public_wdi_series_evidence.csv').open(newline='') as f:
+                series=list(csv.DictReader(f))
+            self.assertEqual(len(series),32)
+            self.assertEqual(report['priority_p0_evidence_summary'][
+                'public_wdi_series_key_audits_completed_not_raw_page_or_canonical'],32)
+            self.assertEqual(report['priority_p0_evidence_summary']['exact_series_key_audits_completed'],0)
+            wdi=next(x for x in registry if x['dataset']=='World Bank World Development Indicators (32 selected)')
+            evidence=wdi['evidence_linkage']['published_wdi_source_edition']
+            self.assertEqual(evidence['source_run_id'],42581151428)
+            self.assertEqual(evidence['source_observation_count'],300240)
+            self.assertFalse(wdi['research_ready'])
+            self.assertIsNone(wdi['evidence_linkage']['last_warehouse_integrated_at_utc'])
+            self.assertEqual(sum(x['research_ready'] is True for x in registry),0)
+            with (p/'priority_p0_evidence.csv').open(newline='') as f:
+                rows=list(csv.DictReader(f))
+            wdi_row=next(x for x in rows if x['dataset']==wdi['dataset'])
+            self.assertEqual(wdi_row['published_wdi_edition_series'],'32')
+            self.assertEqual(sum(bool(x['published_wdi_edition_series']) for x in rows),1)
+
     def test_wid_source_raw_hash_comparison_is_not_numeric_revision_claim(self):
         scope = m.wid_country_refresh_scope()
         aud = scope['source_file_comparison']
@@ -183,7 +224,7 @@ class SourceRegistryReconciliationTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 m.main()
             report = json.loads((Path(folder)/'registry_summary.json').read_text())
-            self.assertEqual(report['registry_version'], '0.3.0')
+            self.assertEqual(report['registry_version'], '0.4.0')
             audit = report['wid_country_refresh_scope_audit']['source_file_comparison']
             self.assertEqual(audit['raw_source_file_sha256_changed_count'],20)
             self.assertFalse(audit['exact_observation_keys_compared'])

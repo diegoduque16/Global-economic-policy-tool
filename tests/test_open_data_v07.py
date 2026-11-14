@@ -1,4 +1,5 @@
 import sys,unittest,json,tempfile
+import urllib.error
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'open_data'))
 from ingest import normalize,run
@@ -56,6 +57,33 @@ class TestOpenData(unittest.TestCase):
    r=run(tmp,'USA',2020,2021,['TEST'],mock)
    self.assertEqual((r['raw_pages'],r['observations'],len(r['errors'])),(2,2,0))
    self.assertEqual(len(list((Path(tmp)/'raw').glob('*.json'))),2)
+ def test_upstream_api_outage_stops_repeated_global_requests_and_blocks_publication(self):
+  attempts=[]
+  def failed(url):
+   attempts.append(url)
+   raise urllib.error.HTTPError(url,502,'Bad Gateway',None,None)
+  with tempfile.TemporaryDirectory() as tmp:
+   ids=['TEST.'+str(i) for i in range(6)]
+   result=run(tmp,'all',1960,2026,ids,failed)
+   self.assertEqual(len(attempts),3)
+   self.assertEqual(result['attempted_indicators'],3)
+   self.assertEqual(result['observations'],0)
+   self.assertTrue(result['upstream_outage_abort'])
+   self.assertEqual(len(result['errors']),6)
+   self.assertEqual(result['errors'][-1]['error'],'NOT_ATTEMPTED_UPSTREAM_SERVICE_UNAVAILABLE')
+   self.assertEqual(result['validation_state'],'COLLECTION_INCOMPLETE_OR_CONFLICTING')
+
+ def test_invalid_series_failure_does_not_activate_provider_outage_breaker(self):
+  attempts=[]
+  def missing(url):
+   attempts.append(url)
+   raise urllib.error.HTTPError(url,404,'Not Found',None,None)
+  with tempfile.TemporaryDirectory() as tmp:
+   result=run(tmp,'all',1960,2026,['TEST.1','TEST.2','TEST.3','TEST.4'],missing)
+   self.assertEqual(len(attempts),4)
+   self.assertFalse(result['upstream_outage_abort'])
+   self.assertEqual(result['attempted_indicators'],4)
+
  def test_failed_fetch_reported(self):
   with tempfile.TemporaryDirectory() as tmp:
    r=run(tmp,'USA',2020,2021,['X'],lambda u: (_ for _ in ()).throw(OSError('offline')))

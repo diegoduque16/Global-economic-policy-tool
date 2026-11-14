@@ -5,7 +5,10 @@ on:
   push:
     paths:
       - 'open_data/expanded_source_catalog.csv'
+      - 'scripts/audit_public_wdi_series.py'
       - 'scripts/build_source_registry.py'
+      - 'atlas_public/data/**'
+      - 'atlas_public/wdi_20261109_definitions.json'
       - 'research/atlas1_reconcile_inventory.py'
       - 'research/wid_23_source_manifest.json'
       - 'research/wid_refresh_20261103_source_fingerprints.json'
@@ -50,7 +53,8 @@ jobs:
           old = json.loads(saved.read_text()) if saved.exists() else {}
           changed = (new['source_catalog_sha256'] != old.get('source_catalog_sha256')
                      or new['registry_version'] != old.get('registry_version')
-                     or new['lineage_evidence_map_sha256'] != old.get('lineage_evidence_map_sha256'))
+                     or new['lineage_evidence_map_sha256'] != old.get('lineage_evidence_map_sha256')
+                     or new['public_wdi_source_edition_evidence_sha256'] != old.get('public_wdi_source_edition_evidence_sha256'))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
               fh.write('changed=' + str(changed).lower() + '\n')
           print('Registry changed:', changed)
@@ -63,9 +67,10 @@ jobs:
           cp research/source_registry/registry.json data/registry/registry.json
           cp research/source_registry/registry_summary.json data/registry/registry_summary.json
           cp research/source_registry/priority_p0_evidence.csv data/registry/priority_p0_evidence.csv
+          cp research/source_registry/public_wdi_series_evidence.csv data/registry/public_wdi_series_evidence.csv
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add data/registry/registry.json data/registry/registry_summary.json data/registry/priority_p0_evidence.csv
+          git add data/registry/registry.json data/registry/registry_summary.json data/registry/priority_p0_evidence.csv data/registry/public_wdi_series_evidence.csv
           git commit -m 'Snapshot economic source registry' || exit 0
           git push
       - name: Upload execution report (temporary convenience only)

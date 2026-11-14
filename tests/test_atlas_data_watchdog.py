@@ -53,6 +53,8 @@ class WatchdogTests(unittest.TestCase):
             result=m.validate_wdi_download(root)
         self.assertEqual(result['observations'],1)
         self.assertEqual(result['raw_pages'],1)
+        self.assertEqual(result['verified_indicator_codes'],['NY.GDP.MKTP.KD.ZG'])
+        self.assertEqual(result['observations_by_indicator'],{'NY.GDP.MKTP.KD.ZG':1})
         self.assertFalse(result['canonical_integration_verified'])
 
     def test_wdi_processed_value_must_match_original_raw_source(self):
@@ -156,6 +158,33 @@ class WatchdogTests(unittest.TestCase):
                'status':'completed','conclusion':'success','created_at':'2026-10-28T00:00:00Z'}]
         self.assertEqual(m.select_wdi_run(rows,self.now),{'id':5,'run_number':5})
         self.assertIsNone(m.select_wdi_run(rows[:3],self.now))
+
+    def test_wdi_selects_full_main_push_expansion_but_not_manual_smoke(self):
+        rows=[
+            {'id':111,'run_number':111,'event':'push','head_branch':'feature/test',
+             'status':'completed','conclusion':'success','created_at':'2026-10-29T05:00:00Z'},
+            {'id':112,'run_number':112,'event':'workflow_dispatch','head_branch':'main',
+             'status':'completed','conclusion':'success','created_at':'2026-10-29T06:00:00Z'},
+            {'id':113,'run_number':113,'event':'push','head_branch':'main',
+             'status':'in_progress','conclusion':None,'created_at':'2026-10-29T07:00:00Z'},
+            {'id':114,'run_number':114,'event':'push','head_branch':'main',
+             'status':'completed','conclusion':'failure','created_at':'2026-10-29T08:00:00Z'},
+            {'id':110,'run_number':110,'event':'schedule','head_branch':'main',
+             'status':'completed','conclusion':'success','created_at':'2026-10-28T02:00:00Z'},
+            {'id':109,'run_number':109,'event':'push','head_branch':'main',
+             'status':'completed','conclusion':'success','created_at':'2026-10-29T01:00:00Z'},
+        ]
+        self.assertEqual(m.select_wdi_run(rows,self.now),{'id':109,'run_number':109})
+        self.assertIsNone(m.select_wdi_run(rows[:4],self.now))
+
+    def test_wdi_manifest_claimed_series_count_must_equal_verified_source(self):
+        from unittest.mock import patch
+        root,report,_=self.make_wdi_fixture()
+        report['indicator_count']=59
+        (root/'run_report.json').write_text(json.dumps(report))
+        with patch.object(m,'WDI_MIN_ROWS',1):
+            with self.assertRaisesRegex(ValueError,'indicator count'):
+                m.validate_wdi_download(root)
 
     def test_wdi_backup_new_verified_archive_without_new_collector(self):
         from unittest.mock import patch
