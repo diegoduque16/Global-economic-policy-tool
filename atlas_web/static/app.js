@@ -195,8 +195,9 @@ async function apply(){
  if(!state.selected.size){notice("Select at least one geography to chart.");return;}
  const req=++state.pending;
  $("chart").replaceChildren(el("div","chart-empty","Loading source observations…"));
- $("plot-title").textContent=series;
- $("plot-subtitle").textContent=pretty(f.name);
+ const indicator=state.seriesResults.find(x=>x.name===series);
+ $("plot-title").textContent=indicator?.title||series;
+ $("plot-subtitle").textContent=[...state.selected].map(geoName).join(" · ")+"  |  "+start+"–"+end+"  |  "+pretty(f.name);
  $("plot-layer").textContent=f.layer==="source_native"?"Source-native data · Not harmonized":"Canonical source observations · Native units";
  try{
   const data=await api("/api/rows",{family:f.id,layer:f.layer,series,
@@ -233,7 +234,7 @@ function renderTable(host,rows){
  const body=el("tbody");
  for(const r of rows){
   const tr=el("tr");
-  const vals=[r.geography,r.period,r.series,r.value==null?"Not numeric":short(r.value),r.unit,r.provider,r.source_status];
+  const vals=[geoName(r.geography)+" ("+r.geography+")",r.period,r.series,r.value==null?"Not numeric":short(r.value),r.unit,r.provider,r.source_status];
   vals.forEach((v,i)=>tr.append(el("td",i===3?"numeric":"",String(v??""))));
   body.append(tr);
  }
@@ -339,7 +340,7 @@ function renderSvg(host,rows,type){
  const legend=$("legend");
  names.forEach((geo,index)=>{
   const label=el("span"),dot=el("i");dot.style.background=COLORS[index%COLORS.length];
-  label.append(dot,document.createTextNode(geo));legend.append(label);
+  label.append(dot,document.createTextNode(geoName(geo)));legend.append(label);
  });
 }
 function chooseChart(type){
@@ -361,16 +362,41 @@ function attach(){
  $("nav-catalog").addEventListener("click",()=>mode("catalog"));
  $("open-source-catalog").addEventListener("click",()=>mode("catalog"));
  $("family").addEventListener("change",loadFamily);
- $("series").addEventListener("change",loadGeographies);
+ $("series").addEventListener("change",()=>{
+  $("quick-indicator-search").value="";
+  $("quick-indicator").value=$("series").value;
+  void loadGeographies();
+ });
+ $("quick-indicator").addEventListener("change",()=>{
+  $("series").value=$("quick-indicator").value;
+  void loadGeographies();
+ });
  let debounce;
- $("search-indicator").addEventListener("input",()=>{
-  clearTimeout(debounce);debounce=setTimeout(()=>loadSeries($("search-indicator").value.trim()),330);
- });
+ function searchIndicators(query){
+  clearTimeout(debounce);
+  $("search-indicator").value=query;
+  $("quick-indicator-search").value=query;
+  debounce=setTimeout(()=>void loadSeries(query.trim()),330);
+ }
+ $("search-indicator").addEventListener("input",()=>searchIndicators($("search-indicator").value));
+ $("quick-indicator-search").addEventListener("input",()=>searchIndicators($("quick-indicator-search").value));
  $("geo-search").addEventListener("input",renderGeographies);
- $("clear-geo").addEventListener("click",()=>{
-  state.selected.clear();renderGeographies();notice("Choose at least one geography.");
+ $("quick-country-search").addEventListener("input",renderCountryPicker);
+ $("quick-country").addEventListener("change",()=>{
+  const code=$("quick-country").value;
+  if(!code)return;
+  state.selected=new Set([code]);
+  renderGeographies();renderCountryPicker();void apply();
  });
+ $("clear-geo").addEventListener("click",()=>{
+  state.selected.clear();renderGeographies();renderCountryPicker();notice("Choose at least one geography.");
+ });
+ for(const [original,quick] of [["year-start","quick-year-start"],["year-end","quick-year-end"]]){
+  $(original).addEventListener("change",()=>{$(quick).value=$(original).value;void apply();});
+  $(quick).addEventListener("change",()=>{$(original).value=$(quick).value;void apply();});
+ }
  $("apply").addEventListener("click",apply);
+ $("quick-apply").addEventListener("click",apply);
  $("csv-export").addEventListener("click",download);
  document.querySelectorAll(".chart-type").forEach(x=>x.addEventListener("click",()=>chooseChart(x.dataset.chart)));
 }
@@ -378,7 +404,9 @@ async function init(){
  attach();
  try{
   [state.overview,state.families]=await Promise.all([api("/api/overview"),api("/api/families")]);
-  populateOverview();fillFamilies();drawCatalog();mode("explore");await loadFamily();
+  populateOverview();fillFamilies();drawCatalog();mode("explore");
+  if(state.overview?.public_edition){$("year-end").value="2025";$("quick-year-end").value="2025";}
+  await loadFamily();
  }catch(e){showError(e);$("source-caption").textContent="Could not access the selected Atlas snapshot.";}
 }
 init();
