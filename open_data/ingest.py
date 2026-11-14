@@ -1,6 +1,8 @@
 """Public World Bank WDI ingestion. Uses only Python standard library."""
 import argparse,csv,datetime,hashlib,json,math,time,urllib.parse,urllib.request
 from pathlib import Path
+from collections import Counter
+from wdi_geography import BASE as GEOGRAPHY_BASE, metadata_page, country_map, classify_observed
 
 BASE="https://api.worldbank.org/v2"
 def fetch_json(url,timeout=30,retries=3):
@@ -77,7 +79,42 @@ def run(out,country,start,end,indicators,fetch=fetch_json):
     fields=['country_iso3','year','indicator','value','unit','source','source_url','downloaded_at_utc','obs_status','decimal']
     with (out/'processed'/'wdi_panel.csv').open('w',newline='') as f:
         writer=csv.DictWriter(f,fieldnames=fields);writer.writeheader();writer.writerows(sorted(seen.values(),key=lambda r:(r['country_iso3'],r['indicator'],r['year'])))
-    report={"downloaded_at_utc":stamp,"country_query":country,"start":start,"end":end,"indicator_count":len(indicators),"raw_pages":len(manifest),"observations":len(seen),"conflicts":conflicts,"errors":errors,"manifest":manifest,"causal_claims_supported":False,"validation_state":("COLLECTION_INCOMPLETE_OR_CONFLICTING" if errors or conflicts or not seen else "COLLECTED_BASIC_FORMAT_CHECKS_PASSED_NOT_CANONICAL")}
+    geography={'status':'NOT_REQUESTED_NON_GLOBAL_SCOPE'}
+    if country == 'all' and not errors and not conflicts and seen:
+        # The same WDI collector captures original World Bank country/aggregate
+        # metadata pages as separate source-native evidence. No second pipeline.
+        geography_manifest=[]; raw_meta=[]
+        geo_dir=out/'geography_raw'
+        geo_dir.mkdir(exist_ok=True)
+        try:
+            for page in range(1,13):
+                url=GEOGRAPHY_BASE+'?'+urllib.parse.urlencode({'format':'json','per_page':500,'page':page})
+                raw=fetch(url)
+                total_pages,total,entries=metadata_page(raw,page)
+                checksum=hashlib.sha256(raw).hexdigest()
+                name=f'country_metadata_{page}_{checksum[:12]}.json'
+                (geo_dir/name).write_bytes(raw)
+                geography_manifest.append({'file':name,'url':url,'sha256':checksum,
+                                           'page':page,'returned':len(entries)})
+                raw_meta.append(raw)
+                if page==total_pages:break
+            mapping=country_map(raw_meta)
+            code_counts=Counter(r['country_iso3'] for r in seen.values())
+            geography_rows,summary=classify_observed(mapping,code_counts)
+            with (out/'processed'/'wdi_geography.csv').open('w',newline='',encoding='utf-8') as f:
+                fields=['code','name','region_id','region_name','geography_type','observation_rows']
+                w=csv.DictWriter(f,fieldnames=fields)
+                w.writeheader(); w.writerows(geography_rows)
+            geography={'status':('PROVIDER_COUNTRY_AGGREGATE_METADATA_VERIFIED'
+                                 if summary['country_vs_aggregate_resolved']
+                                 else 'PROVIDER_GEOGRAPHY_PARTIALLY_UNRESOLVED'),
+                       'source_url':GEOGRAPHY_BASE,
+                       'metadata_pages':geography_manifest,
+                       'summary':summary}
+        except Exception as exc:
+            errors.append({'indicator':'WORLD_BANK_COUNTRY_METADATA','error':str(exc)})
+            geography={'status':'PROVIDER_GEOGRAPHY_COLLECTION_FAILED'}
+    report={"downloaded_at_utc":stamp,"country_query":country,"start":start,"end":end,"indicator_count":len(indicators),"raw_pages":len(manifest),"observations":len(seen),"conflicts":conflicts,"errors":errors,"manifest":manifest,"geography_metadata":geography,"causal_claims_supported":False,"validation_state":("COLLECTION_INCOMPLETE_OR_CONFLICTING" if errors or conflicts or not seen else "COLLECTED_BASIC_FORMAT_CHECKS_PASSED_NOT_CANONICAL")}
     (out/'run_report.json').write_text(json.dumps(report,indent=2));return report
 
 if __name__=='__main__':
