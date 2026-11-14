@@ -5,6 +5,8 @@ on:
     paths:
       - 'open_data/expanded_source_catalog.csv'
       - 'open_data/ingest.py'
+      - 'open_data/wdi_bulk.py'
+      - 'tests/test_wdi_bulk.py'
       - 'tests/test_open_data_v07.py'
       - 'atlas_web/**'
       - 'atlas_public/**'
@@ -47,6 +49,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_source_registry_reconciliation.py' -v
           python -m unittest discover -s tests -p 'test_wid_revision_audit.py' -v
           python -m unittest discover -s tests -p 'test_atlas_data_watchdog.py' -v
+          python -m unittest discover -s tests -p 'test_wdi_bulk.py' -v
           python -m unittest discover -s tests -p 'test_ilostat_native_profile.py' -v
           python - <<'PY_ILOSTAT_EMBED'
           from pathlib import Path
