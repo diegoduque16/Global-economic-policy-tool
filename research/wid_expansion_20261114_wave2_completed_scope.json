@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "source_run_id": 43643338607,
+  "source_run_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43643338607",
+  "source_run_conclusion": "success",
+  "snapshot_date_utc": "2026-11-14",
+  "collector": ".github/workflows/atlas-wid-expand-20-countries.yml",
+  "stage": "source_native_numeric_verified_private_one_drive_not_canonical_or_public",
+  "new_country_batches": [
+    {
+      "batch": "europe-west-wave2",
+      "countries": {
+        "HU": 848,
+        "RO": 728,
+        "GR": 780,
+        "TR": 632
+      },
+      "verified_numeric_values": 2988
+    },
+    {
+      "batch": "europe-east-wave2",
+      "countries": {
+        "SK": 728,
+        "SI": 728,
+        "HR": 760,
+        "LU": 728
+      },
+      "verified_numeric_values": 2944
+    },
+    {
+      "batch": "americas-wave2",
+      "countries": {
+        "BO": 648,
+        "EC": 648,
+        "PY": 648,
+        "DO": 600
+      },
+      "verified_numeric_values": 2544
+    },
+    {
+      "batch": "asia-wave2",
+      "countries": {
+        "MY": 656,
+        "VN": 688,
+        "BD": 632,
+        "PK": 632
+      },
+      "verified_numeric_values": 2608
+    },
+    {
+      "batch": "africa-wave2",
+      "countries": {
+        "TZ": 636,
+        "CI": 632,
+        "CM": 548,
+        "ET": 632
+      },
+      "verified_numeric_values": 2448
+    }
+  ],
+  "new_country_count": 20,
+  "source_native_verified_numeric_values": 13532,
+  "private_onedrive_sha_verified_for_each_country": true,
+  "failed_country_count": 0,
+  "overlap_with_original_23_or_previous_wave_20": 0,
+  "canonical_warehouse_modified": false,
+  "public_website_source_values_published": false,
+  "cautions": [
+    "Exact selected source-native four-concept income and wealth distribution observations from 20 official WID country CSVs; not all WID variables or full provider scope.",
+    "This second-wave snapshot is immutable evidence used to reject repeat countries in later geographic acquisition.",
+    "Twenty distinct countries were independently validated in source collections; counts are NOT automatically additive to canonical or cross-vintage values."
+  ]
+}

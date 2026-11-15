@@ -2,8 +2,8 @@
   "schema_version": 1,
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
-  "updated_date": "2026-11-14",
-  "status_basis": "Snapshot checked against completed GitHub Actions results through November 14, 2026 at approximately 4:35 p.m. EST. This page is a dated reference, not live telemetry; check linked runs for subsequent changes.",
+  "updated_date": "2026-11-15",
+  "status_basis": "Checked against completed GitHub Actions logs on 15 November 2026, after the 02:56 UTC ILOSTAT scheduled run. This is a dated snapshot, not live telemetry; follow run links and update verified statuses after production collections complete.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -44,9 +44,9 @@
   "workstreams": [
     {
       "name": "ILOSTAT official bulk",
-      "stage": "Latest 50-file batch completed; broader archive incomplete",
-      "evidence": "November 14 improved 50-file run completed: 969/1,964 official source tables verified, 995 remaining. This run added 49 new files, reported one temporary World Bank-independent ILOSTAT HTTP 502 failure for EMP_PIFL_SEX_AGE_ECO_RT_A, and verified zero lost old files with SHA-checked private checkpoint backup. The earlier checkpoint had 920.",
-      "next": "Continue the existing 50-file resumable schedule to retrieve the 995 outstanding official files. Retry the single HTTP 502 source on later runs; do not claim a green workflow means all attempted files succeeded.",
+      "stage": "Scheduled 50-file bulk collection working; 1,019 of 1,964 source files verified",
+      "evidence": "The 15 November scheduled 50-file ILOSTAT source run 43670071375 completed with 50 newly verified, 0 failures, and 0 lost previously stored files. Its complete private checkpoint and SHA verified 1,019/1,964 source files, leaving 945. The previous 14 November run reached 969/1,964 with 49 new and one temporary HTTP 502 source failure.",
+      "next": "Keep the existing 50-file thrice-daily source-ID-aware schedule. Verify the next checkpoint's exact ID set, source integrity and retry blockers; do not confuse successful batch count with the full 1,964-source scope.",
       "links": [
         {
           "label": "Last completed 920-file checkpoint",
@@ -59,14 +59,18 @@
         {
           "label": "Batch-size PR #21",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/21"
+        },
+        {
+          "label": "Latest verified 1,019-file ILOSTAT checkpoint",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43670071375"
         }
       ]
     },
     {
       "name": "World Inequality Database (WID)",
-      "stage": "20 previous new countries complete; next 20 country candidates in live acquisition",
-      "evidence": "Historical original WID panel: 23 countries, 21,430 selected numeric observations. The earlier monthly '20-country expansion' only refreshed baseline countries, not expansion. The November 14 five-batch WID collection successfully added 20 disjoint new country codes (FI, BE, AT, CH, PT, PL, CZ, IE, AR, PE, UY, CR, CN, ID, PH, TH, EG, MA, SN, UG) with 14,472 source-native selected numeric income/wealth distribution observations; all 20 country downloads backed up to private OneDrive with SHA verification, and all five batches reported zero failures and zero original-baseline overlap. The total is a separate source-native count, not an increment to canonical observations.",
-      "next": "Existing WID workflow is now collecting another 20 candidate countries absent from all 43 previously verified country codes, run 43643338607. Count each candidate only on source-native numeric evidence and SHA-verified private OneDrive backup; track failures separately. Preserve baseline and first-wave source vintages; do not claim complete country or full-variable WID coverage.",
+      "stage": "40 new countries verified across two waves; third 20-country attempt preparing",
+      "evidence": "Historical separate numeric WID panel: 23 countries and 21,430 selected values. The first new-country expansion successfully acquired 20 distinct additional countries with 14,472 selected source-native numeric distribution observations. The second expansion also completed successfully on 14 November in production run 43643338607, verifying another 20 nonoverlapping country CSV files with 13,532 selected numeric shares and byte-checked private OneDrive backups. The source files now cover 63 distinct country codes across these separate collections; there is not yet one unified canonical series and the value totals must not be added across different source vintages.",
+      "next": "The next 20 country codes (Europe BG, RS, UA, IS; Americas GT, HN, SV, NI; Asia LK, NP, KH, MM; Africa DZ, TN, RW, ZM; other NZ, IL, SA, AE) are candidates, not yet collected. Reuse the existing WID collector and verify each source individually. Build a versioned, deduplicated WID numeric research layer only after all source-native vintages and series definitions have been checked.",
       "links": [
         {
           "label": "New-country PR #22",
@@ -82,6 +86,10 @@
         },
         {
           "label": "Second wave active run",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43643338607"
+        },
+        {
+          "label": "Completed second WID collection, 20 more countries",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43643338607"
         }
       ]
@@ -231,14 +239,26 @@
       "title": "Permanently back up complete 59-series World Bank WDI source",
       "description": "Following the fail-closed import repair, successful watchdog run 43643193303 re-parsed and checked the official WDI bulk ZIP against its processed 572,179 observed values, wrote the full original source archive to private OneDrive, and verified its restored SHA-256 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a. Canonical integration and public 59-series publication remain separate.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43643193303"
+    },
+    {
+      "date": "2026-11-15",
+      "title": "Verify completion of second WID wave and continued ILOSTAT progress",
+      "description": "GitHub Actions confirmed the second WID new-country wave successfully collected source-native numerical share data from 20 additional countries (13,532 selected values, source hashes and private backup), bringing observed geographic scope to 63 distinct codes. Overnight ILOSTAT collected 50 more official bulk files with no losses: 1,019 of 1,964 verified. Neither is a claim of integrated canonical coverage.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43643338607"
+    },
+    {
+      "date": "2026-11-15",
+      "title": "Prepare third genuinely disjoint WID geographic collection",
+      "description": "Retain frozen WID second-wave successful source ID counts, then change the same official-country source downloader to attempt 20 additional candidate countries outside the entire verified 63-country scope. Success will be determined by live numerical source and private checksum receipts, not selected-country planning.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/.github/workflows/atlas-wid-expand-20-countries.yml"
     }
   ],
   "next_actions": [
-    "Check any future ILOSTAT scheduled source-ID runs after 969/1,964 and retain exact numeric/file evidence; verify GitHub statuses again before quoting these November 14 results.",
-    "Continue acquiring the 995 currently missing official ILOSTAT bulk tables; retry temporary source HTTP 502 failures with existing resumable logic, preserve immutable checkpoints.",
+    "ILOSTAT 1,019/1,964 source files verified after successful 15 November run 43670071375; continue collecting the 945 remaining actual official TOC source IDs through the existing scheduled ingester and keep exact checksum/source checkpoints.",
+    "Continue the current ILOSTAT 50-source jobs until all 1,964 official TOC IDs are verified or blocked; preserve original files privately and identify any repeated transient provider failures.",
     "WDI original 59-series source archive is permanently privately backed up (run 43643193303, verified archive SHA 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a). Do source-series geography classification, vintage/license checks and explicitly versioned canonical/public integration; do not recollect only to redo the backup.",
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
-    "Check second WID expansion run 43643338607: count actual successful source-verified country files and values out of 20 candidate countries; preserve original 23 and first 20 separate, no overlap or canonical/public inclusion.",
+    "Second WID geographic expansion completed (20/20 source-verified, 13,532 selected numerical observations). Execute third distinct 20-candidate source wave and verify success/failure individually, without claiming the 83-country target is attained or silently adding across vintages.",
     "Complete data acquisition in other high-priority areas based on concrete missing native series—not an assumption that 47 unmapped catalog entries are empty.",
     "Keep this dated briefing and its evidence links current when any material Atlas collection scope, successful release, or project direction changes."
   ],

@@ -1,4 +1,4 @@
-name: Atlas - Expand WID to next 20 uncollected countries (private OneDrive)
+name: Atlas - Expand WID to wave 3 new countries beyond verified 63 (private OneDrive)
 
 on:
   workflow_dispatch:
@@ -26,16 +26,16 @@ jobs:
       max-parallel: 2
       matrix:
         include:
-          - batch: europe-west-wave2
-            countries: HU,RO,GR,TR
-          - batch: europe-east-wave2
-            countries: SK,SI,HR,LU
-          - batch: americas-wave2
-            countries: BO,EC,PY,DO
-          - batch: asia-wave2
-            countries: MY,VN,BD,PK
-          - batch: africa-wave2
-            countries: TZ,CI,CM,ET
+          - batch: europe-wave3
+            countries: BG,RS,UA,IS
+          - batch: americas-wave3
+            countries: GT,HN,SV,NI
+          - batch: asia-wave3
+            countries: LK,NP,KH,MM
+          - batch: africa-wave3
+            countries: DZ,TN,RW,ZM
+          - batch: other-wave3
+            countries: NZ,IL,SA,AE
     env:
       RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
       COUNTRY_CODES: ${{ matrix.countries }}
@@ -58,7 +58,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_wid_live_pilot.py' -v
           python -m compileall -q open_data/wid_live_pilot.py
           python -m unittest discover -s tests -p 'test_wid_expansion_scope.py' -v
-      - name: Prove new country scope excludes original 23-country numeric source manifest AND verified first wave
+      - name: Prove next WID country candidates exclude all 63 previously verified geographic codes
         shell: bash
         run: |
           python - <<'PY_WID_SCOPE'
@@ -66,19 +66,23 @@ jobs:
           from pathlib import Path
           prior = json.loads(Path('research/wid_23_source_manifest.json').read_text())
           original = {x['wid_area'] for x in prior['countries']}
-          previous = json.loads(Path('research/wid_expansion_20261114_completed_scope.json').read_text())
-          completed = {country for batch in previous['new_country_batches']
-                       for country in batch['countries']}
+          wave1 = json.loads(Path('research/wid_expansion_20261114_completed_scope.json').read_text())
+          wave2 = json.loads(Path('research/wid_expansion_20261114_wave2_completed_scope.json').read_text())
+          completed1 = {country for batch in wave1['new_country_batches']
+                        for country in batch['countries']}
+          completed2 = {country for batch in wave2['new_country_batches']
+                        for country in batch['countries']}
           requested = os.environ['COUNTRY_CODES'].split(',')
-          assert len(original) == 23 and len(completed) == 20
-          assert previous['source_run_id'] == 43640485476
-          assert not original.intersection(completed)
+          assert len(original) == 23 and len(completed1) == 20 and len(completed2) == 20
+          assert wave1['source_run_id'] == 43640485476
+          assert wave2['source_run_id'] == 43643338607
+          assert not original.intersection(completed1 | completed2)
+          assert not completed1.intersection(completed2)
           assert len(requested) == 4 and len(set(requested)) == 4
-          assert not (set(requested) & (original | completed)), (
-              'Refusing to count historical WID countries as geographic expansion '
-              'or to re-download any of the first 20 completed countries')
+          assert not (set(requested) & (original | completed1 | completed2)), (
+              'Refusing to count any of the original or prior 40 verified WID countries as expansion')
           print('WID_NEW_COUNTRY_SCOPE_VERIFIED', {'batch': os.environ['BATCH_NAME'],
-              'previous_43_country_overlap': 0, 'requested_country_codes': requested})
+              'previous_63_country_overlap': 0, 'requested_country_codes': requested})
           PY_WID_SCOPE
       - name: Configure private OneDrive connection
         shell: bash
@@ -119,7 +123,7 @@ jobs:
               'batch': batch,
               'run_timestamp_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
               'country_codes': countries,
-              'baseline_scope': 'COUNTRIES_NOT_IN_ORIGINAL_23_OR_COMPLETED_20_NEW_COUNTRY_NUMERIC_PANELS',
+              'baseline_scope': 'COUNTRIES_NOT_IN_ORIGINAL_23_OR_COMPLETED_40_NEW_COUNTRY_NUMERIC_PANELS',
               'successful': [],
               'failed': [],
               'source_rows_added_to_canonical_warehouse': 0,
@@ -186,7 +190,8 @@ jobs:
                   'failed': report['count_failed_countries'],
                   'verified_share_observations': report['verified_share_observations'],
                   'original_23_country_overlap': 0,
-                  'previous_completed_20_country_overlap': 0
+                  'previous_completed_20_country_overlap': 0,
+                  'second_completed_20_country_overlap': 0
               }), flush=True)
           # Fail the job if there are failures, but leave its metadata artifact and
           # any successfully backed-up countries available for an independent rerun.

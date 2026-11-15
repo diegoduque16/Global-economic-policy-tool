@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "research" / "wid_23_source_manifest.json"
 WORKFLOW = ROOT / ".github/workflows/atlas-wid-expand-20-countries.yml"
 PREVIOUS = ROOT / "research/wid_expansion_20261114_completed_scope.json"
+WAVE2 = ROOT / "research/wid_expansion_20261114_wave2_completed_scope.json"
 
 class WidExpansionScopeTest(unittest.TestCase):
     def test_new_targets_exclude_all_original_23_countries(self):
@@ -31,13 +32,26 @@ class WidExpansionScopeTest(unittest.TestCase):
         self.assertEqual(sum(saved.values()),14472)
         self.assertEqual(set(saved).intersection(prior),set())
         self.assertEqual(set(codes).intersection(saved),set())
-        self.assertEqual(len(set(prior)|set(saved)|set(codes)),63)
+        wave2 = json.loads(WAVE2.read_text())
+        self.assertEqual(wave2['source_run_id'],43643338607)
+        self.assertEqual(wave2['source_run_conclusion'],'success')
+        self.assertEqual(wave2['new_country_count'],20)
+        self.assertTrue(wave2['private_onedrive_sha_verified_for_each_country'])
+        saved2={code:count for batch in wave2['new_country_batches']
+                for code,count in batch['countries'].items()}
+        self.assertEqual(len(saved2),20)
+        self.assertEqual(sum(saved2.values()),13532)
+        self.assertEqual(set(saved2)&(set(prior)|set(saved)),set())
+        self.assertEqual(set(codes)&set(saved2),set())
+        self.assertEqual(len(set(prior)|set(saved)|set(saved2)),63)
+        self.assertEqual(len(set(prior)|set(saved)|set(saved2)|set(codes)),83)
         self.assertTrue(all(re.fullmatch(r"[A-Z]{2}", code) for code in codes))
         self.assertTrue(all(len(names.split(",")) == 4 for _, names in groups))
-        self.assertIn("original 23-country numeric source manifest", workflow)
-        self.assertIn("Refusing to count historical WID countries as geographic expansion", workflow)
-        self.assertIn("or to re-download any of the first 20 completed countries", workflow)
-        self.assertIn("research/wid_expansion_20261114_completed_scope.json", workflow)
+        self.assertIn("research/wid_23_source_manifest.json", workflow)
+        self.assertIn("exclude all 63 previously verified geographic codes", workflow)
+        self.assertIn("Refusing to count any of the original or prior 40 verified WID countries as expansion",workflow)
+        self.assertIn("research/wid_expansion_20261114_completed_scope.json",workflow)
+        self.assertIn("research/wid_expansion_20261114_wave2_completed_scope.json",workflow)
 
     def test_only_main_triggers_private_source_collection_on_push(self):
         workflow = WORKFLOW.read_text()
