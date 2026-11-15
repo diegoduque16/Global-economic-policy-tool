@@ -27,6 +27,7 @@ on:
       - 'research/wid_23_source_manifest.json'
       - 'research/wid_refresh_20261103_source_fingerprints.json'
       - 'research/wid_expansion_20261114_completed_scope.json'
+      - 'research/wid_expansion_20261114_wave2_completed_scope.json'
       - 'research/audit_wid_revisions.py'
       - 'tests/test_wid_revision_audit.py'
       - 'tests/test_wid_expansion_scope.py'
