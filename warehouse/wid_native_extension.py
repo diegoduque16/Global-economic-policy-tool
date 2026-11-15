@@ -301,8 +301,9 @@ def append_to_existing_sqlite(database, selected_dir, manifest, *, strict_base=T
                 if count != n:
                     raise ValueError(f"Existing {table} count is {count}, expected {n}")
         else:
-            checks = {"observations": db.execute("SELECT COUNT(*) FROM observations").fetchone()[0],
-                      "source_files": db.execute("SELECT COUNT(*) FROM source_files").fetchone()[0],
+            # Standalone ATTACH-able native shard: same native_* SQL tables,
+            # never a false copy of the giant canonical observations tables.
+            checks = {"observations": 0, "source_files": 0,
                       "native_sources": db.execute("SELECT COUNT(*) FROM native_sources").fetchone()[0],
                       "native_records": db.execute("SELECT COUNT(*) FROM native_records").fetchone()[0]}
         cur = db.cursor()
@@ -455,6 +456,98 @@ def extend(base_archive, receipts, out_dir, snapshot_id, repo=REPO):
     return report
 
 
+def materialize_attachable_wid_shard(receipts, out_dir, snapshot_id, repo=REPO):
+    """Store WID in an ATTACH-able native-source shard; do NOT copy >10 GB parent SQLite.
+
+    The certified Atlas SQLite is UNMODIFIED. This shard uses the very same
+    native_sources/native_records schema, with explicitly pinned parent run
+    and archive identity, so SQLite ATTACH enables joint read-only queries.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", snapshot_id):
+        raise ValueError("Unsafe WID source-native child snapshot ID")
+    expected=load_expected_scopes(repo)
+    manifest=read_receipts(receipts,expected)
+    out_dir=Path(out_dir)
+    out_dir.mkdir(parents=True,exist_ok=True)
+    archive=out_dir/(snapshot_id+".tar.gz")
+    report_path=out_dir/(snapshot_id+".integration_report.json")
+    if archive.exists() or report_path.exists():
+        raise FileExistsError("Refusing to overwrite immutable private WID native shard")
+    with tempfile.TemporaryDirectory(dir=out_dir) as temporary:
+        root=Path(temporary)/snapshot_id
+        root.mkdir()
+        download_private_source_files(manifest,root/"source_native")
+        selected=root/"source_native"/"selected"
+        selected.rename(root/"source_native"/"wid_world_selected")
+        selected=root/"source_native"/"wid_world_selected"
+        sqlite_path=root/"wid_source_native.sqlite"
+        with sqlite3.connect(sqlite_path) as con:
+            con.executescript(
+                """CREATE TABLE atlas_parent_snapshot (
+                    canonical_run_id INTEGER NOT NULL,
+                    original_archive_sha256 TEXT NOT NULL,
+                    original_canonical_observations INTEGER NOT NULL,
+                    old_native_records INTEGER NOT NULL,
+                    native_warehouse_extended_in_place INTEGER NOT NULL CHECK(native_warehouse_extended_in_place=0),
+                    source_native_unharmonized INTEGER NOT NULL CHECK(source_native_unharmonized=1)
+                );"""
+            )
+            con.executescript(__import__("warehouse.native_materialize",fromlist=["schema"]).schema())
+            con.execute("INSERT INTO atlas_parent_snapshot VALUES (?,?,?,?,?,?)",
+                        (BASE_RUN,BASE_TARBALL_SHA256,CANONICAL_ROWS,BASE_NATIVE_ROWS,0,1))
+            con.commit()
+        indexed=append_to_existing_sqlite(sqlite_path,selected,manifest,strict_base=False)
+        if indexed["added_native_wid_numeric_records"]!=EXPECTED_SELECTED_VALUES:
+            raise ValueError("Private WID source-native shard is numerically incomplete")
+        with sqlite3.connect(sqlite_path) as con:
+            assert con.execute("SELECT COUNT(*) FROM native_sources").fetchone()[0]==60
+            assert con.execute("SELECT COUNT(*) FROM native_records").fetchone()[0]==40908
+            assert con.execute("SELECT COUNT(*) FROM atlas_parent_snapshot").fetchone()[0]==1
+            assert con.execute("PRAGMA integrity_check").fetchone()[0]=="ok"
+        for code,info in manifest.items():
+            f=selected/code/"wid_source_native_shares.csv"
+            if sha256(f)!=info["selected_csv_sha256"]:
+                raise ValueError("Indexed country CSV changed during private source assembly")
+        dump(root/"wid_source_manifest.json",{
+            "certified_parent_canonical_run_id":BASE_RUN,
+            "parent_complete_archive_sha256":BASE_TARBALL_SHA256,
+            "source_runs":list(WID_RUNS),"country_sources":60,
+            "selected_original_native_numeric_observations":40908,
+            "separate_existing_canonical_observations":CANONICAL_ROWS,
+            "separate_existing_native_records":BASE_NATIVE_ROWS,
+            "attach_to_existing_sqlite":True,
+            "parent_sqlite_was_modified":False,
+            "harmonized":False,"causal_ready":False,"public_release":False,
+            "country_source_provenance":manifest,
+            "instructions":"In a private Python SQLite connection to the certified Atlas warehouse, "
+                           "ATTACH DATABASE 'wid_source_native.sqlite' AS wid_native; "
+                           "SELECT * FROM wid_native.native_records LIMIT 10. "
+                           "This attachment is source-native, not a new canonical observation family."
+        })
+        with tarfile.open(archive,"w:gz") as tar:
+            tar.add(root,arcname=snapshot_id)
+        report={
+            "snapshot_id":snapshot_id,
+            "storage_mode":"ATLAS_NATIVE_ATTACHABLE_SQLITE_SHARD_PARENT_UNCHANGED",
+            "parent_native_snapshot_run_id":BASE_RUN,
+            "pinned_parent_archive_sha256":BASE_TARBALL_SHA256,
+            "source_wid_collection_runs":list(WID_RUNS),
+            "added_wid_country_source_files":60,
+            "added_native_wid_numeric_records":40908,
+            "private_shard_native_records":40908,
+            "logical_atlas_native_records_with_attachment":BASE_NATIVE_ROWS+40908,
+            "canonical_observations_unchanged":CANONICAL_ROWS,
+            "original_canonical_sqlite_was_modified":False,
+            "source_original_csv_sha256_verified_for_each_country":True,
+            "archive_sha256":sha256(archive),
+            "private_attachment_not_a_physical_single_db_merge":True,
+            "public_release":False,
+            "research_ready_harmonized":False
+        }
+        dump(report_path,report)
+    return report
+
+
 def selftest():
     import tempfile
     with tempfile.TemporaryDirectory() as folder:
@@ -501,9 +594,16 @@ def main():
     ap.add_argument("--out",type=Path,default=Path("native_output"))
     ap.add_argument("--snapshot-id")
     ap.add_argument("--self-test",action="store_true")
+    ap.add_argument("--shard-only",action="store_true",
+                    help="Bounded private WID source-native SQLite ATTACH overlay; never copies the parent")
     args=ap.parse_args()
     if args.self_test:
         selftest();return
+    if args.shard_only:
+        if not args.receipts or not args.snapshot_id:
+            ap.error("--shard-only requires verified receipts and an immutable ID")
+        print(json.dumps(materialize_attachable_wid_shard(args.receipts,args.out,args.snapshot_id),indent=2))
+        return
     if not args.base_archive or not args.receipts or not args.snapshot_id:
         ap.error("Verified base archive, 15 batch receipts and new immutable snapshot ID are required")
     print(json.dumps(extend(args.base_archive,args.receipts,args.out,args.snapshot_id),indent=2))
