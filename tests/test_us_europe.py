@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from pathlib import Path
 from open_data.us_europe import FRED, EUROSTAT, EU, eu_url, fred_url, parse_fred, parse_jsonstat, run
 
 FRED_RAW=b'DATE,PAYEMS\n1939-01-01,31000\n1950-01-01,.\n2025-01-01,160000\n'
@@ -93,6 +94,19 @@ class TestRegion(unittest.TestCase):
                 self.assertEqual(rows[0]['provider'],
                                  'FRED (St. Louis Fed; original series provider varies)')
         self.assertEqual(len(EUROSTAT),6)
+
+    def test_main_push_archives_only_verified_original_us_and_eu_data(self):
+        workflow=(Path(__file__).resolve().parents[1]/
+                  '.github/workflows/economic-expansion.yml').read_text()
+        self.assertIn('--scope full --sources all --start 1900 --end 2026',workflow)
+        self.assertIn('len(FRED)==21 and len(EUROSTAT)==6',workflow)
+        self.assertIn('FRED_EUROSTAT_ORIGINAL_NATIVE_NUMERICS_VERIFIED',workflow)
+        self.assertIn('FRED_EUROSTAT_PRIVATE_SOURCE_ROUNDTRIP_VERIFIED',workflow)
+        self.assertIn('processed/us_europe_panel.csv',workflow)
+        self.assertIn('report[\'errors\']==[]',workflow)
+        self.assertIn('source-receipt-',workflow)
+        self.assertIn("if: github.event_name != 'push'",workflow)
+        self.assertIn("if: github.event_name == 'push'",workflow)
 
     def test_mocked_smoke_and_manifests(self):
         def fetch(url): return EU_RAW if 'eurostat' in url else FRED_RAW.replace(b'PAYEMS',b'USPRIV') if 'id=USPRIV' in url else FRED_RAW
