@@ -63,6 +63,37 @@ class TestRegion(unittest.TestCase):
                 rejected,_=parse_jsonstat(wrong,name,start=2008,end=2026)
                 self.assertEqual(rejected,[])
 
+    def test_eight_additional_official_fred_series_are_native_and_distinct(self):
+        expected={
+            'CES0500000003':('monthly','US dollars per hour'),
+            'OPHNFB':('quarterly','index 2017=100'),
+            'ULCNFB':('quarterly','index 2017=100'),
+            'MEHOINUSA672N':('annual','2025 C-CPI-U dollars'),
+            'PCE':('monthly','billions of US dollars'),
+            'PSAVERT':('monthly','percent'),
+            'JTSHIL':('monthly','thousands of hires'),
+            'JTSQUL':('monthly','thousands of quits'),
+        }
+        self.assertEqual(len(FRED),21)
+        for code,(frequency,units) in expected.items():
+            with self.subTest(series=code):
+                self.assertIn(code,FRED)
+                self.assertEqual(FRED[code][1],frequency)
+                self.assertTrue(FRED[code][2].startswith(units))
+                self.assertEqual(fred_url(code),
+                                 'https://fred.stlouisfed.org/graph/fredgraph.csv?id='+code)
+                raw=('DATE,'+code+'\\n2025-01-01,2.75\\n2025-02-01,.\\n').encode()
+                rows,skipped=parse_fred(raw,code,start=1900,end=2026)
+                self.assertEqual(skipped,1)
+                self.assertEqual(len(rows),1)
+                self.assertEqual(rows[0]['series'],code)
+                self.assertEqual(rows[0]['value'],2.75)
+                self.assertEqual(rows[0]['unit'],FRED[code][2])
+                self.assertEqual(rows[0]['frequency'],frequency)
+                self.assertEqual(rows[0]['provider'],
+                                 'FRED (St. Louis Fed; original series provider varies)')
+        self.assertEqual(len(EUROSTAT),6)
+
     def test_mocked_smoke_and_manifests(self):
         def fetch(url): return EU_RAW if 'eurostat' in url else FRED_RAW.replace(b'PAYEMS',b'USPRIV') if 'id=USPRIV' in url else FRED_RAW
         with tempfile.TemporaryDirectory() as out:
