@@ -135,7 +135,7 @@ jobs:
         run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
 
   extend-verified-wid-source-native:
-    # Add source-native WID records to the EXISTING certified Atlas SQLite.
+    # Add source-native WID rows in an ATTACH-able native SQLite layer; NEVER copy the >10GB historical SQLite.
     # The previous manual five-source materializer is left unchanged.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -157,19 +157,15 @@ jobs:
         run: |
           python -m warehouse.wid_native_extension --self-test
           python -m unittest discover -s tests -p 'test_wid_native_extension.py' -v
-      - name: Download certified canonical-native source snapshot and 15 WID batch receipts
+      - name: Verify original certified warehouse identity and retrieve 15 WID metadata receipts
         shell: bash
         run: |
           set -euo pipefail
           test "$(gh api "repos/$GH_REPO/actions/runs/40617910011" --jq '.conclusion')" = success
           test "$(gh api "repos/$GH_REPO/actions/runs/40617910011" --jq '.name')" = 'Materialize five source-native datasets in canonical warehouse'
           test "$(gh api "repos/$GH_REPO/actions/runs/40617910011" --jq '.head_branch')" = main
-          mkdir -p original_native
-          gh run download 40617910011 --repo "$GH_REPO" --name canonical-native-40617910011 --dir original_native
-          test "$(find original_native -type f -name 'canonical-native-*.tar.gz' | wc -l)" -eq 1
-          original=$(find original_native -type f -name 'canonical-native-*.tar.gz')
-          test "$(sha256sum "$original" | cut -d ' ' -f1)" = dfe43456207e8681c4a79470d39578718c51670ceeb43cf4c68a379fdc61d17b
-          echo "PARENT_NATIVE_ARCHIVE=$original" >> "$GITHUB_ENV"
+          # Historical parent is certified by run ID and pinned SHA256 from prior
+          # independently validated original archive. No redundant >10GB unzip.
           for run in 43640485476 43643338607 43681169408; do
             test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.conclusion')" = success
             test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.head_branch')" = main
@@ -191,14 +187,14 @@ jobs:
           printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/wid-native-rclone/rclone.conf"
           chmod 600 "$RUNNER_TEMP/wid-native-rclone/rclone.conf"
           echo "RCLONE_CONFIG=$RUNNER_TEMP/wid-native-rclone/rclone.conf" >> "$GITHUB_ENV"
-      - name: Index 60 verified WID sources in the existing canonical/native SQLite
+      - name: Index 60 official WID sources using ATTACH-able native SQLite schema
         shell: bash
         run: |
           set -euo pipefail
-          id="canonical-native-wid-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"
+          id="atlas-wid-native-shard-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"
           echo "WID_NATIVE_SNAPSHOT_ID=$id" >> "$GITHUB_ENV"
           python -m warehouse.wid_native_extension \
-            --base-archive "$PARENT_NATIVE_ARCHIVE" \
+            --shard-only \
             --receipts receipts \
             --out native_output \
             --snapshot-id "$id"
@@ -217,20 +213,22 @@ jobs:
           assert doc['canonical_observations_unchanged']==2780117
           assert doc['added_wid_country_source_files']==60
           assert doc['added_native_wid_numeric_records']==40908
-          assert doc['total_native_numeric_records']==2145517
-          assert doc['storage_mode']=='THIN_SQLITE_EXTENSION_PARENT_ARCHIVE_REQUIRED'
+          assert doc['private_shard_native_records']==40908
+          assert doc['logical_atlas_native_records_with_attachment']==2145517
+          assert doc['storage_mode']=='ATLAS_NATIVE_ATTACHABLE_SQLITE_SHARD_PARENT_UNCHANGED'
           assert doc['pinned_parent_archive_sha256']=='dfe43456207e8681c4a79470d39578718c51670ceeb43cf4c68a379fdc61d17b'
           assert doc['source_original_csv_sha256_verified_for_each_country'] is True
-          assert doc['canonical_observations_modified'] is False
+          assert doc['original_canonical_sqlite_was_modified'] is False
+          assert doc['private_attachment_not_a_physical_single_db_merge'] is True
           assert doc['public_release'] is False
           assert doc['research_ready_harmonized'] is False
           assert len(doc['archive_sha256'])==64
           assert (root/(sid+'.tar.gz')).is_file()
-          print('WID_60_SOURCE_NATIVE_ROWS_IN_EXISTING_ATLAS_SQLITE_VERIFIED',{
+          print('WID_60_PRIVATE_ATTACHABLE_SQLITE_SOURCE_ROWS_VERIFIED',{
               'verified_countries':60,'new_native_values':40908,
-              'native_rows_total':2145517,'canonical_rows_unchanged':2780117})
+              'logical_attached_native_rows':2145517,'original_sqlite_was_modified':False})
           PY_WID_VERIFY
-      - name: Archive existing augmented SQLite privately with SHA-256 restore verification
+      - name: Archive attachable WID native SQL layer privately with SHA-256 restore verification
         shell: bash
         run: |
           set -euo pipefail
@@ -250,11 +248,11 @@ jobs:
           test "$local_hash" = "$report_hash"
           rclone copyto "native_output/$WID_NATIVE_SNAPSHOT_ID.integration_report.json" \
             "onedrive:Diego/economic research database/snapshots/$WID_NATIVE_SNAPSHOT_ID.integration_report.json"
-          echo "WID_NATIVE_CANONICAL_SQLITE_PRIVATE_ROUNDTRIP_VERIFIED $local_hash"
+          echo "WID_NATIVE_ATTACHABLE_SQLITE_PRIVATE_ROUNDTRIP_VERIFIED $local_hash"
       - name: Publish metadata-only integration receipt, never source observations
         uses: actions/upload-artifact@v4
         with:
-          name: canonical-native-wid-receipt-${{ github.run_id }}
+          name: atlas-wid-native-shard-receipt-${{ github.run_id }}
           path: native_output/*.integration_report.json
           if-no-files-found: error
           retention-days: 90
