@@ -82,7 +82,7 @@ class TestRegion(unittest.TestCase):
                 self.assertTrue(FRED[code][2].startswith(units))
                 self.assertEqual(fred_url(code),
                                  'https://fred.stlouisfed.org/graph/fredgraph.csv?id='+code)
-                raw=('DATE,'+code+'\\n2025-01-01,2.75\\n2025-02-01,.\\n').encode()
+                raw=('DATE,'+code+'\n2025-01-01,2.75\n2025-02-01,.\n').encode()
                 rows,skipped=parse_fred(raw,code,start=1900,end=2026)
                 self.assertEqual(skipped,1)
                 self.assertEqual(len(rows),1)
