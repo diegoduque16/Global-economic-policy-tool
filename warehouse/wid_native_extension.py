@@ -278,7 +278,8 @@ def append_to_existing_sqlite(database, selected_dir, manifest, *, strict_base=T
                             json.dumps(row, sort_keys=True, separators=(",", ":")))
                            for i, row in enumerate(rows, start=1)]
                 cur.executemany("INSERT INTO native_records VALUES (?,?,?,?,?,?,?,?,?)", payload)
-            assert sum(info["rows"] for info in manifest.values()) == EXPECTED_SELECTED_VALUES
+            if strict_base and sum(info["rows"] for info in manifest.values()) != EXPECTED_SELECTED_VALUES:
+                raise ValueError('Production source-native row count differs from verified scope')
             if strict_base:
                 for table, count in checks.items():
                     new = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -292,9 +293,10 @@ def append_to_existing_sqlite(database, selected_dir, manifest, *, strict_base=T
         except BaseException:
             db.rollback()
             raise
+        added=sum(x["rows"] for x in manifest.values())
         return {"added_wid_country_source_files": len(manifest),
-                "added_native_wid_numeric_records": sum(x["rows"] for x in manifest.values()),
-                "total_native_numeric_records": checks["native_records"] + EXPECTED_SELECTED_VALUES,
+                "added_native_wid_numeric_records": added,
+                "total_native_numeric_records": checks["native_records"] + added,
                 "canonical_observations_unchanged": checks["observations"],
                 "old_native_records_unchanged": True}
     finally:
