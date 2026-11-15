@@ -167,10 +167,6 @@
         {
           "label": "Existing expanded US/Europe source collector",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/.github/workflows/economic-expansion.yml"
-        },
-        {
-          "label": "Official FRED labor productivity source",
-          "url": "https://fred.stlouisfed.org/series/OPHNFB"
         }
       ]
     }
