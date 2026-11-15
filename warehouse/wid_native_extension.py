@@ -497,11 +497,12 @@ def materialize_attachable_wid_shard(receipts, out_dir, snapshot_id, repo=REPO):
                         (BASE_RUN,BASE_TARBALL_SHA256,CANONICAL_ROWS,BASE_NATIVE_ROWS,0,1))
             con.commit()
         indexed=append_to_existing_sqlite(sqlite_path,selected,manifest,strict_base=False)
-        if indexed["added_native_wid_numeric_records"]!=EXPECTED_SELECTED_VALUES:
+        if (indexed["added_native_wid_numeric_records"]!=EXPECTED_SELECTED_VALUES or
+            indexed["added_wid_country_source_files"]!=EXPECTED_COUNTRIES):
             raise ValueError("Private WID source-native shard is numerically incomplete")
         with sqlite3.connect(sqlite_path) as con:
-            assert con.execute("SELECT COUNT(*) FROM native_sources").fetchone()[0]==60
-            assert con.execute("SELECT COUNT(*) FROM native_records").fetchone()[0]==40908
+            assert con.execute("SELECT COUNT(*) FROM native_sources").fetchone()[0]==EXPECTED_COUNTRIES
+            assert con.execute("SELECT COUNT(*) FROM native_records").fetchone()[0]==EXPECTED_SELECTED_VALUES
             assert con.execute("SELECT COUNT(*) FROM atlas_parent_snapshot").fetchone()[0]==1
             assert con.execute("PRAGMA integrity_check").fetchone()[0]=="ok"
         for code,info in manifest.items():
@@ -511,8 +512,8 @@ def materialize_attachable_wid_shard(receipts, out_dir, snapshot_id, repo=REPO):
         dump(root/"wid_source_manifest.json",{
             "certified_parent_canonical_run_id":BASE_RUN,
             "parent_complete_archive_sha256":BASE_TARBALL_SHA256,
-            "source_runs":list(WID_RUNS),"country_sources":60,
-            "selected_original_native_numeric_observations":40908,
+            "source_runs":list(WID_RUNS),"country_sources":EXPECTED_COUNTRIES,
+            "selected_original_native_numeric_observations":EXPECTED_SELECTED_VALUES,
             "separate_existing_canonical_observations":CANONICAL_ROWS,
             "separate_existing_native_records":BASE_NATIVE_ROWS,
             "attach_to_existing_sqlite":True,
@@ -532,10 +533,10 @@ def materialize_attachable_wid_shard(receipts, out_dir, snapshot_id, repo=REPO):
             "parent_native_snapshot_run_id":BASE_RUN,
             "pinned_parent_archive_sha256":BASE_TARBALL_SHA256,
             "source_wid_collection_runs":list(WID_RUNS),
-            "added_wid_country_source_files":60,
-            "added_native_wid_numeric_records":40908,
-            "private_shard_native_records":40908,
-            "logical_atlas_native_records_with_attachment":BASE_NATIVE_ROWS+40908,
+            "added_wid_country_source_files":EXPECTED_COUNTRIES,
+            "added_native_wid_numeric_records":EXPECTED_SELECTED_VALUES,
+            "private_shard_native_records":EXPECTED_SELECTED_VALUES,
+            "logical_atlas_native_records_with_attachment":BASE_NATIVE_ROWS+EXPECTED_SELECTED_VALUES,
             "canonical_observations_unchanged":CANONICAL_ROWS,
             "original_canonical_sqlite_was_modified":False,
             "source_original_csv_sha256_verified_for_each_country":True,
