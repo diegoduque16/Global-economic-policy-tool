@@ -13,7 +13,7 @@ import csv
 import hashlib
 import json
 import math
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import sqlite3
@@ -23,7 +23,7 @@ import tempfile
 from datetime import datetime, timezone
 
 from open_data.wid_live_pilot import FIELDS, CONCEPTS, GROUPS, STORE, OFFICIAL_TEMPLATE
-from warehouse.native_materialize import extract_safe, sha256, read_json, dump
+from warehouse.native_materialize import sha256, read_json, dump
 
 REPO = Path(__file__).resolve().parents[1]
 BASE_RUN = 40617910011
@@ -217,6 +217,50 @@ def download_private_source_files(manifest, stage):
     shutil.rmtree(stage / "original_temporarily", ignore_errors=True)
 
 
+def extract_certified_native_sqlite_core(archive, dest):
+    """Safely extract ONLY the certified SQLite, manifest, inventory.
+
+    The historical archive exceeds the old 6 GB all-file extraction budget.
+    Never unpack its redundant staged raw datasets; the FULL parent tar SHA is
+    independently pinned and remains permanently available in its own archive.
+    """
+    required = {
+        "canonical_warehouse/warehouse.sqlite",
+        "canonical_warehouse/manifest.json",
+        "unified_inventory.json",
+    }
+    dest = Path(dest)
+    with tarfile.open(archive, "r:gz") as src:
+        members = src.getmembers()
+        if not members or len(members) > 8000:
+            raise ValueError("Invalid certified historical source archive member count")
+        roots = set()
+        selected = {}
+        for member in members:
+            path = PurePosixPath(member.name)
+            if (not path.parts or path.is_absolute() or '..' in path.parts or
+                member.name.startswith("./")):
+                raise ValueError("Unsafe original canonical archive member")
+            roots.add(path.parts[0])
+            if len(path.parts) >= 2:
+                relative = str(PurePosixPath(*path.parts[1:]))
+                if relative in required:
+                    if not member.isfile() or relative in selected:
+                        raise ValueError("Unexpected certified SQLite core member type/duplicate")
+                    selected[relative] = member
+        if len(roots) != 1 or set(selected) != required:
+            raise ValueError("Expected exactly one historical root and three certified core files")
+        if sum(m.size for m in selected.values()) > 10_000_000_000:
+            raise ValueError("Certified SQLite core alone exceeds safe runner budget")
+        root = dest / next(iter(roots))
+        for relative, member in selected.items():
+            output = root / relative
+            output.parent.mkdir(parents=True, exist_ok=True)
+            with src.extractfile(member) as data, output.open("wb") as target:
+                shutil.copyfileobj(data, target)
+    return root
+
+
 def base_inventory_checked(root):
     inv = read_json(root / "unified_inventory.json")
     if (inv.get("canonical_observations") != CANONICAL_ROWS or
@@ -224,11 +268,17 @@ def base_inventory_checked(root):
         inv.get("native_rows_materialized") != BASE_NATIVE_ROWS or
         not inv.get("native_records_are_queryable_in_same_sqlite")):
         raise ValueError("Certified original Atlas canonical/native parent snapshot changed")
-    for item in inv["source_files"]:
-        p = root / item["path"]
-        if (not p.is_file() or p.is_symlink() or
+    recorded = {item["path"]:item for item in inv["source_files"]}
+    # The parent tarball's pinned SHA verifies ALL historical staged files.
+    # Recheck extracted SQLite+manifest individually; the rest remain in the
+    # immutable parent rather than needlessly duplicated inside a new archive.
+    for relative in ("canonical_warehouse/warehouse.sqlite",
+                     "canonical_warehouse/manifest.json"):
+        item = recorded.get(relative)
+        p = root / relative
+        if (not item or not p.is_file() or p.is_symlink() or
             p.stat().st_size != int(item["bytes"]) or sha256(p) != item["sha256"]):
-            raise ValueError("Existing certified warehouse snapshot file checksum mismatch")
+            raise ValueError("Certified original native SQLite core checksum mismatch")
     manifest = read_json(root / "canonical_warehouse/manifest.json")
     if (manifest.get("total_source_observations") != CANONICAL_ROWS or
         manifest.get("native_record_count_unharmonized") != BASE_NATIVE_ROWS):
@@ -319,7 +369,7 @@ def extend(base_archive, receipts, out_dir, snapshot_id, repo=REPO):
         raise FileExistsError("Refusing to overwrite an existing versioned Atlas native release")
     with tempfile.TemporaryDirectory(dir=out_dir) as temporary:
         temp = Path(temporary)
-        root = extract_safe(base_archive, temp / "unpacked")
+        root = extract_certified_native_sqlite_core(base_archive, temp / "unpacked")
         inv, old_manifest = base_inventory_checked(root)
         selected_dir = root / "source_native" / "wid_world_selected"
         download_private_source_files(manifest, root / "source_native")
@@ -336,20 +386,34 @@ def extend(base_archive, receipts, out_dir, snapshot_id, repo=REPO):
         original_inventory = root / "unified_inventory.json"
         parent_manifest = root / "parent_pre_wid_warehouse_manifest.json"
         shutil.copy2(root / "canonical_warehouse/manifest.json", parent_manifest)
+        shutil.copy2(original_inventory, root / "parent_pre_wid_unified_inventory.json")
         old_manifest["derived_from_snapshot_id"] = old_manifest["snapshot_id"]
         old_manifest["snapshot_id"] = snapshot_id
         old_manifest["native_record_count_unharmonized"] = EXPECTED_NATIVE_RECORDS
         old_manifest["wid_world_expansion_country_sources"] = EXPECTED_COUNTRIES
         old_manifest["wid_world_expansion_source_native_rows"] = EXPECTED_SELECTED_VALUES
-        for entry in old_manifest["files"]:
-            if entry["path"] == "warehouse.sqlite":
-                dbfile = root / "canonical_warehouse/warehouse.sqlite"
-                entry["sha256"] = sha256(dbfile)
-                entry["bytes"] = dbfile.stat().st_size
+        # This is intentionally a THIN child snapshot: old source-native rows
+        # are still physically in the existing SQLite, while bulky historical
+        # raw and staged artifacts are referenced by their pinned parent SHA.
+        # Store the original complete manifest unmodified for provenance.
+        old_db_entries = [x for x in old_manifest["files"] if x["path"] == "warehouse.sqlite"]
+        if len(old_db_entries) != 1:
+            raise ValueError("Missing original canonical SQLite hash record")
+        dbfile = root / "canonical_warehouse/warehouse.sqlite"
+        old_db_entries[0]["sha256"] = sha256(dbfile)
+        old_db_entries[0]["bytes"] = dbfile.stat().st_size
+        old_manifest["files"] = old_db_entries
+        old_manifest["snapshot_storage_mode"] = "THIN_SQLITE_EXTENSION_PARENT_ARCHIVE_REQUIRED"
+        old_manifest["parent_archive_sha256"] = BASE_TARBALL_SHA256
+        old_manifest["parent_full_source_manifest"] = "parent_pre_wid_warehouse_manifest.json"
         dump(root / "canonical_warehouse/manifest.json", old_manifest)
         inv["parent_canonical_package_id"] = inv["snapshot_id"]
         inv["snapshot_id"] = snapshot_id
         inv["native_rows_materialized"] = EXPECTED_NATIVE_RECORDS
+        inv["snapshot_storage_mode"] = "THIN_SQLITE_EXTENSION_PARENT_ARCHIVE_REQUIRED"
+        inv["parent_native_archive_sha256"] = BASE_TARBALL_SHA256
+        inv["parent_native_source_files_held_by_reference"] = len(inv["source_files"])
+        inv["original_parent_source_inventory"] = "parent_pre_wid_unified_inventory.json"
         inv["native_source_rows"]["wid_world_official_expansion_60_country_files"] = EXPECTED_SELECTED_VALUES
         inv["wid_world_official_countries_added"] = EXPECTED_COUNTRIES
         inv["native_rows_are_harmonized"] = False
@@ -358,7 +422,8 @@ def extend(base_archive, receipts, out_dir, snapshot_id, repo=REPO):
         inv["wid_source_expansion_provenance"] = "source_native/wid_world_receipts.json"
         inv["warning"] = ("WID income/wealth share records indexed as 60 separate verified, source-vintage "
                           "native identities; NOT added to the 2,780,117 canonical observation rows, "
-                          "not harmonized and not prepared for causal inference.")
+                          "not harmonized and not prepared for causal inference. Historical raw "
+                      "staged source files remain in the SHA-pinned parent canonical/native archive.")
         dump(root / "source_native/wid_world_receipts.json",
              {"baseline_snapshot_id": BASE_RUN,
               "run_ids": WID_RUNS, "verified_country_sources": EXPECTED_COUNTRIES,
@@ -381,6 +446,8 @@ def extend(base_archive, receipts, out_dir, snapshot_id, repo=REPO):
                       archive_sha256=sha256(archive),
                       source_original_csv_sha256_verified_for_each_country=True,
                       source_native_sqlite_extension_only=True,
+                      storage_mode="THIN_SQLITE_EXTENSION_PARENT_ARCHIVE_REQUIRED",
+                      pinned_parent_archive_sha256=BASE_TARBALL_SHA256,
                       canonical_observations_modified=False,
                       public_release=False,
                       research_ready_harmonized=False)

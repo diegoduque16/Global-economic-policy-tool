@@ -218,6 +218,8 @@ jobs:
           assert doc['added_wid_country_source_files']==60
           assert doc['added_native_wid_numeric_records']==40908
           assert doc['total_native_numeric_records']==2145517
+          assert doc['storage_mode']=='THIN_SQLITE_EXTENSION_PARENT_ARCHIVE_REQUIRED'
+          assert doc['pinned_parent_archive_sha256']=='dfe43456207e8681c4a79470d39578718c51670ceeb43cf4c68a379fdc61d17b'
           assert doc['source_original_csv_sha256_verified_for_each_country'] is True
           assert doc['canonical_observations_modified'] is False
           assert doc['public_release'] is False
