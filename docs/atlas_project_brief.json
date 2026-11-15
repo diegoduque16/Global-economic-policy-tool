@@ -3,7 +3,7 @@
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
   "updated_date": "2026-11-15",
-  "status_basis": "Live GitHub Actions verified on November 15, 2026 after the second WID 20-country release and 1,019-file ILOSTAT checkpoint. Third WID, 75-file ILOSTAT and expanded FRED/Eurostat are explicitly ongoing; this is a dated snapshot, not live telemetry.",
+  "status_basis": "Verified GitHub Actions production evidence through November 15, 2026 at approximately 00:38 America/New_York. A dated project reference, not live telemetry; third WID wave and 75-file ILOSTAT ingestion are ongoing.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -160,9 +160,9 @@
     },
     {
       "name": "FRED, BLS, U.S. Census, fiscal and remaining P0 sources",
-      "stage": "21 FRED + six Eurostat source collection: original numeric replay passed, private archive still pending",
-      "evidence": "The previous economic extension collector selected 13 original FRED (St. Louis Fed) monthly and quarterly US economic series. On November 15, the same pipeline's FRED scope was expanded by 8 official series covering average private hourly earnings, nonfarm-business labor productivity and unit labor costs, real median household income, personal consumption, saving rate, and nonfarm hires and quits. This makes 21 candidate FRED source series. The new series' numerical values, original-source checks and durable private archive must be confirmed by a fresh production run before they count as collected. Existing separate Eurostat six-series release remains verified at 3,436 numeric observations. The P0 source-map gaps remain unresolved: no-map is not proof of missing source data.",
-      "next": "New combined 27-source collection run 43681818626 has passed its original numeric/source validation step and is now completing private SHA-256 archive backup. Only mark complete with exact number of observations once entire run and private source restore finish successfully. Continue native exact series-key integration afterward, without claiming public Atlas deployment.",
+      "stage": "FRED 21-series source release complete and privately verified; additional BLS/Census/fiscal gaps remain",
+      "evidence": "On November 15, combined existing economic collector run 43681818626 finished successfully with 21 official FRED US time series (13,885 native numeric observations from one U.S. geography), plus six previously collected Eurostat source series (3,436 observations across 31 European geography codes): 17,321 source-native numerical values total, 27 original source response files, 32 distinct geography codes. Every original FRED CSV / Eurostat JSON-stat source was SHA-256 checked and independently re-parsed against the processed rows, preserving exact provider, native unit, frequency, period and value. Complete private OneDrive source release and checksum marker round-tripped with archive SHA-256 94d1f84eb450ebe0f0f47677d333a1948aa9e80a83bc1709acf1546b8537251a. New FRED scope includes labor earnings, productivity, unit labor costs, income, personal consumption, savings, hires and quits. These numeric values are source-native, not new additive canonical observations; the six Eurostat series overlap an earlier Eurostat release.",
+      "next": "FRED and Eurostat native source download and permanent backup are complete for 21+6 selected series. Now integrate these exact source keys into a versioned warehouse/research staging edition after overlap and units checks; expand remaining high-priority BLS/Census/fiscal tables using official source IDs rather than an audit-first workflow. No publication of non-WDI values on the public website yet.",
       "links": [
         {
           "label": "125-source master catalog",
@@ -177,8 +177,12 @@
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/.github/workflows/economic-expansion.yml"
         },
         {
-          "label": "Combined FRED/Eurostat collection and private backup",
+          "label": "Completed 27-source FRED/Eurostat original numeric and OneDrive checks",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43681818626"
+        },
+        {
+          "label": "8-new-FRED-series completion PR #32",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/32"
         }
       ]
     }
@@ -285,6 +289,12 @@
       "title": "Confirm first eight new WID countries in wave three",
       "description": "The third WID collection's Europe and Central America batches source-verified eight new official country files (BG, RS, UA, IS, GT, HN, SV, NI), yielding 5,408 selected original numeric income/wealth shares, with private OneDrive SHA verification and no overlap against the 63 previously verified country codes. Other 12 candidate countries remain pending.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43681169408"
+    },
+    {
+      "date": "2026-11-15",
+      "title": "Complete privately verified 21-series U.S. FRED source collection",
+      "description": "Existing 27-series combined FRED/Eurostat job 43681818626 independently re-parsed and validated 13,885 FRED and 3,436 Eurostat actual native numeric observations from 27 original source responses, with zero retrieval or numeric conflicts and private OneDrive archive SHA256 round-trip 94d1f84eb450ebe0f0f47677d333a1948aa9e80a83bc1709acf1546b8537251a. Source-native values are not additive canonical or public data.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43681818626"
     }
   ],
   "next_actions": [
@@ -293,7 +303,7 @@
     "WDI original 59-series source archive is permanently privately backed up (run 43643193303, verified archive SHA 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a). Do source-series geography classification, vintage/license checks and explicitly versioned canonical/public integration; do not recollect only to redo the backup.",
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
     "WID third wave (run 43681169408) has verified eight new country CSVs and 5,408 native numerical shares so far; finish other 12 candidates and preserve source metadata; no canonical/public dataset promotion.",
-    "Combined original-source FRED 21/EU six numeric replay passed, but private archive backup is pending in run 43681818626. Check final native observation count, source hashes and byte-restored private backup before changing status to complete.",
+    "FRED 21 native series (13,885 values) plus Eurostat six (3,436 values) source release 43681818626 is verified and privately backed up. Integrate source-native rows via existing warehouse with exact source/frequency/unit/vintage deduplication; then collect genuinely missing BLS/Census/fiscal official IDs.",
     "Keep this dated briefing and its evidence links current when any material Atlas collection scope, successful release, or project direction changes."
   ],
   "assistant_start_here": [
