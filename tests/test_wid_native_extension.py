@@ -6,6 +6,9 @@ import sqlite3
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import warehouse.wid_native_extension as native
 
 from open_data.wid_live_pilot import FIELDS, CONCEPTS
 from warehouse.native_materialize import schema
@@ -71,6 +74,45 @@ class WidNativeExtensionTest(unittest.TestCase):
             sqlitefile.write_bytes(b"tampered-in-parent")
             with self.assertRaisesRegex(ValueError,"checksum"):
                 base_inventory_checked(old)
+
+    def test_small_attached_shard_is_queryable_without_copying_historical_sqlite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            info={"rows":2,"source_sha":"a"*64,"year_min":2024,"year_max":2024,
+                  "matched_pairs":1,
+                  "counts_by_concept":{CONCEPTS["ptinc"]:1,CONCEPTS["diinc"]:1},
+                  "source_bytes":150,"run_id":99,"batch":"synthetic"}
+            def private_fixture(manifest,stage):
+                p=Path(stage)/"selected/ZZ/wid_source_native_shares.csv"
+                write_csv(p,example_rows())
+                manifest["ZZ"]["selected_csv_sha256"]=sha256(p)
+                manifest["ZZ"]["original_official_source_url"] = (
+                    "https://wid.world/bulk_download/WID_data_ZZ.csv")
+            with (patch.object(native,"load_expected_scopes",return_value={"ZZ":{"rows":2}}),
+                  patch.object(native,"read_receipts",return_value={"ZZ":info}),
+                  patch.object(native,"download_private_source_files",side_effect=private_fixture),
+                  patch.object(native,"EXPECTED_SELECTED_VALUES",2),
+                  patch.object(native,"EXPECTED_COUNTRIES",1)):
+                report=native.materialize_attachable_wid_shard(
+                    root/"receipts",root/"private","test-wid-attach")
+            self.assertEqual(report["added_native_wid_numeric_records"],2)
+            self.assertTrue(report["original_canonical_sqlite_was_modified"] is False)
+            self.assertEqual(report["logical_atlas_native_records_with_attachment"],2104611)
+            tarball=root/"private/test-wid-attach.tar.gz"
+            self.assertEqual(sha256(tarball),report["archive_sha256"])
+            with tarfile.open(tarball,"r:gz") as src:
+                names=src.getnames()
+                self.assertIn("test-wid-attach/wid_source_native.sqlite",names)
+                self.assertFalse(any("warehouse.sqlite" in name for name in names))
+                data=src.extractfile("test-wid-attach/wid_source_native.sqlite").read()
+            dbpath=root/"local-shard.sqlite"
+            dbpath.write_bytes(data)
+            with sqlite3.connect(dbpath) as con:
+                self.assertEqual(con.execute("SELECT COUNT(*) FROM native_sources").fetchone()[0],1)
+                self.assertEqual(con.execute("SELECT COUNT(*) FROM native_records").fetchone()[0],2)
+                self.assertEqual(con.execute("SELECT COUNT(*) FROM atlas_parent_snapshot").fetchone()[0],1)
+                self.assertEqual(con.execute("PRAGMA integrity_check").fetchone()[0],"ok")
+            self.assertTrue(report["private_attachment_not_a_physical_single_db_merge"])
 
     def test_frozen_all_three_successful_waves_exact_no_overlap(self):
         scope=load_expected_scopes()
