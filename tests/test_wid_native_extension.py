@@ -3,6 +3,7 @@ import csv
 import json
 from pathlib import Path
 import sqlite3
+import tarfile
 import tempfile
 import unittest
 
@@ -11,6 +12,7 @@ from warehouse.native_materialize import schema
 from warehouse.wid_native_extension import (
     EXPECTED_SELECTED_VALUES, WID_RUNS, append_to_existing_sqlite,
     load_expected_scopes, read_receipts, validate_shares, selftest,
+    extract_certified_native_sqlite_core, base_inventory_checked, sha256,
 )
 
 
@@ -36,6 +38,40 @@ def write_csv(path, rows):
 
 
 class WidNativeExtensionTest(unittest.TestCase):
+    def test_thin_core_extraction_keeps_existing_sqlite_and_references_parent_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            old=root/"old/canonical-native-test"
+            (old/"canonical_warehouse").mkdir(parents=True)
+            sqlitefile=old/"canonical_warehouse/warehouse.sqlite"
+            sqlitefile.write_bytes(b"original-existing-sqlite")
+            manifestfile=old/"canonical_warehouse/manifest.json"
+            manifestfile.write_text(json.dumps({"total_source_observations":2780117,
+                                                 "native_record_count_unharmonized":2104609}))
+            original=old/"source_native/giant_legacy_sources.csv"
+            original.parent.mkdir(parents=True)
+            original.write_bytes(b"legacy-source-data-stays-in-parent-archive")
+            inv={"canonical_observations":2780117,"canonical_source_families":24,
+                 "native_rows_materialized":2104609,
+                 "native_records_are_queryable_in_same_sqlite":True,
+                 "source_files":[{"path":str(p.relative_to(old)),
+                                  "bytes":p.stat().st_size,"sha256":sha256(p)}
+                                 for p in [sqlitefile,manifestfile,original]]}
+            (old/"unified_inventory.json").write_text(json.dumps(inv))
+            tarball=root/"original.tar.gz"
+            with tarfile.open(tarball,"w:gz") as t:
+                t.add(old,arcname="canonical-native-test")
+            sparse=extract_certified_native_sqlite_core(tarball,root/"selected")
+            self.assertEqual(sparse.name,"canonical-native-test")
+            self.assertEqual((sparse/"canonical_warehouse/warehouse.sqlite").read_bytes(),
+                             sqlitefile.read_bytes())
+            self.assertFalse((sparse/"source_native/giant_legacy_sources.csv").exists())
+            verified,_=base_inventory_checked(sparse)
+            self.assertEqual(verified["native_rows_materialized"],2104609)
+            sqlitefile.write_bytes(b"tampered-in-parent")
+            with self.assertRaisesRegex(ValueError,"checksum"):
+                base_inventory_checked(old)
+
     def test_frozen_all_three_successful_waves_exact_no_overlap(self):
         scope=load_expected_scopes()
         self.assertEqual(len(scope),60)
