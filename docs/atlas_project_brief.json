@@ -152,9 +152,9 @@
     },
     {
       "name": "FRED, BLS, U.S. Census, fiscal and remaining P0 sources",
-      "stage": "Partially covered or scope not yet reconciled",
-      "evidence": "Catalog lists 13 selected FRED series and partial source-family evidence for several BLS, Census, IMF, OECD and tax sources. Of 71 P0 catalog entries, the original registry links 23 to historical partial families and one to separate WID numeric data; 47 have no explicit source-specific mapping. Unmapped does NOT prove absent or uncollected.",
-      "next": "Identify exact missing official indicator/table IDs from existing stored data, then extend current collectors by measured gaps. Prioritize employment, wages, firms, productivity, taxes and income distribution.",
+      "stage": "FRED 13 legacy series; source catalog expanded to 21 pending live numeric verification",
+      "evidence": "The previous economic extension collector selected 13 original FRED (St. Louis Fed) monthly and quarterly US economic series. On November 15, the same pipeline's FRED scope was expanded by 8 official series covering average private hourly earnings, nonfarm-business labor productivity and unit labor costs, real median household income, personal consumption, saving rate, and nonfarm hires and quits. This makes 21 candidate FRED source series. The new series' numerical values, original-source checks and durable private archive must be confirmed by a fresh production run before they count as collected. Existing separate Eurostat six-series release remains verified at 3,436 numeric observations. The P0 source-map gaps remain unresolved: no-map is not proof of missing source data.",
+      "next": "Run the existing combined U.S./Europe native collector (21 FRED + six Eurostat series). Demand exact original raw CSV/JSON source numeric replay, zero retrieval errors, checksum matching and private OneDrive restore verification. Only then record observed numeric counts and integrate versioned, nonoverlapping records. Afterward expand targeted BLS, Census and fiscal series from specific missing provider IDs.",
       "links": [
         {
           "label": "125-source master catalog",
@@ -163,6 +163,14 @@
         {
           "label": "Source evidence registry",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/data/registry/registry.json"
+        },
+        {
+          "label": "Existing expanded US/Europe source collector",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/.github/workflows/economic-expansion.yml"
+        },
+        {
+          "label": "Official FRED labor productivity source",
+          "url": "https://fred.stlouisfed.org/series/OPHNFB"
         }
       ]
     }
@@ -257,6 +265,12 @@
       "title": "Scale bounded ILOSTAT acquisition from 50 to 75 source tables per run",
       "description": "After the November 15 50/50 zero-failure checkpoint (1,019 files total), increase only the existing resumable collector's default batch size to 75; retain source ID deduplication, source file caps, 2 GiB run budget, SHA round-trip and checkpoint regression guards. This is a collection-capacity change, not evidence of a finished 75-file run.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/.github/workflows/atlas-ilostat-bulk-resumable-ingestion.yml"
+    },
+    {
+      "date": "2026-11-15",
+      "title": "Extend existing FRED collection by eight policy-relevant economic series",
+      "description": "Add official FRED wage, productivity, labor-cost, household-income, personal-consumption, saving and labor-turnover series to the original 13 U.S. indicators, keeping the existing economic collector. Configure original raw source numeric replay and SHA256 round-trip backup in private OneDrive, with only metadata published as a GitHub run receipt. Counts are pending actual production retrieval.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/open_data/us_europe.py"
     }
   ],
   "next_actions": [
@@ -265,7 +279,7 @@
     "WDI original 59-series source archive is permanently privately backed up (run 43643193303, verified archive SHA 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a). Do source-series geography classification, vintage/license checks and explicitly versioned canonical/public integration; do not recollect only to redo the backup.",
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
     "Second WID geographic expansion completed (20/20 source-verified, 13,532 selected numerical observations). Execute third distinct 20-candidate source wave and verify success/failure individually, without claiming the 83-country target is attained or silently adding across vintages.",
-    "Complete data acquisition in other high-priority areas based on concrete missing native series—not an assumption that 47 unmapped catalog entries are empty.",
+    "Verify new combined 21-FRED + six-Eurostat source run when deployed, with exact native numeric replay and private backup receipts; pursue remaining BLS/Census/fiscal gaps by official source IDs, not generic audits.",
     "Keep this dated briefing and its evidence links current when any material Atlas collection scope, successful release, or project direction changes."
   ],
   "assistant_start_here": [
