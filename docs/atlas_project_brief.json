@@ -76,9 +76,9 @@
     },
     {
       "name": "World Inequality Database (WID)",
-      "stage": "60 WID country sources verified; private attachable research layer is awaiting live validation",
+      "stage": "60 WID new-country sources verified; private attachable native SQL layer running",
       "evidence": "Original WID numeric panel remains separate: 23 countries and 21,430 selected observations. Three fully completed, independent official WID country source-expansion runs acquired 20 new countries each, with 14,472 (wave 1), 13,532 (wave 2) and 12,904 (wave 3) selected native income/wealth share values. All 60 WID country original CSVs were private OneDrive SHA-256 verified, with zero repeated country codes against the original 23 and zero failures. This proves 83 distinct WID country codes across source vintages; 40,908 selected source-native observations in the three expansion waves, not a canonical or harmonized row count. Reusing historical warehouse native_sources/native_records to materialize these 60 nonoverlapping country datasets is next and NOT YET a completed warehouse integration.",
-      "next": "Two live attempts to modify the historical canonical SQLite were safely rejected on size limits: full old archive exceeds 6 GB unpacked (run 43718763943) and its core database alone exceeds a 10 GB safe runner budget (run 43719499731). Neither changed old data. The more efficient next step is a compact, privately stored SQLite ATTACH source layer using the SAME existing Atlas native_sources/native_records schema and certified parent run/official source hashes. This is a logical queryable extension, NOT a physical merge into the large canonical database; mark it complete only after all 60 source files, 40,908 records, and private archive restoration are independently verified in its new run.",
+      "next": "Actual new production run 43720165809 has validated certified historical parent identity and is now retrieving the 60 original official WID source CSVs and their native selected numeric rows from private OneDrive. The prior two direct physical-merge attempts failed before old data were modified because the huge historical archive/database exceeded safety caps. This new bounded native-schema ATTACH layer does not copy the >10 GB historical database. Mark queryability complete ONLY after exact 40,908 selected numeric values and source SHA checks pass and the small new versioned private SQLite archive is SHA-256 read back. This is not a physical single-database merge.",
       "links": [
         {
           "label": "New-country PR #22",
@@ -123,6 +123,10 @@
         {
           "label": "Second fail-closed parent database size limit",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43719499731"
+        },
+        {
+          "label": "Live WID native SQLite attachment and private SHA verification",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43720165809"
         }
       ]
     },
@@ -349,6 +353,12 @@
       "title": "Avoid copying the >10 GB historical database for small source-native WID additions",
       "description": "Original full-archive and selective-core warehouse extension runs both stopped safely on large historical artifact size caps. Existing analytical data were untouched. The next WID integration will create a small SQLite source-native attachment with the same certified Atlas native tables and parent release pointer; it supports queryable use alongside the existing warehouse while transparently remaining a separate physical file until a future large-runner merge.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43719499731"
+    },
+    {
+      "date": "2026-11-15",
+      "title": "Launch native-schema private WID SQLite attachment after historical size safety stops",
+      "description": "To avoid copying the certified >10 GB historical SQLite, retain its immutable parent ID and hash and attach a compact, source-native WID SQLite file built from 60 original-source verified country CSVs. Production run 43720165809 has started and source downloads are underway. This is a source-native queryability extension, not a physical merge or an approved public dataset.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43720165809"
     }
   ],
   "next_actions": [
@@ -356,7 +366,7 @@
     "Keep the ILOSTAT 75-attempt three-times-daily ingestion running with original source metadata and SHA verification; work remaining 795 official source files, preserving previously verified 1,169 distinct files.",
     "WDI original 59-series source archive is permanently privately backed up (run 43643193303, verified archive SHA 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a). Do source-series geography classification, vintage/license checks and explicitly versioned canonical/public integration; do not recollect only to redo the backup.",
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
-    "All 60 WID country CSVs and 40,908 source-native values are verified privately, but direct >10 GB historical database modification is impractical on standard GitHub runners. Produce a compact private SQLite ATTACH extension using existing native schema with explicit certified parent anchor and no physical merge claim, then check exact numeric and SHA receipts before calling the data queryable.",
+    "WID 60-country source collection is complete (40,908 source-native values). Private attachable native-schema SQLite run 43720165809 is active. Verify all original source SHA reads and exact retained row keys then a successful OneDrive restored hash; do not describe this as complete until the production run is green and metadata proves contents.",
     "FRED 21 native series (13,885 values) plus Eurostat six (3,436 values) source release 43681818626 is verified and privately backed up. Integrate source-native rows via existing warehouse with exact source/frequency/unit/vintage deduplication; then collect genuinely missing BLS/Census/fiscal official IDs.",
     "Keep this dated briefing and its evidence links current when any material Atlas collection scope, successful release, or project direction changes."
   ],
