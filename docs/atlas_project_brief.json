@@ -72,9 +72,9 @@
     },
     {
       "name": "World Inequality Database (WID)",
-      "stage": "63 verified countries from historical+two expansion vintages; third wave 8 further countries confirmed so far",
-      "evidence": "Original separate 23-country WID numeric panel contains 21,430 selected values. Wave 1 added 20 distinct countries (14,472 source-native selected numeric shares, private source SHA verified); Wave 2 added 20 different countries (13,532 values, same private verification). These yield 63 distinct observed country codes across separate, not-yet-harmonized source editions. The third 20-candidate wave is underway in run 43681169408; the Europe and Central America jobs have already independently verified eight further new country CSV files (BG, RS, UA, IS, GT, HN, SV, NI) and 5,408 selected source-native numerical shares, with zero previous-country overlap and verified private OneDrive backup. Do NOT report all 20 wave-three candidates as acquired until their five batches finish.",
-      "next": "Complete the remaining 12 third-wave candidate areas through existing official WID collector; count actual numeric value and source-hash successes/failures. Then select new missing provider variables and prepare one versioned deduplicated WID numeric research layer; do not count repeated country or source vintages as new observations.",
+      "stage": "Third WID wave: 16 of 20 candidate countries verified; final four pending",
+      "evidence": "Original WID panel: 23 countries and 21,430 selected observations. Wave 1: 20 new countries and 14,472 selected source-native values. Wave 2: another 20 new countries and 13,532 selected source-native values. On November 15, four of five Wave 3 batches in run 43681169408 source-verified 16 further disjoint country CSVs (BG RS UA IS; GT HN SV NI; LK NP KH MM; DZ TN RW ZM), totaling 10,244 selected income/wealth shares privately backed up with source SHA256, and zero overlap with the previous 63 country codes. Thus 79 distinct country codes are verified across separate native/historical source editions. NZ, IL, SA and AE were still in the remaining batch. These values are not canonical or additive across different vintages.",
+      "next": "Confirm last WID third-wave batch by source receipt and actual numeric rows, then freeze completed source identities. Prioritize integrating the verified selected WID concepts into a versioned source-native research layer without duplicate vintages.",
       "links": [
         {
           "label": "New-country PR #22",
@@ -98,6 +98,10 @@
         },
         {
           "label": "Third WID source expansion in progress",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43681169408"
+        },
+        {
+          "label": "Wave 3 verified source jobs and pending final batch",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43681169408"
         }
       ]
@@ -295,6 +299,12 @@
       "title": "Complete privately verified 21-series U.S. FRED source collection",
       "description": "Existing 27-series combined FRED/Eurostat job 43681818626 independently re-parsed and validated 13,885 FRED and 3,436 Eurostat actual native numeric observations from 27 original source responses, with zero retrieval or numeric conflicts and private OneDrive archive SHA256 round-trip 94d1f84eb450ebe0f0f47677d333a1948aa9e80a83bc1709acf1546b8537251a. Source-native values are not additive canonical or public data.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43681818626"
+    },
+    {
+      "date": "2026-11-15",
+      "title": "Confirm 16 new WID wave-three country sources",
+      "description": "Four completed source collection batches verified 16 further official WID country CSVs from Europe, Central America, Asia and Africa, yielding 10,244 selected income/wealth share values with private original-source checks. Four final candidates were still processing; no unsupported full 83-country success claim.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43681169408"
     }
   ],
   "next_actions": [
@@ -302,7 +312,7 @@
     "Increase existing ILOSTAT bounded batch to 75 source-table attempts (subject to 2 GiB per-run cap, 512 MiB per-file cap and 4-hour timeout) following two recent 50-source batches with verified checkpoint integrity; count actual added source IDs and failures from new live run, not the planned 75.",
     "WDI original 59-series source archive is permanently privately backed up (run 43643193303, verified archive SHA 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a). Do source-series geography classification, vintage/license checks and explicitly versioned canonical/public integration; do not recollect only to redo the backup.",
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
-    "WID third wave (run 43681169408) has verified eight new country CSVs and 5,408 native numerical shares so far; finish other 12 candidates and preserve source metadata; no canonical/public dataset promotion.",
+    "WID third wave has 16 of 20 verified country CSV sources and 10,244 selected native numeric shares (79 distinct codes across separate editions); check final NZ/IL/SA/AE batch, freeze successful IDs and integrate without overlapping vintages.",
     "FRED 21 native series (13,885 values) plus Eurostat six (3,436 values) source release 43681818626 is verified and privately backed up. Integrate source-native rows via existing warehouse with exact source/frequency/unit/vintage deduplication; then collect genuinely missing BLS/Census/fiscal official IDs.",
     "Keep this dated briefing and its evidence links current when any material Atlas collection scope, successful release, or project direction changes."
   ],
