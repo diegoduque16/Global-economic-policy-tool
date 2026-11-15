@@ -33,6 +33,25 @@ FRED = {
     'INDPRO': ('US industrial production', 'monthly'),
     'USREC': ('US recession indicator (NBER dating)', 'monthly'),
     'JTSJOL': ('US job openings', 'monthly'),
+    # Official FRED series identities independently verified from source pages.
+    # Units here remain provider-native; wages, productivity, income and costs
+    # are NOT commensurate and no harmonized wage panel is implied.
+    'CES0500000003': ('Average hourly earnings, total private', 'monthly',
+                      'US dollars per hour; seasonally adjusted'),
+    'OPHNFB': ('Nonfarm business labor productivity, output per hour', 'quarterly',
+               'index 2017=100; seasonally adjusted'),
+    'ULCNFB': ('Nonfarm business unit labor costs', 'quarterly',
+               'index 2017=100; seasonally adjusted'),
+    'MEHOINUSA672N': ('Real median household income, U.S. Census', 'annual',
+                      '2025 C-CPI-U dollars; not seasonally adjusted'),
+    'PCE': ('Personal consumption expenditures, nominal', 'monthly',
+            'billions of US dollars; seasonally adjusted annual rate'),
+    'PSAVERT': ('Personal saving rate', 'monthly',
+                'percent; seasonally adjusted annual rate'),
+    'JTSHIL': ('Hires, total nonfarm', 'monthly',
+              'thousands of hires; seasonally adjusted'),
+    'JTSQUL': ('Quits, total nonfarm', 'monthly',
+              'thousands of quits; seasonally adjusted'),
 }
 # 27 EU members + UK and 3 EFTA economies + Iceland.
 EU = 'AT BE BG HR CY CZ DK EE FI FR DE EL HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE UK NO CH IS'.split()
@@ -85,7 +104,8 @@ def parse_fred(raw, series, start=1870, end=2026):
         except ValueError: skipped+=1;continue
         if not math.isfinite(value): skipped+=1;continue
         rows.append({'country_iso3':'USA','region':'United States','year':year,'period':date,
-         'series':series,'value':value,'unit':'FRED_series_defined_verify_metadata',
+         'series':series,'value':value,
+         'unit':FRED[series][2] if len(FRED[series])>2 else 'FRED_series_defined_verify_metadata',
          'frequency':FRED[series][1],'provider':'FRED (St. Louis Fed; original series provider varies)',
          'observation_kind':'source_observation_or_estimate'})
     return rows,skipped
