@@ -46,7 +46,7 @@
       "name": "ILOSTAT official bulk",
       "stage": "Scheduled 50-file bulk collection working; 1,019 of 1,964 source files verified",
       "evidence": "The 15 November scheduled 50-file ILOSTAT source run 43670071375 completed with 50 newly verified, 0 failures, and 0 lost previously stored files. Its complete private checkpoint and SHA verified 1,019/1,964 source files, leaving 945. The previous 14 November run reached 969/1,964 with 49 new and one temporary HTTP 502 source failure.",
-      "next": "Keep the existing 50-file thrice-daily source-ID-aware schedule. Verify the next checkpoint's exact ID set, source integrity and retry blockers; do not confuse successful batch count with the full 1,964-source scope.",
+      "next": "The previous 50-source batch succeeded with 50 added, zero failures or losses; the same source-native collector is being increased to a guarded default of 75 attempts per run (existing 150 limit, 2 GiB run cap, 512 MiB per file, 4-hour timeout and private checkpoint). Only the live post-merge run can establish whether it adds 75 files. Continue missing-source collection until the official 1,964-source TOC has been fully verified or remaining sources are explicitly blocked.",
       "links": [
         {
           "label": "Last completed 920-file checkpoint",
@@ -251,11 +251,17 @@
       "title": "Prepare third genuinely disjoint WID geographic collection",
       "description": "Retain frozen WID second-wave successful source ID counts, then change the same official-country source downloader to attempt 20 additional candidate countries outside the entire verified 63-country scope. Success will be determined by live numerical source and private checksum receipts, not selected-country planning.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/.github/workflows/atlas-wid-expand-20-countries.yml"
+    },
+    {
+      "date": "2026-11-15",
+      "title": "Scale bounded ILOSTAT acquisition from 50 to 75 source tables per run",
+      "description": "After the November 15 50/50 zero-failure checkpoint (1,019 files total), increase only the existing resumable collector's default batch size to 75; retain source ID deduplication, source file caps, 2 GiB run budget, SHA round-trip and checkpoint regression guards. This is a collection-capacity change, not evidence of a finished 75-file run.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/.github/workflows/atlas-ilostat-bulk-resumable-ingestion.yml"
     }
   ],
   "next_actions": [
     "ILOSTAT 1,019/1,964 source files verified after successful 15 November run 43670071375; continue collecting the 945 remaining actual official TOC source IDs through the existing scheduled ingester and keep exact checksum/source checkpoints.",
-    "Continue the current ILOSTAT 50-source jobs until all 1,964 official TOC IDs are verified or blocked; preserve original files privately and identify any repeated transient provider failures.",
+    "Increase existing ILOSTAT bounded batch to 75 source-table attempts (subject to 2 GiB per-run cap, 512 MiB per-file cap and 4-hour timeout) following two recent 50-source batches with verified checkpoint integrity; count actual added source IDs and failures from new live run, not the planned 75.",
     "WDI original 59-series source archive is permanently privately backed up (run 43643193303, verified archive SHA 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a). Do source-series geography classification, vintage/license checks and explicitly versioned canonical/public integration; do not recollect only to redo the backup.",
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
     "Second WID geographic expansion completed (20/20 source-verified, 13,532 selected numerical observations). Execute third distinct 20-candidate source wave and verify success/failure individually, without claiming the 83-country target is attained or silently adding across vintages.",

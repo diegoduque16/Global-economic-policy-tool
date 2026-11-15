@@ -15,6 +15,19 @@ def sample(ids):
 
 
 class CheckpointGuardTests(unittest.TestCase):
+    def test_bounded_75_file_ingestion_keeps_existing_checkpoint_and_limits(self):
+        workflow=(Path(__file__).resolve().parents[1]/
+                  '.github/workflows/atlas-ilostat-bulk-resumable-ingestion.yml').read_text()
+        self.assertIn("default: '75'",workflow)
+        self.assertIn("BATCH_SIZE: ${{ inputs.batch_size || '75' }}",workflow)
+        self.assertIn("BATCH = int(os.environ.get('BATCH_SIZE', '75'))",workflow)
+        self.assertIn("1 <= BATCH <= 150",workflow)
+        self.assertIn("MAX_RUN_MIB: ${{ inputs.max_run_mib || '2048' }}",workflow)
+        self.assertIn("timeout-minutes: 240",workflow)
+        self.assertIn("cancel-in-progress: false",workflow)
+        self.assertIn("python scripts/ilostat_checkpoint_guard.py --mode pre",workflow)
+        self.assertIn("python scripts/ilostat_checkpoint_guard.py --mode post",workflow)
+
     def test_addition_increments_distinct_files(self):
         result = guard.compare_states(sample(['EMP_A']), sample(['EMP_A', 'EMP_B']))
         self.assertEqual(result['new_distinct_tables'], 1)
