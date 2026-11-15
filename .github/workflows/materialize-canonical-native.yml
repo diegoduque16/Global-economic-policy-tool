@@ -1,6 +1,10 @@
 name: Materialize five source-native datasets in canonical warehouse
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/materialize-canonical-native.yml'
   workflow_dispatch:
     inputs:
       canonical_run_id:
@@ -19,6 +23,7 @@ concurrency:
 
 jobs:
   materialize:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -128,3 +133,130 @@ jobs:
         if: always()
         shell: bash
         run: rm -f "$RUNNER_TEMP/rclone/rclone.conf"
+
+  extend-verified-wid-source-native:
+    # Add source-native WID records to the EXISTING certified Atlas SQLite.
+    # The previous manual five-source materializer is left unchanged.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+    steps:
+      - name: Check out certified Atlas warehouse extension code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test native WID insertion and immutable country source guards offline
+        run: |
+          python -m warehouse.wid_native_extension --self-test
+          python -m unittest discover -s tests -p 'test_wid_native_extension.py' -v
+      - name: Download certified canonical-native source snapshot and 15 WID batch receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/actions/runs/40617910011" --jq '.conclusion')" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/40617910011" --jq '.name')" = 'Materialize five source-native datasets in canonical warehouse'
+          test "$(gh api "repos/$GH_REPO/actions/runs/40617910011" --jq '.head_branch')" = main
+          mkdir -p original_native
+          gh run download 40617910011 --repo "$GH_REPO" --name canonical-native-40617910011 --dir original_native
+          test "$(find original_native -type f -name 'canonical-native-*.tar.gz' | wc -l)" -eq 1
+          original=$(find original_native -type f -name 'canonical-native-*.tar.gz')
+          test "$(sha256sum "$original" | cut -d ' ' -f1)" = dfe43456207e8681c4a79470d39578718c51670ceeb43cf4c68a379fdc61d17b
+          echo "PARENT_NATIVE_ARCHIVE=$original" >> "$GITHUB_ENV"
+          for run in 43640485476 43643338607 43681169408; do
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.conclusion')" = success
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.head_branch')" = main
+            name=$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.name')
+            case "$name" in "Atlas - Expand WID"*) ;; *) echo "Wrong WID production run: $name" >&2; exit 1;; esac
+            mkdir -p "receipts/$run"
+            gh run download "$run" --repo "$GH_REPO" --pattern 'wid-expansion-*' --dir "receipts/$run"
+            test "$(find "receipts/$run" -type f -name '*.json' | wc -l)" -eq 5
+          done
+      - name: Install existing private OneDrive connection
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/wid-native-rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/wid-native-rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/wid-native-rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/wid-native-rclone/rclone.conf" >> "$GITHUB_ENV"
+      - name: Index 60 verified WID sources in the existing canonical/native SQLite
+        shell: bash
+        run: |
+          set -euo pipefail
+          id="canonical-native-wid-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"
+          echo "WID_NATIVE_SNAPSHOT_ID=$id" >> "$GITHUB_ENV"
+          python -m warehouse.wid_native_extension \
+            --base-archive "$PARENT_NATIVE_ARCHIVE" \
+            --receipts receipts \
+            --out native_output \
+            --snapshot-id "$id"
+      - name: Assert original analytical observations unchanged and new native rows verified
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_WID_VERIFY'
+          import json, os
+          from pathlib import Path
+          root=Path('native_output')
+          sid=os.environ['WID_NATIVE_SNAPSHOT_ID']
+          doc=json.loads((root/(sid+'.integration_report.json')).read_text())
+          assert doc['parent_native_snapshot_run_id']==40617910011
+          assert doc['source_wid_collection_runs']==[43640485476,43643338607,43681169408]
+          assert doc['canonical_observations_unchanged']==2780117
+          assert doc['added_wid_country_source_files']==60
+          assert doc['added_native_wid_numeric_records']==40908
+          assert doc['total_native_numeric_records']==2145517
+          assert doc['source_original_csv_sha256_verified_for_each_country'] is True
+          assert doc['canonical_observations_modified'] is False
+          assert doc['public_release'] is False
+          assert doc['research_ready_harmonized'] is False
+          assert len(doc['archive_sha256'])==64
+          assert (root/(sid+'.tar.gz')).is_file()
+          print('WID_60_SOURCE_NATIVE_ROWS_IN_EXISTING_ATLAS_SQLITE_VERIFIED',{
+              'verified_countries':60,'new_native_values':40908,
+              'native_rows_total':2145517,'canonical_rows_unchanged':2780117})
+          PY_WID_VERIFY
+      - name: Archive existing augmented SQLite privately with SHA-256 restore verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          local="native_output/$WID_NATIVE_SNAPSHOT_ID.tar.gz"
+          remote="onedrive:Diego/economic research database/snapshots/$WID_NATIVE_SNAPSHOT_ID.tar.gz"
+          local_hash=$(sha256sum "$local" | cut -d ' ' -f1)
+          rclone copyto "$local" "$remote" --retries 3 --low-level-retries 10
+          restored_hash=$(rclone cat "$remote" | sha256sum | cut -d ' ' -f1)
+          test "$restored_hash" = "$local_hash"
+          report_hash=$(python - <<'PY'
+          import json,os
+          from pathlib import Path
+          sid=os.environ['WID_NATIVE_SNAPSHOT_ID']
+          print(json.loads((Path('native_output')/(sid+'.integration_report.json')).read_text())['archive_sha256'])
+          PY
+          )
+          test "$local_hash" = "$report_hash"
+          rclone copyto "native_output/$WID_NATIVE_SNAPSHOT_ID.integration_report.json" \
+            "onedrive:Diego/economic research database/snapshots/$WID_NATIVE_SNAPSHOT_ID.integration_report.json"
+          echo "WID_NATIVE_CANONICAL_SQLITE_PRIVATE_ROUNDTRIP_VERIFIED $local_hash"
+      - name: Publish metadata-only integration receipt, never source observations
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-native-wid-receipt-${{ github.run_id }}
+          path: native_output/*.integration_report.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Remove private OneDrive credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/wid-native-rclone/rclone.conf"
