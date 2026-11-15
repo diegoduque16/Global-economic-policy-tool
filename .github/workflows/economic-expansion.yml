@@ -2,8 +2,8 @@
 name: Refresh US Europe and Historical data
 
 on:
-  # Reuse the existing economic extension job to collect new European
-  # employment/wage series once when the source configuration changes.
+  # Reuse the same source-native economic collector whenever either the U.S.
+  # FRED or European indicator catalog changes. No separate downloader.
   push:
     branches: [main]
     paths:
@@ -63,43 +63,86 @@ jobs:
             python open_data/historical_maddison.py --start 1 --end 1959 --out data/historical
           fi
 
-      - name: Download expanded real Eurostat employment and employer-wage series
+      - name: Download full source-native FRED and Eurostat economic series
         if: github.event_name == 'push'
-        run: python open_data/us_europe.py --scope full --sources europe --start 1990 --end 2026 --out data/us_europe
+        run: python open_data/us_europe.py --scope full --sources all --start 1900 --end 2026 --out data/us_europe
 
-      - name: Verify all configured European source series and original downloaded responses
+      - name: Re-parse and verify every original FRED and Eurostat numeric observation
         if: github.event_name == 'push'
+        shell: bash
         run: |
-          python - <<'PY_EUROSTAT'
-          import csv, hashlib, json
+          set -euo pipefail
+          python - <<'PY_ECON_SOURCES'
+          import csv, hashlib, json, math
           from pathlib import Path
-          from open_data.us_europe import EUROSTAT
+          from open_data.us_europe import EUROSTAT, FRED, parse_fred, parse_jsonstat
           root=Path('data/us_europe')
           report=json.loads((root/'run_report.json').read_text())
-          assert report['sources_requested']=='europe' and report['scope']=='full'
-          assert report['tasks_requested']==len(EUROSTAT) == 6
-          assert report['tasks_passed']==6 and not report['errors'] and not report['conflicts']
+          expected={('us', code) for code in FRED} | {('europe', code) for code in EUROSTAT}
+          assert len(FRED)==21 and len(EUROSTAT)==6 and len(expected)==27
+          assert report['sources_requested']=='all' and report['scope']=='full'
+          assert report['tasks_requested']==27 and report['tasks_passed']==27
+          assert report['errors']==[] and report['conflicts']==[]
           manifest=report['manifest']
-          assert {entry['series'] for entry in manifest}==set(EUROSTAT)
-          assert all(entry['source']=='europe' and entry['observations']>0 for entry in manifest)
+          assert len(manifest)==27 and {(e['source'],e['series']) for e in manifest}==expected
+          originals={}
+          original_urls={}
           for entry in manifest:
               p=root/'raw'/entry['filename']
-              assert p.is_file() and hashlib.sha256(p.read_bytes()).hexdigest()==entry['sha256']
-              assert entry['url'].startswith('https://ec.europa.eu/eurostat/api/dissemination/')
+              assert p.is_file() and not p.is_symlink()
+              data=p.read_bytes()
+              assert hashlib.sha256(data).hexdigest()==entry['sha256']
+              if entry['source']=='us':
+                  assert entry['url']=='https://fred.stlouisfed.org/graph/fredgraph.csv?id='+entry['series']
+                  parsed, skipped=parse_fred(data, entry['series'],1900,2026)
+              else:
+                  assert entry['url'].startswith('https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/')
+                  parsed, skipped=parse_jsonstat(data,entry['series'],1990,2026)
+              assert len(parsed)==entry['observations'] and len(parsed)>0
+              assert skipped==entry['skipped_or_missing']
+              for rec in parsed:
+                  key=(rec['provider'],rec['country_iso3'],rec['period'],rec['series'])
+                  assert key not in originals, 'Duplicate original source/native observation'
+                  originals[key]=(float(rec['value']),rec['unit'],rec['frequency'],rec.get('status_flag',''))
+                  original_urls[key]=entry['url']
           with (root/'processed/us_europe_panel.csv').open(newline='') as f:
               values=list(csv.DictReader(f))
-          assert len(values)==report['observations'] and len(values)>0
-          assert {row['series'] for row in values}==set(EUROSTAT)
-          assert len({(row['country_iso3'],row['year'],row['series']) for row in values})==len(values)
-          print('EUROSTAT_ECONOMIC_EXPANSION_SOURCE_VERIFIED',{
-              'series':len(EUROSTAT),'numeric_observations':len(values),
-              'geographies':len({row['country_iso3'] for row in values}),
-              'independent_source_originals':len(manifest)})
-          PY_EUROSTAT
+          assert len(values)==report['observations']==len(originals)
+          assert len(values)>4000, 'Unexpectedly small combined verified release'
+          seen=set()
+          providers={}
+          for row in values:
+              key=(row['provider'],row['country_iso3'],row['period'],row['series'])
+              assert key in originals and key not in seen
+              seen.add(key)
+              original=originals[key]
+              assert math.isfinite(float(row['value']))
+              assert (float(row['value']),row['unit'],row['frequency'],row['status_flag'])==original
+              assert row['source_url']==original_urls[key]
+              assert row['retrieved_utc']==report['retrieved_utc']
+              if row['provider']=='FRED (St. Louis Fed; original series provider varies)':
+                  assert row['series'] in FRED and row['country_iso3']=='USA'
+              elif row['provider']=='Eurostat':
+                  assert row['series'] in EUROSTAT
+              else:
+                  raise AssertionError('Unexpected economic source provider')
+              providers.setdefault(row['provider'],set()).add(row['series'])
+          assert seen==set(originals)
+          assert providers['FRED (St. Louis Fed; original series provider varies)']==set(FRED)
+          assert providers['Eurostat']==set(EUROSTAT)
+          print('FRED_EUROSTAT_ORIGINAL_NATIVE_NUMERICS_VERIFIED', {
+              'source_series':len(expected),
+              'fred_series':len(FRED),'eurostat_series':len(EUROSTAT),
+              'numeric_observations':len(values),
+              'unique_source_geographies':len({r['country_iso3'] for r in values}),
+              'original_source_sha256_verified':len(manifest),
+              'public_canonical_promotion':False
+          })
+          PY_ECON_SOURCES
 
-      # Source bytes stay privately durable rather than relying on only a
-      # 90-day Actions artifact. This uses the existing OneDrive connection.
-      - name: Store complete Eurostat source release in private OneDrive with SHA256 round trip
+      # Original FRED and Eurostat bytes stay privately durable rather than relying
+      # only on a 90-day Actions artifact. Existing OneDrive connection only.
+      - name: Store combined source-native FRED and Eurostat release in private OneDrive with SHA256 round trip
         if: github.event_name == 'push'
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
@@ -114,20 +157,31 @@ jobs:
           printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/atlas-eurostat-rclone/rclone.conf"
           chmod 600 "$RUNNER_TEMP/atlas-eurostat-rclone/rclone.conf"
           export RCLONE_CONFIG="$RUNNER_TEMP/atlas-eurostat-rclone/rclone.conf"
-          tar -czf "$RUNNER_TEMP/eurostat-economic-source.tar.gz" -C data us_europe
-          local_sha=$(sha256sum "$RUNNER_TEMP/eurostat-economic-source.tar.gz" | cut -d ' ' -f1)
-          remote="onedrive:Diego/economic research database/atlas/eurostat-economic-v1/run-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-          rclone copyto "$RUNNER_TEMP/eurostat-economic-source.tar.gz" "$remote/eurostat-economic-source.tar.gz" --retries 3
-          roundtrip_sha=$(rclone cat "$remote/eurostat-economic-source.tar.gz" | sha256sum | cut -d ' ' -f1)
+          tar -czf "$RUNNER_TEMP/us-europe-economic-source.tar.gz" -C data us_europe
+          local_sha=$(sha256sum "$RUNNER_TEMP/us-europe-economic-source.tar.gz" | cut -d ' ' -f1)
+          remote="onedrive:Diego/economic research database/atlas/us-europe-economic-v1/run-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+          rclone copyto "$RUNNER_TEMP/us-europe-economic-source.tar.gz" "$remote/us-europe-economic-source.tar.gz" --retries 3
+          roundtrip_sha=$(rclone cat "$remote/us-europe-economic-source.tar.gz" | sha256sum | cut -d ' ' -f1)
           test "$roundtrip_sha" = "$local_sha"
-          printf '%s  %s\n' "$local_sha" 'eurostat-economic-source.tar.gz' > "$RUNNER_TEMP/eurostat-economic-source.sha256"
-          rclone copyto "$RUNNER_TEMP/eurostat-economic-source.sha256" "$remote/eurostat-economic-source.sha256" --retries 3
-          test "$(rclone cat "$remote/eurostat-economic-source.sha256")" = "$(cat "$RUNNER_TEMP/eurostat-economic-source.sha256")"
-          echo "EUROSTAT_PRIVATE_SOURCE_ROUNDTRIP_VERIFIED $local_sha"
+          printf '%s  %s\n' "$local_sha" 'us-europe-economic-source.tar.gz' > "$RUNNER_TEMP/us-europe-economic-source.sha256"
+          rclone copyto "$RUNNER_TEMP/us-europe-economic-source.sha256" "$remote/us-europe-economic-source.sha256" --retries 3
+          test "$(rclone cat "$remote/us-europe-economic-source.sha256")" = "$(cat "$RUNNER_TEMP/us-europe-economic-source.sha256")"
+          echo "FRED_EUROSTAT_PRIVATE_SOURCE_ROUNDTRIP_VERIFIED $local_sha"
           rm -f "$RUNNER_TEMP/atlas-eurostat-rclone/rclone.conf"
 
-      - name: Save datasets and reports
-        if: always()
+      # Publicly accessible Actions metadata does not include source data or
+      # provider-controlled raw files; all original bytes go to private OneDrive.
+      - name: Publish only source receipts for automatic expanded collection
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: economics-us-europe-source-receipt-${{ github.run_id }}
+          path: data/us_europe/run_report.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Save datasets and reports (existing manual workflow only)
+        if: github.event_name != 'push'
         uses: actions/upload-artifact@v4
         with:
           name: economics-extension-${{ github.run_number }}
