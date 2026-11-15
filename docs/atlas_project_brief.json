@@ -3,7 +3,7 @@
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
   "updated_date": "2026-11-15",
-  "status_basis": "Checked against completed GitHub Actions logs on 15 November 2026, after the 02:56 UTC ILOSTAT scheduled run. This is a dated snapshot, not live telemetry; follow run links and update verified statuses after production collections complete.",
+  "status_basis": "Live GitHub Actions verified on November 15, 2026 after the second WID 20-country release and 1,019-file ILOSTAT checkpoint. Third WID, 75-file ILOSTAT and expanded FRED/Eurostat are explicitly ongoing; this is a dated snapshot, not live telemetry.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -44,9 +44,9 @@
   "workstreams": [
     {
       "name": "ILOSTAT official bulk",
-      "stage": "Scheduled 50-file bulk collection working; 1,019 of 1,964 source files verified",
+      "stage": "1,019/1,964 verified files; raised 75-table collection is running",
       "evidence": "The 15 November scheduled 50-file ILOSTAT source run 43670071375 completed with 50 newly verified, 0 failures, and 0 lost previously stored files. Its complete private checkpoint and SHA verified 1,019/1,964 source files, leaving 945. The previous 14 November run reached 969/1,964 with 49 new and one temporary HTTP 502 source failure.",
-      "next": "The previous 50-source batch succeeded with 50 added, zero failures or losses; the same source-native collector is being increased to a guarded default of 75 attempts per run (existing 150 limit, 2 GiB run cap, 512 MiB per file, 4-hour timeout and private checkpoint). Only the live post-merge run can establish whether it adds 75 files. Continue missing-source collection until the official 1,964-source TOC has been fully verified or remaining sources are explicitly blocked.",
+      "next": "Use latest completed 1,019-file source checkpoint until current bounded 75-file job 43681306938 finishes; only then update count from exact private state, failures and no-loss checkpoint. Continue existing 3-per-day scheduled ingestion with per-file and per-run size guards.",
       "links": [
         {
           "label": "Last completed 920-file checkpoint",
@@ -63,14 +63,18 @@
         {
           "label": "Latest verified 1,019-file ILOSTAT checkpoint",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43670071375"
+        },
+        {
+          "label": "75-source ILOSTAT run in progress",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43681306938"
         }
       ]
     },
     {
       "name": "World Inequality Database (WID)",
-      "stage": "40 new countries verified across two waves; third 20-country attempt preparing",
-      "evidence": "Historical separate numeric WID panel: 23 countries and 21,430 selected values. The first new-country expansion successfully acquired 20 distinct additional countries with 14,472 selected source-native numeric distribution observations. The second expansion also completed successfully on 14 November in production run 43643338607, verifying another 20 nonoverlapping country CSV files with 13,532 selected numeric shares and byte-checked private OneDrive backups. The source files now cover 63 distinct country codes across these separate collections; there is not yet one unified canonical series and the value totals must not be added across different source vintages.",
-      "next": "The next 20 country codes (Europe BG, RS, UA, IS; Americas GT, HN, SV, NI; Asia LK, NP, KH, MM; Africa DZ, TN, RW, ZM; other NZ, IL, SA, AE) are candidates, not yet collected. Reuse the existing WID collector and verify each source individually. Build a versioned, deduplicated WID numeric research layer only after all source-native vintages and series definitions have been checked.",
+      "stage": "63 verified countries from historical+two expansion vintages; third wave 8 further countries confirmed so far",
+      "evidence": "Original separate 23-country WID numeric panel contains 21,430 selected values. Wave 1 added 20 distinct countries (14,472 source-native selected numeric shares, private source SHA verified); Wave 2 added 20 different countries (13,532 values, same private verification). These yield 63 distinct observed country codes across separate, not-yet-harmonized source editions. The third 20-candidate wave is underway in run 43681169408; the Europe and Central America jobs have already independently verified eight further new country CSV files (BG, RS, UA, IS, GT, HN, SV, NI) and 5,408 selected source-native numerical shares, with zero previous-country overlap and verified private OneDrive backup. Do NOT report all 20 wave-three candidates as acquired until their five batches finish.",
+      "next": "Complete the remaining 12 third-wave candidate areas through existing official WID collector; count actual numeric value and source-hash successes/failures. Then select new missing provider variables and prepare one versioned deduplicated WID numeric research layer; do not count repeated country or source vintages as new observations.",
       "links": [
         {
           "label": "New-country PR #22",
@@ -91,6 +95,10 @@
         {
           "label": "Completed second WID collection, 20 more countries",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43643338607"
+        },
+        {
+          "label": "Third WID source expansion in progress",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43681169408"
         }
       ]
     },
@@ -152,9 +160,9 @@
     },
     {
       "name": "FRED, BLS, U.S. Census, fiscal and remaining P0 sources",
-      "stage": "FRED 13 legacy series; source catalog expanded to 21 pending live numeric verification",
+      "stage": "21 FRED + six Eurostat source collection: original numeric replay passed, private archive still pending",
       "evidence": "The previous economic extension collector selected 13 original FRED (St. Louis Fed) monthly and quarterly US economic series. On November 15, the same pipeline's FRED scope was expanded by 8 official series covering average private hourly earnings, nonfarm-business labor productivity and unit labor costs, real median household income, personal consumption, saving rate, and nonfarm hires and quits. This makes 21 candidate FRED source series. The new series' numerical values, original-source checks and durable private archive must be confirmed by a fresh production run before they count as collected. Existing separate Eurostat six-series release remains verified at 3,436 numeric observations. The P0 source-map gaps remain unresolved: no-map is not proof of missing source data.",
-      "next": "Run the existing combined U.S./Europe native collector (21 FRED + six Eurostat series). Demand exact original raw CSV/JSON source numeric replay, zero retrieval errors, checksum matching and private OneDrive restore verification. Only then record observed numeric counts and integrate versioned, nonoverlapping records. Afterward expand targeted BLS, Census and fiscal series from specific missing provider IDs.",
+      "next": "New combined 27-source collection run 43681818626 has passed its original numeric/source validation step and is now completing private SHA-256 archive backup. Only mark complete with exact number of observations once entire run and private source restore finish successfully. Continue native exact series-key integration afterward, without claiming public Atlas deployment.",
       "links": [
         {
           "label": "125-source master catalog",
@@ -167,6 +175,10 @@
         {
           "label": "Existing expanded US/Europe source collector",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/.github/workflows/economic-expansion.yml"
+        },
+        {
+          "label": "Combined FRED/Eurostat collection and private backup",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43681818626"
         }
       ]
     }
@@ -267,15 +279,21 @@
       "title": "Extend existing FRED collection by eight policy-relevant economic series",
       "description": "Add official FRED wage, productivity, labor-cost, household-income, personal-consumption, saving and labor-turnover series to the original 13 U.S. indicators, keeping the existing economic collector. Configure original raw source numeric replay and SHA256 round-trip backup in private OneDrive, with only metadata published as a GitHub run receipt. Counts are pending actual production retrieval.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/open_data/us_europe.py"
+    },
+    {
+      "date": "2026-11-15",
+      "title": "Confirm first eight new WID countries in wave three",
+      "description": "The third WID collection's Europe and Central America batches source-verified eight new official country files (BG, RS, UA, IS, GT, HN, SV, NI), yielding 5,408 selected original numeric income/wealth shares, with private OneDrive SHA verification and no overlap against the 63 previously verified country codes. Other 12 candidate countries remain pending.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43681169408"
     }
   ],
   "next_actions": [
-    "ILOSTAT 1,019/1,964 source files verified after successful 15 November run 43670071375; continue collecting the 945 remaining actual official TOC source IDs through the existing scheduled ingester and keep exact checksum/source checkpoints.",
+    "Wait for completed source IDs, not a green job alone: new ILOSTAT 75-attempt batch run 43681306938 is active; last verified 1,019/1,964, 945 remaining, zero losses.",
     "Increase existing ILOSTAT bounded batch to 75 source-table attempts (subject to 2 GiB per-run cap, 512 MiB per-file cap and 4-hour timeout) following two recent 50-source batches with verified checkpoint integrity; count actual added source IDs and failures from new live run, not the planned 75.",
     "WDI original 59-series source archive is permanently privately backed up (run 43643193303, verified archive SHA 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a). Do source-series geography classification, vintage/license checks and explicitly versioned canonical/public integration; do not recollect only to redo the backup.",
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
-    "Second WID geographic expansion completed (20/20 source-verified, 13,532 selected numerical observations). Execute third distinct 20-candidate source wave and verify success/failure individually, without claiming the 83-country target is attained or silently adding across vintages.",
-    "Verify new combined 21-FRED + six-Eurostat source run when deployed, with exact native numeric replay and private backup receipts; pursue remaining BLS/Census/fiscal gaps by official source IDs, not generic audits.",
+    "WID third wave (run 43681169408) has verified eight new country CSVs and 5,408 native numerical shares so far; finish other 12 candidates and preserve source metadata; no canonical/public dataset promotion.",
+    "Combined original-source FRED 21/EU six numeric replay passed, but private archive backup is pending in run 43681818626. Check final native observation count, source hashes and byte-restored private backup before changing status to complete.",
     "Keep this dated briefing and its evidence links current when any material Atlas collection scope, successful release, or project direction changes."
   ],
   "assistant_start_here": [
