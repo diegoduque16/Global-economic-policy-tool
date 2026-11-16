@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/materialize-canonical-native.yml'
+      - 'warehouse/wdi_native_extension.py'
   workflow_dispatch:
     inputs:
       canonical_run_id:
@@ -12,6 +13,15 @@ on:
         required: true
         type: string
         default: '40616230528'
+      operation:
+        description: 'Use previous five-source job, re-run WID attachment, or extend WID attachment with original WDI'
+        type: choice
+        required: true
+        default: historical_five
+        options:
+          - historical_five
+          - wid_attach
+          - wdi_attach
 
 permissions:
   actions: read
@@ -23,7 +33,7 @@ concurrency:
 
 jobs:
   materialize:
-    if: github.event_name != 'push'
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'historical_five'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -137,7 +147,7 @@ jobs:
   extend-verified-wid-source-native:
     # Add source-native WID rows in an ATTACH-able native SQLite layer; NEVER copy the >10GB historical SQLite.
     # The previous manual five-source materializer is left unchanged.
-    if: github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'wid_attach'
     runs-on: ubuntu-latest
     timeout-minutes: 240
     env:
@@ -260,3 +270,133 @@ jobs:
         if: always()
         shell: bash
         run: rm -f "$RUNNER_TEMP/wid-native-rclone/rclone.conf"
+
+  extend-existing-private-source-attachment-with-wdi:
+    # Reuse certified source-native SQLite ATTACH layer; never copy the >10GB
+    # historical canonical SQLite, re-download WDI or release native data public.
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'wdi_attach')
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - name: Check out Atlas certified native source-extension code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test World Bank original source numeric replay and existing WID SQLite preservation offline
+        run: |
+          python -m unittest discover -s tests -p 'test_wdi_native_extension.py' -v
+          python -m unittest discover -s tests -p 'test_wdi_bulk.py' -v
+          python -m unittest discover -s tests -p 'test_wid_native_extension.py' -v
+      - name: Prove original WDI and WID source runs completed on main
+        shell: bash
+        run: |
+          set -euo pipefail
+          for run in 43637384781 43720165809; do
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.conclusion')" = success
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.head_branch')" = main
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.head_repository.full_name')" = "$GH_REPO"
+          done
+          test "$(gh api "repos/$GH_REPO/actions/runs/43637384781" --jq '.name')" = 'Refresh World Bank economic data'
+          test "$(gh api "repos/$GH_REPO/actions/runs/43720165809" --jq '.name')" = 'Materialize five source-native datasets in canonical warehouse'
+      - name: Restore the two certified original-source private archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/wdi-native-rclone" "$RUNNER_TEMP/atlas-source-inputs"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/wdi-native-rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/wdi-native-rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/wdi-native-rclone/rclone.conf" >> "$GITHUB_ENV"
+          wid="$RUNNER_TEMP/atlas-source-inputs/atlas-wid-native-shard-20261115-43720165809.tar.gz"
+          wdi="$RUNNER_TEMP/atlas-source-inputs/wdi-source-43637384781.tar.gz"
+          rclone copyto "$ONEDRIVE_TARGET/snapshots/atlas-wid-native-shard-20261115-43720165809.tar.gz" "$wid" --retries 3
+          rclone copyto "$ONEDRIVE_TARGET/atlas/wdi-verified-source-archives-v1/run-43637384781/wdi-source-43637384781.tar.gz" "$wdi" --retries 3
+          test "$(sha256sum "$wid" | cut -d ' ' -f1)" = faa6f785156d208cd71893fd4d8806a38a9ff68047f2fdacb496271b5fbe2122
+          test "$(sha256sum "$wdi" | cut -d ' ' -f1)" = 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a
+          echo "WDI_NATIVE_WID_PARENT_PRIVATE_SOURCE_ARCHIVES_VERIFIED"
+          echo "WID_ARCHIVE=$wid" >> "$GITHUB_ENV"
+          echo "WDI_ARCHIVE=$wdi" >> "$GITHUB_ENV"
+      - name: Make all 59 original World Bank WDI series queryable beside prior WID source-native observations
+        shell: bash
+        run: |
+          set -euo pipefail
+          id="atlas-native-wid-wdi-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"
+          echo "ATLAS_NATIVE_WDI_EDITION_ID=$id" >> "$GITHUB_ENV"
+          python -m warehouse.wdi_native_extension \
+            --wid-archive "$WID_ARCHIVE" \
+            --wdi-archive "$WDI_ARCHIVE" \
+            --out native_output \
+            --snapshot-id "$id"
+      - name: Verify original 572179 WDI source values and queryable native Atlas SQLite report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_WDI_SQLITE'
+          import json,os
+          from pathlib import Path
+          root=Path('native_output')
+          sid=os.environ['ATLAS_NATIVE_WDI_EDITION_ID']
+          data=json.loads((root/(sid+'.integration_report.json')).read_text())
+          assert data['wdi_source_series_added']==59
+          assert data['wdi_source_native_rows_added']==572179
+          assert data['prior_wid_source_native_rows_preserved']==40908
+          assert data['native_source_records_in_new_attachment']==613087
+          assert data['logical_combined_native_rows_including_historical']==2717696
+          assert data['geography_codes_including_unclassified_aggregates']==265
+          assert data['source_original_wdi_zip_numeric_keys_values_verified'] is True
+          assert data['separate_canonical_observations_unchanged']==2780117
+          assert data['old_canonical_sqlite_modified'] is False
+          assert data['public_release'] is False and data['causal_ready'] is False
+          assert data['storage_mode']=='ATLAS_ATTACHABLE_VERSIONED_SOURCE_NATIVE_EXTENSION'
+          assert (root/(sid+'.tar.gz')).is_file()
+          print('WDI_59_SOURCE_SERIES_572179_NATIVE_ROWS_INDEXED_AND_WID_PRESERVED',{
+              'world_bank_numeric_values':572179,
+              'old_WID_source_native_values':40908,
+              'queryable_private_attachment_rows':613087,
+              'old_canonical_rows_modified':False,
+              'public_published':False})
+          PY_WDI_SQLITE
+      - name: Store entire newly queryable private source-native SQLite edition in OneDrive and SHA-verify restored bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="native_output/$ATLAS_NATIVE_WDI_EDITION_ID.tar.gz"
+          remote="$ONEDRIVE_TARGET/snapshots/$ATLAS_NATIVE_WDI_EDITION_ID.tar.gz"
+          original_sha=$(sha256sum "$archive" | cut -d ' ' -f1)
+          rclone copyto "$archive" "$remote" --retries 3 --low-level-retries 10
+          restored_sha=$(rclone cat "$remote" | sha256sum | cut -d ' ' -f1)
+          test "$original_sha" = "$restored_sha"
+          recorded_sha=$(python - <<'PY'
+          import json,os
+          from pathlib import Path
+          sid=os.environ['ATLAS_NATIVE_WDI_EDITION_ID']
+          print(json.loads((Path('native_output')/(sid+'.integration_report.json')).read_text())['archive_sha256'])
+          PY
+          )
+          test "$original_sha" = "$recorded_sha"
+          rclone copyto "native_output/$ATLAS_NATIVE_WDI_EDITION_ID.integration_report.json" \
+            "$ONEDRIVE_TARGET/snapshots/$ATLAS_NATIVE_WDI_EDITION_ID.integration_report.json" --retries 3
+          echo "ATLAS_WDI_WID_NATIVE_SQLITE_PRIVATE_ROUNDTRIP_VERIFIED $original_sha"
+      - name: Publish metadata-only numerical integration receipt, never provider data or private SQLite
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-wdi-59-native-receipt-${{ github.run_id }}
+          path: native_output/*.integration_report.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Remove private OneDrive OAuth configuration
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/wdi-native-rclone/rclone.conf"
