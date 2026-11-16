@@ -67,6 +67,21 @@ def make_wdi_backup(root):
 
 
 class AtlasWdiNativeResearchExtension(unittest.TestCase):
+    def test_private_source_restore_exports_rclone_config_in_same_step(self):
+        # Regression for failed production run 43779951282: writing GITHUB_ENV
+        # alone only configures the NEXT step, not rclone downloads below.
+        workflow=(Path(__file__).resolve().parents[1]/
+                  '.github/workflows/materialize-canonical-native.yml').read_text()
+        start=workflow.index("      - name: Restore the two certified original-source private archives")
+        end=workflow.index("      - name: Make all 59 original World Bank",start)
+        script=workflow[start:end]
+        self.assertIn('export RCLONE_CONFIG="$RUNNER_TEMP/wdi-native-rclone/rclone.conf"',script)
+        self.assertIn('echo "RCLONE_CONFIG=$RCLONE_CONFIG" >> "$GITHUB_ENV"',script)
+        self.assertLess(script.index('export RCLONE_CONFIG='),
+                        script.index('rclone copyto '))
+        self.assertIn('test "$(sha256sum "$wid"',script)
+        self.assertIn('test "$(sha256sum "$wdi"',script)
+
     def test_source_native_shard_preserves_wid_rows_and_aggregates(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
