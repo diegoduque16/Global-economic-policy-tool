@@ -318,7 +318,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/wdi-native-rclone" "$RUNNER_TEMP/atlas-source-inputs"
           printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/wdi-native-rclone/rclone.conf"
           chmod 600 "$RUNNER_TEMP/wdi-native-rclone/rclone.conf"
-          echo "RCLONE_CONFIG=$RUNNER_TEMP/wdi-native-rclone/rclone.conf" >> "$GITHUB_ENV"
+          # GITHUB_ENV is only loaded by FOLLOWING steps. The rclone downloads
+          # below happen in THIS step, so export the variable immediately too.
+          export RCLONE_CONFIG="$RUNNER_TEMP/wdi-native-rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RCLONE_CONFIG" >> "$GITHUB_ENV"
           wid="$RUNNER_TEMP/atlas-source-inputs/atlas-wid-native-shard-20261115-43720165809.tar.gz"
           wdi="$RUNNER_TEMP/atlas-source-inputs/wdi-source-43637384781.tar.gz"
           rclone copyto "$ONEDRIVE_TARGET/snapshots/atlas-wid-native-shard-20261115-43720165809.tar.gz" "$wid" --retries 3
