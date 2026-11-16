@@ -30,6 +30,8 @@ on:
       - 'research/wid_expansion_20261114_wave2_completed_scope.json'
       - 'research/wid_expansion_20261115_wave3_completed_scope.json'
       - 'warehouse/wid_native_extension.py'
+      - 'warehouse/wdi_native_extension.py'
+      - 'tests/test_wdi_native_extension.py'
       - 'tests/test_wid_native_extension.py'
       - '.github/workflows/materialize-canonical-native.yml'
       - 'research/audit_wid_revisions.py'
@@ -62,6 +64,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_wid_revision_audit.py' -v
           python -m unittest discover -s tests -p 'test_wid_expansion_scope.py' -v
           python -m unittest discover -s tests -p 'test_wid_native_extension.py' -v
+          python -m unittest discover -s tests -p 'test_wdi_native_extension.py' -v
           python -m warehouse.wid_native_extension --self-test
           python -m unittest discover -s tests -p 'test_atlas_data_watchdog.py' -v
           python -m unittest discover -s tests -p 'test_wdi_bulk.py' -v
