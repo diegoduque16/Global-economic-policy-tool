@@ -156,9 +156,9 @@
     },
     {
       "name": "World Bank WDI",
-      "stage": "59 original WDI series verified and privately backed up; native SQLite extension undergoing tests",
+      "stage": "59 WDI source indicators privately backed up; first native SQLite extension run stopped safely on OneDrive configuration",
       "evidence": "Official full WDI bulk ZIP run 43637384781 verified 59 of 59 selected source indicators, 572,179 numeric source observations and 265 geographic codes including aggregates, with zero key/value conflicts. Follow-up watchdog run 43643193303 completed successfully and independently validated the source ZIP-to-panel values, created a permanent private OneDrive archive of the complete original source bundle, and reread it with SHA-256 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a. The official original ZIP SHA was dba33648d6f453a635b076a62b91db5939f5e640c8dcfeabd094219210533100. Public Atlas still uses the earlier approved 32-series WDI edition; canonical integration and new public release are not claimed.",
-      "next": "Reuse official World Bank release run 43637384781 (59 selected indicators and 572,179 numeric values) and original-source private archive SHA 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a. Stage these into a newly versioned copy of the already verified private WID source-native SQLite ATTACH edition, with 59 source-separated WDI identities, independent complete official WDI raw-ZIP reparse and exact numeric key/value comparison. Expected new attachment native rows 613,087 (40,908 retained WID + 572,179 WDI) before a SHA-256 verified private backup. The existing 2,780,117 historical analytical observations, historical separate native layer and public 32-WDI-series website release must remain unchanged. WDI geography includes aggregates and units are source-defined, not harmonized. Do NOT claim queryability or release until new production run passes.",
+      "next": "First source-native WDI attachment run 43779951282 stopped at private archive restore, before any WDI data were copied or added, because the new rclone configuration was written to GitHub's GITHUB_ENV for the NEXT step but not exported for the current step. Fix exports RCLONE_CONFIG immediately and retains 59-source original official ZIP validation and private hash restore. Reattempt on merge; mark WDI native queryability complete only after that new production run proves all 572,179 original values inserted beside the preserved 40,908 WID values and the versioned private archive SHA-256 round trip succeeds. Keep historical/public site unchanged.",
       "links": [
         {
           "label": "Successful 59-series WDI run",
@@ -195,6 +195,10 @@
         {
           "label": "Original 59-series verified WDI source backup",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43643193303"
+        },
+        {
+          "label": "First WDI native attachment run, safe restore failure",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43779951282"
         }
       ]
     },
@@ -389,12 +393,18 @@
       "title": "Make 59-series verified World Bank data queryable in same private native attachment",
       "description": "Reuse existing source-native SQLite schema and previously private WID attachment, rather than a separate warehouse, to add original WDI 572,179 numerically verified records under 59 official source identifiers. Full original raw ZIP numeric replay, 265 geography-code aggregate caveat, source release checks and private byte-restored backup are mandatory. The coding/test state alone is not a completed production integration.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43637384781"
+    },
+    {
+      "date": "2026-11-15",
+      "title": "Fix same-step private source archive access before WDI numeric integration",
+      "description": "The initial merged WDI 59-source native SQLite extension (run 43779951282) passed local source tests but stopped safely because RCLONE_CONFIG was registered for subsequent steps rather than exported for the current source restore. No existing historical or WID source-native rows changed. Fix the environment variable timing and keep all source SHA gates; only a subsequent successful production run establishes private WDI queryability.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43779951282"
     }
   ],
   "next_actions": [
     "ILOSTAT latest private checkpoint 1,243/1,964 official files; 721 missing and 1 transient HTTP 502 in the last batch (EMP_TEMP_SEX_DSB_NB_Q). Preserve the existing schedule and exact private source ID/backup checks.",
     "Continue bounded ILOSTAT 75-source official download batches and retry the 1 transient provider 502 table; report actual new source IDs, failed IDs and source-native numerical research coverage distinctly.",
-    "World Bank original 59 configured indicators, 572,179 source-native values and original bulk ZIP are verified and privately backed up. Next use existing WID attachment to integrate source-native WDI separately with provider hash/vintage/aggregate flags; do not claim the new attachment is production-ready until byte SHA restore and full numeric replay succeed.",
+    "Repair WDI private input archive restore variable timing seen in run 43779951282, retry same existing native materialization job, and check 59 original source series/572,179 actual numeric values + 40,908 preserved WID values, private SHA backup and unchanged historical/public releases; do not claim native WDI integration before completion.",
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
     "Private WID 60-country native SQLite source attachment (40,908 values) is fully source-verified and SHA backed up, production run 43720165809. Preserve unchanged historical parent while extending the native attachment with the selected World Bank 59-series release.",
     "FRED 21 native series (13,885 values) plus Eurostat six (3,436 values) source release 43681818626 is verified and privately backed up. Integrate source-native rows via existing warehouse with exact source/frequency/unit/vintage deduplication; then collect genuinely missing BLS/Census/fiscal official IDs.",
