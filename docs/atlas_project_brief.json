@@ -295,7 +295,7 @@
       "name": "Private source-native Atlas explorer",
       "stage": "Existing Atlas localhost/private explorer now supports the source-native 883,118-row five-provider SQLite attachment; provider source grouping and geography classification improvements merged with GitHub CI success on November 17. Live local runtime with private archive not independently verified.",
       "evidence": "The existing local read-only explorer now opens certified standalone native_source_extension.sqlite without the historical >10GB canonical warehouse. PR #45 CI run 44184350767 passed; PR #46 protects unresolved source codes from mistaken country labels. PR #47 reused the existing approved public World Bank geography catalog (261 provider codes, 217 countries/territories, 44 aggregates), with a fallback ISO3 reference and explicit unknown classification; read-only provider/series/geography/year filtering and source-aware BLS exports remained regression-tested. PR #47 premerge run 44185301050 passed. Five provider groupings display 976 original indexed source IDs without conflating group count and source count. All CI data are synthetic fixtures, not actual private SQLite runtime data, and no private archive was uploaded to GitHub or Cloudflare.",
-      "next": "Finish CI and merge the existing Atlas localhost explorer's native monthly/quarterly period-axis improvement, retaining original YYYY-MM / ISO monthly dates and YYYY-Qn quarterly dates, preventing duplicate/mixed/invalid periods from charting. Then test with the actual private 883,118-row attachment in a secure local runtime; CI test values are synthetic. No Cloudflare upload.",
+      "next": "Verify PR-only tests, then run new read-only private production smoke with exact pinned archived 883,118-record native SQLite from previous SHA-verified release. Test all five provider groups and 976 source IDs, source geo/period filters, BLS monthly chart on actual data, and SQLite integrity; only claim live data success after this specific main workflow passes. Do not upload private data to GitHub or public Cloudflare.",
       "links": [
         {
           "label": "Existing private Atlas explorer backend",
@@ -324,6 +324,10 @@
         {
           "label": "PR #47 source-registry/public build and private explorer regression success",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44185301050"
+        },
+        {
+          "label": "Original certified 883,118-row private attachment production release",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44171117929"
         }
       ]
     }
@@ -574,12 +578,24 @@
       "title": "Support monthly BLS and FRED charts using original source time periods, not inferred annual averages",
       "description": "The existing local/private Atlas explorer could filter monthly native numeric values but blocked every nonannual chart. The proposed change preserves exact monthly YYYY-MM or YYYY-MM-DD and quarterly YYYY-Qn, plots against period axes without annualizing or pooling incompatible definitions, and displays source-defined BLS state/industry dimensions in Table. Existing server remains read-only and local. Regression checks and production merge pending; verified source-native record count unchanged.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44171117929"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Start real-private-archive regression gate for newly chartable monthly Atlas records",
+      "description": "The certified five-provider native SQLite archive currently contains 883,118 original numeric rows and 976 original source series, but the web explorer has so far only run synthetic tests. Add separate private-only GitHub Action that restores the exact previously certified archive from OneDrive, verifies its immutable SHA256, extracts only SQLite, opens the existing read-only Atlas explorer, tests all five provider counts and an actual BLS monthly plot selection without publishing rows or source bytes. The job cannot run with OneDrive secrets on PRs. Do not call it verified until its production run succeeds.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44171117929"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Correct ILOSTAT 150-file test assertion before any new source completion claim",
+      "description": "First mainline accelerated ILOSTAT run 44187801840 failed before the downloader at an older unit test expecting default batch 75. PR #50 updated the unit-test expectations for the already-guarded 150 maximum and merged after checks passed; main replacement run 44188570690 is underway at time of this snapshot. Continue to use official latest run and private no-loss SHA evidence for counts, not merged pipeline settings alone.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44187801840"
     }
   ],
   "next_actions": [
-    "ILOSTAT latest verified run 44155957216: 1,692/1,963 official TOC table IDs backed up (1,693/1,964 checkpoint entries), 271 official source tables missing. Existing guarded workflow's default batch size is being raised from 75 to its already-supported 150 cap (pending PR CI and main merge); wait for real post-merge run before updating verified table counts. Preserve 512 MiB/file and 2GiB/run caps, private original source SHA, no-loss checkpoints and numeric profiles.",
+    "ILOSTAT remains at last certified run 44155957216: 1,692/1,963 official TOC source tables (271 missing). Supported 150-table batch default merged PR #48, but main run 44187801840 failed at a stale 75-table test assertion BEFORE downloads. Guard test corrected in PR #50, main re-collection run 44188570690 started. No new source count until that run finishes and checksum/checkpoint pass.",
     "BLS JOLTS completion: 252,710 original source-verified monthly numeric observations and 830 official BLS series added to same private SQLite attachment, production run 44171117929; new 883,118-record immutable archive restored with SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. No re-collection needed absent revised source vintage.",
-    "Local/private provider-aware Atlas explorer, geography groups and 976 original source identities successfully merged and regression-tested through PRs #45–#47. For live use, restore the SHA-verified 883,118-row private attachment and launch the existing localhost explorer; real private runtime verification remains outstanding. Reuse 261-code approved public WDI geographic metadata for matching source codes, leave all other codes unclassified until source evidence exists. Upcoming change: use original monthly/quarterly source periods for plotted timeseries, with strict duplicate/geography/frequency checks; PR and CI pending.",
+    "The provider-aware private explorer is merged through PRs #45–#47, including verified WDI geo labels. Monthly/quarterly period-aware charting merged in PR #49. Now independently smoke-test the REAL 883,118-record private source-native archive via pinned SHA and localhost-only query adapter; new main-branch smoke workflow proposed and not yet production-verified.",
     "Complete specific missing U.S. BLS, Census and fiscal source datasets rather than only expanding catalog metadata, reusing existing collectors. Identify unique source IDs, archive original numeric responses privately and integrate only verified additions.",
     "Reconcile WDI official units/265 provider geography codes including aggregates, WID 60+23 country vintage boundaries, Eurostat/FRED definitions and JOLTS state/national and FRED series overlap before cross-country comparison.",
     "Publish to Cloudflare only selectively after provenance, source definition, licensing and privacy checks; a successful GitHub/private archive is not proof of public website deployment.",
