@@ -142,8 +142,16 @@ def extend_sqlite(dbpath, observations, hashes, *, expected_parent_rows=PARENT_R
         db.execute('BEGIN IMMEDIATE')
         try:
             ordinal = {}
+            # The composite identity is provider + geography + series + period.
+            # SQLite's (source_id, ordinal) key alone would otherwise permit
+            # silently duplicated economic observations with new ordinals.
+            seen_keys = set()
             for provider, row in observations:
                 series = row['series']
+                key = (provider, row['country_iso3'], series, row['period'])
+                if key in seen_keys:
+                    raise ValueError("Duplicate provider/geography/series/period in native extension")
+                seen_keys.add(key)
                 digest = hashes[(provider,series)]
                 sid = 'fred_' + series + '_' + digest[:12] if provider == 'us' else 'eurostat_' + series + '_' + digest[:12]
                 if sid not in ordinal:
