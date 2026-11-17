@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from atlas_web.server import NativeAttachmentStore, geography_reference
+from atlas_web.server import NativeAttachmentStore, geography_reference, plot_period_granularity
 
 
 class PrivateNativeExplorerTests(unittest.TestCase):
@@ -139,6 +139,30 @@ class PrivateNativeExplorerTests(unittest.TestCase):
             self.store.series("invalid-provider","source_native")
         with self.assertRaisesRegex(ValueError,"up to eight"):
             self.store.rows("wdi","source_native","SP.POP.TOTL",["USA"]*9,2020,2021)
+
+    def test_period_axis_fails_closed_on_mixed_or_invalid_original_dates(self):
+        rows = [{"frequency":"monthly","period":"2025-02"},
+                {"frequency":"monthly","period":"2025-03"}]
+        self.assertEqual(plot_period_granularity(rows),"monthly")
+        self.assertEqual(plot_period_granularity([
+            {"frequency":"monthly","period":"2025-02-01"},
+            {"frequency":"monthly","period":"2025-03-01"}]),"monthly")
+        self.assertEqual(plot_period_granularity([
+            {"frequency":"quarterly","period":"2025-Q1"},
+            {"frequency":"quarterly","period":"2025-Q2"}]),"quarterly")
+        self.assertEqual(plot_period_granularity([
+            {"frequency":"annual","period":"2020"},
+            {"frequency":"annual","period":"2021"}]),"annual")
+        self.assertEqual(plot_period_granularity([
+            {"frequency":"monthly","period":"2025-02-31"}]),"unsupported")
+        self.assertEqual(plot_period_granularity([
+            {"frequency":"monthly","period":"2025-02"},
+            {"frequency":"monthly","period":"2025-03-01"}]),"unsupported")
+        self.assertEqual(plot_period_granularity([
+            {"frequency":"monthly","period":"2025-03"},
+            {"frequency":"quarterly","period":"2025-Q2"}]),"unsupported")
+        self.assertEqual(plot_period_granularity([
+            {"frequency":"monthly","period":"2025"}]),"unsupported")
 
     def test_connection_is_read_only(self):
         with self.store.connect() as db:
