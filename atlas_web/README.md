@@ -1,12 +1,16 @@
 # Atlas Data Explorer
 
-A **local, private interactive website** over the **existing Atlas SQLite economic warehouse**, not a second database or collection pipeline. It visualizes actual consolidated economic observations.
+A **local, private interactive website** over the **existing Atlas SQLite economic warehouse or verified source-native attachment**, not a second database or collection pipeline. It visualizes source-separated economic observations without falsely combining incompatible sources.
 
 ## Start
 
-Use a **verified, locally extracted** Atlas warehouse snapshot. The preferred existing native-materialized snapshot contains both canonical observations and indexed source-native records in **one** warehouse.sqlite.
+Use a **verified, locally extracted** Atlas SQLite file. The historical canonical warehouse and the newer multi-provider **source-native attachment** are separate physical SQLite files, available as distinct verified private snapshots. The private five-provider 883,118-record attachment is usable on its own—there is no need to download the >10GB historical canonical database just to query its newer source records.
 
 Run from the repository root:
+
+    python atlas_web/server.py --db "/absolute/private/path/to/native_source_extension.sqlite"
+
+To open the older source-separated canonical warehouse instead:
 
     python atlas_web/server.py --db "/absolute/private/path/to/warehouse.sqlite"
 
@@ -14,16 +18,16 @@ Then open **http://127.0.0.1:8765/** in a browser.
 
 Requirements: Python 3.10+ and a modern browser. No external JavaScript libraries or pip dependencies are required. The database is opened **read-only**.
 
-If only a canonical-only snapshot is available, the viewer will still work, but additional native-source counts will be zero. That describes the selected snapshot, not the whole Atlas project.
+Use the **private SHA-verified native source archive** from the existing Atlas production workflow (the November 17 BLS attachment run `44171117929` has 883,118 source-native records). Verify its checksum before extraction; the SQLite file inside is named `native_source_extension.sqlite`. The local server does not automatically fetch private source archives, and it does not publish them to Cloudflare or GitHub. If you open the older canonical-only warehouse, the viewer will still work, but additional native-source counts may be zero. These counts describe only the selected physical database.
 
 ## Explore the data
 
-- Choose one integrated source family or source-native collection.
-- Search actual series codes in SQLite.
+- Choose one original provider group (World Bank WDI, WID, FRED, Eurostat or BLS JOLTS) in the native attachment, or one source family in the historical canonical warehouse.
+- Search source series IDs and, for JOLTS, descriptive labels such as job openings, hires, quits and layoffs. The original 830 BLS series IDs encode the actual state/industry dimensions.
 - Select up to eight geographies and a year range.
 - Change between **line, bar, scatter, heatmap and table** views.
 - Inspect recorded values, frequencies, source units and provider attribution.
-- Export filtered source observations as CSV.
+- Export filtered source observations as CSV; private native exports include original provider source ID and selected source-native state/industry dimensions.
 - See source-separated canonical rows and additional native records **as separate layers**.
 - See the broader existing Atlas source registry separately from data queryable in the selected snapshot.
 
@@ -31,12 +35,12 @@ No economic values are embedded as demo fixtures in the website. Each visualizat
 
 ## What consolidation means
 
-The existing Atlas database has:
+The existing Atlas data foundation has multiple **physical** database editions; the rows are not yet one harmonized statistical table. The local explorer opens **one selected database at a time**:
 
 | SQLite layer | Meaning | Visualization |
 | --- | --- | --- |
 | observations | Source-separated source-family values, with provider, geography, period, value, unit and provenance | Plot where one series has a consistent unit and an unambiguous annual period |
-| native_records | Original provider records indexed in the same snapshot, without being silently added to observations | Exploratory charts where values and periods permit; suppressed values remain visible in the table |
+| native_records | Original provider records indexed in the separately verified private attachment, without being silently added to observations | Filter by provider, exact series ID, geography and year. Annual values can be charted when definitions and periods permit; monthly/quarterly values remain available in Table and CSV pending a period-aware plotting implementation |
 | source_files, native_sources, snapshots | The evidence describing the actual source collections in that snapshot | Source catalog and status metrics |
 
 **Do not add canonical and native row counts.** Data may overlap. Values across providers may have different units and definitions. The viewer does not interpolate, impute, aggregate, cross-source deduplicate or claim causal inference.
@@ -64,13 +68,14 @@ The materialized snapshot generally stores its actual SQLite file in canonical_w
 - Put an authenticated reverse proxy or Cloudflare Access Tunnel in front of it before offering remote access.
 - Source SQL queries are parameterized; browser text is rendered safely.
 - The visible table is limited to 2,000 records. CSV exports refuse to silently truncate selections over 10,000 records.
-- The site blocks misleading annual charts for duplicate-year, mixed-unit or sub-annual selections; the original values remain accessible in Table.
+- The site blocks misleading annual charts for duplicate-year, mixed-unit or sub-annual selections; original BLS monthly periods, units, source flags and state/industry codes remain accessible in Table or source-dimension-preserving CSV.
 - Suppressed or nonnumeric source-native values are not transformed into zero.
 - It never edits the SQLite database or modifies GitHub collection schedules.
 
 ## Tests
 
     python -m unittest discover -s tests -p 'test_atlas_web.py' -v
+    python -m unittest discover -s tests -p 'test_atlas_native_explorer.py' -v
     node --check atlas_web/static/app.js
 
 The existing Atlas source-registry CI executes these tests whenever the website changes.
