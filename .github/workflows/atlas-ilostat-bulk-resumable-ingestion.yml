@@ -3,6 +3,7 @@ name: Atlas - Ingest ILOSTAT full official bulk indicator archive into OneDrive
 on:
   # Re-run the existing guarded ingester once after an ingestion-workflow fix
   # merges to main. Scheduled runs remain the normal completion mechanism.
+  # Default 150 remains within the existing 1..150 guard; retain private SHA checkpoints.
   push:
     branches: [main]
     paths:
