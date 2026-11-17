@@ -2,8 +2,8 @@
   "schema_version": 1,
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
-  "updated_date": "2026-11-15",
-  "status_basis": "Verified GitHub Actions production evidence through November 15, 2026 evening America/New_York (GitHub UTC November 16): 59-series WDI native SQLite index and private SHA restore succeeded in run 43780249697; WID private 60-country native attachment and ILOSTAT 1,243-file checkpoint remain verified. Dated snapshot, not live telemetry.",
+  "updated_date": "2026-11-17",
+  "status_basis": "Verified GitHub Actions production evidence through November 17, 2026: ILOSTAT 75-source run 44155957216 recovered 75 more official tables with zero losses, 1,692/1,963 bulk table IDs in its collector report (271 still missing); independent private checkpoint guard counts 1,693/1,964 including one checkpoint/non-table entry. The previous WID+WDI private SQLite attachment of 613,087 original values remains verified by run 43780249697. FRED/Eurostat 17,321-row native extension is only open draft PR #42, not yet merged or production-verified. Dated snapshot, not live telemetry.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -44,9 +44,9 @@
   "workstreams": [
     {
       "name": "ILOSTAT official bulk",
-      "stage": "1,243/1,964 official source bulk files verified; 721 remain",
-      "evidence": "Latest ILOSTAT 75-attempt private source collection run 43749405810 added 74 new source IDs, failed one source EMP_TEMP_SEX_DSB_NB_Q with HTTP 502 upstream Bad Gateway, and lost zero previously verified files. The post-collection private checkpoint SHA confirmed 1,243 of 1,964 total bulk source table files retained. A successful workflow is not proof that its one failed download succeeded; retry remains an explicitly missing source item.",
-      "next": "Keep existing bounded ILOSTAT three-times-daily schedule. Reattempt failed EMP_TEMP_SEX_DSB_NB_Q on later passes, continue the other 721 official missing TOC source IDs and verify exact numerical file counts/no-loss private backup after each run. Source-file coverage is not a completed indicator-level research panel.",
+      "stage": "1,692/1,963 official bulk table IDs verified (1,693/1,964 with checkpoint guard's additional entry); 271 missing",
+      "evidence": "The November 17 main-branch run 44155957216 independently verified 75 newly downloaded official source tables with zero failed downloads and zero lost files. Its provider collection summary reported 1,692 of 1,963 available table IDs, leaving 271. The separate private OneDrive checkpoint post-guard verified 1,693 of 1,964 tracked entries (including an additional checkpoint/non-table entry) and SHA256 84d12c488e52c17c8a741203239a166506b20af9b4d1f277c22d74699aa7d1b3. Source-file coverage is distinct from numerical observations indexed into a queryable warehouse; the older 1,243/1,964 figure is historical.",
+      "next": "Continue the existing bounded 75-table ILOSTAT schedule for the 271 official missing bulk files; retain per-table verification and the private no-loss checkpoint. After source-file completion, make the original numeric values queryable with correct series dimensions, units and provenance rather than declaring the downloader itself research-ready.",
       "links": [
         {
           "label": "Last completed 920-file checkpoint",
@@ -75,6 +75,10 @@
         {
           "label": "Latest 1,243-file certified ILOSTAT source checkpoint",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43749405810"
+        },
+        {
+          "label": "November 17 latest certified 75-table ILOSTAT run and private checkpoint",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44155957216"
         }
       ]
     },
@@ -214,7 +218,7 @@
       "name": "FRED, BLS, U.S. Census, fiscal and remaining P0 sources",
       "stage": "FRED 21-series source release complete and privately verified; additional BLS/Census/fiscal gaps remain",
       "evidence": "On November 15, combined existing economic collector run 43681818626 finished successfully with 21 official FRED US time series (13,885 native numeric observations from one U.S. geography), plus six previously collected Eurostat source series (3,436 observations across 31 European geography codes): 17,321 source-native numerical values total, 27 original source response files, 32 distinct geography codes. Every original FRED CSV / Eurostat JSON-stat source was SHA-256 checked and independently re-parsed against the processed rows, preserving exact provider, native unit, frequency, period and value. Complete private OneDrive source release and checksum marker round-tripped with archive SHA-256 94d1f84eb450ebe0f0f47677d333a1948aa9e80a83bc1709acf1546b8537251a. New FRED scope includes labor earnings, productivity, unit labor costs, income, personal consumption, savings, hires and quits. These numeric values are source-native, not new additive canonical observations; the six Eurostat series overlap an earlier Eurostat release.",
-      "next": "FRED 21 original series /13,885 native numeric records and six Eurostat series /3,436 values are independently source-validated and backed up in private OneDrive (run 43681818626). Next make them queryable in a new immutable version of the SAME WID+WDI source-native SQLite attachment (613,087 private native records), preserving source-specific original units, frequencies, flags and provider release hashes with no across-provider numeric deduplication assumption. Only then pursue missing BLS/Census/fiscal official IDs.",
+      "next": "Review open draft PR #42 to incorporate the independently verified 13,885 original FRED and 3,436 Eurostat records into the SAME private WID+WDI source-native SQLite attachment. Require offline PR CI and successful post-merge immutable SHA-verified private restoration before claiming the new 630,408-record edition; keep historical/public releases unchanged. Then pursue missing BLS/Census/fiscal official series.",
       "links": [
         {
           "label": "125-source master catalog",
@@ -235,6 +239,10 @@
         {
           "label": "8-new-FRED-series completion PR #32",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/32"
+        },
+        {
+          "label": "FRED/Eurostat source-native attachment draft PR #42 (pending validation)",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/42"
         }
       ]
     }
@@ -413,15 +421,21 @@
       "title": "Complete official WDI 59-series native SQLite integration with verified private backup",
       "description": "After a safely failed initial OneDrive environment configuration and repair, production workflow run 43780249697 verified and indexed every World Bank original ZIP source numeric key/value in 59 original indicator identities (572,179 rows), retained 40,908 WID native records, and privately SHA256 round-tripped the immutable 613,087-source-native-row SQLite attachment as 2037962a29cd3587303a93bf542b7ff7ce521ce6f6294b6ad03041b978f05284. Original historical 2,780,117 canonical observations and older 2,104,609 native records are separate and unchanged. Public Atlas remains 32 WDI series; 265 original WDI geography codes include aggregates, not all countries.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43780249697"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Reverify ILOSTAT collection and introduce PR-only tests for next native economic attachment",
+      "description": "Main GitHub Actions run 44155957216 reports 75 new official bulk tables, zero failures, 1,692/1,963 provider table IDs verified (1,693/1,964 total private checkpoint entries) and 271 missing; SHA-backed checkpoint no-loss gate passed. Existing draft PR #42 for 27 FRED/Eurostat series is still pending and gets offline PR CI before any production merge; no current 630,408-row attachment release is claimed.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44155957216"
     }
   ],
   "next_actions": [
-    "ILOSTAT latest private checkpoint 1,243/1,964 official files; 721 missing and 1 transient HTTP 502 in the last batch (EMP_TEMP_SEX_DSB_NB_Q). Preserve the existing schedule and exact private source ID/backup checks.",
-    "Continue bounded ILOSTAT 75-source official download batches and retry the 1 transient provider 502 table; report actual new source IDs, failed IDs and source-native numerical research coverage distinctly.",
+    "ILOSTAT November 17: 1,692/1,963 official bulk table IDs (1,693/1,964 verified checkpoint entries) after zero-loss 75-table run 44155957216, leaving 271 official tables unverified. Continue existing schedule with private SHA receipts.",
+    "Continue existing bounded 75-table official ILOSTAT downloader for 271 missing TOC table IDs, preserve verified file IDs and numeric-source profiles; do not conflate file downloads with warehouse-ready numerical rows.",
     "WDI integration completed: 59 provider indicators, 572,179 original-verified native numeric records in privately backed-up versioned Atlas SQLite attachment run 43780249697 with derived archive SHA 2037962a29cd3587303a93bf542b7ff7ce521ce6f6294b6ad03041b978f05284. 265 geography codes include aggregates; source-defined units and official geo classification/vintage/source overlap remain prerequisites for harmonized analysis or new public website release.",
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
     "WID 60-country native selected 40,908 numeric values remain unchanged, queryable in the privately verified WID+WDI source-native attachment run 43780249697. Historical 23-country WID data are separate; classify and reconcile vintage before joining.",
-    "Next integrate the independently validated FRED 21-series 13,885 values and six Eurostat 3,436 values (source run 43681818626) into a NEW private version of existing WID+WDI native SQLite attachment; preserve provider-original frequency, unit, source hash and geography, and original 613,087 native rows. After that, find specific missing BLS, Census and fiscal datasets.",
+    "Draft PR #42 proposes adding 21 FRED (13,885 values) and six Eurostat (3,436 values) sources to the existing private 613,087-row native SQLite attachment, for 630,408 if verified. No completion claim until offline PR checks and post-merge private SHA restore succeed.",
     "Keep this dated briefing and its evidence links current when any material Atlas collection scope, successful release, or project direction changes."
   ],
   "assistant_start_here": [
