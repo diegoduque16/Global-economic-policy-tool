@@ -24,6 +24,7 @@ Use the **private SHA-verified native source archive** from the existing Atlas p
 
 - Choose one original provider group (World Bank WDI, WID, FRED, Eurostat or BLS JOLTS) in the native attachment, or one source family in the historical canonical warehouse.
 - Search source series IDs and, for JOLTS, descriptive labels such as job openings, hires, quits and layoffs. The original 830 BLS series IDs encode the actual state/industry dimensions.
+- Separate verified countries and territories from World Bank aggregate areas using the existing approved 261-code WDI public catalog (including 44 aggregates); retain unclassified codes as unclassified rather than guessing.
 - Select up to eight geographies and a year range.
 - Change between **line, bar, scatter, heatmap and table** views.
 - Inspect recorded values, frequencies, source units and provider attribution.
