@@ -454,6 +454,12 @@
       "title": "Promote original 27 FRED/Eurostat series to private queryable native attachment",
       "description": "PR #42 merged only after adding PR-only source/website checks, correcting a duplicate original provider-country-series-period row bug and passing CI. Main production run 44167631766 verified original 13,885 FRED plus 3,436 Eurostat numeric values, appended to 613,087 certified WID+WDI source-native records, and privately SHA-restored the new 630,408-record immutable archive 6d4bbec96428a6981d548ec51c3d56160452de63fd4c363f5c9749878767ea85. Do not call this a harmonized or public dataset.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44167631766"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Prepare verified source-native BLS JOLTS acquisition using existing collector",
+      "description": "Reuse the existing installed JOLTS collector and historic installer workflow rather than introducing another provider scraper. Preserve official jt.series and jt.data.1.AllItems original bytes, compare provider original numeric keys/values/units/status flags against the processed panel offline, and save source+panel privately by SHA-restored OneDrive archive. The pending implementation does not yet certify live downloaded values or queryable native SQLite integration.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/open_data/bls_jolts.py"
     }
   ],
   "next_actions": [
@@ -463,7 +469,8 @@
     "Promote the six-source Eurostat release to a versioned source-native/canonical warehouse stage after exact vintage and overlap checks. Do not silently replace the current public website WDI edition.",
     "WID 60-country native selected 40,908 numeric values remain unchanged, queryable in the privately verified WID+WDI source-native attachment run 43780249697. Historical 23-country WID data are separate; classify and reconcile vintage before joining.",
     "Completed November 17: 21 FRED (13,885 values) and six Eurostat (3,436 values) source series integrated into existing WID+WDI native SQLite; 630,408 source-native records protected in private SHA-restored edition 6d4bbec96428a6981d548ec51c3d56160452de63fd4c363f5c9749878767ea85 (run 44167631766). Next identify and complete specific remaining BLS/Census/fiscal series and validate official definitions before research panels.",
-    "Keep this dated briefing and its evidence links current when any material Atlas collection scope, successful release, or project direction changes."
+    "Keep this dated briefing and its evidence links current when any material Atlas collection scope, successful release, or project direction changes.",
+    "BLS JOLTS: reuse existing national/state/industry historical collector; new branch adds official source-byte preservation, offline numeric replay, private OneDrive SHA restore and metadata-only receipt. This is unverified code pending successful PR tests and production run; do not count any new observations or call it queryable until release verification."
   ],
   "assistant_start_here": [
     "Read the current source of truth at docs/atlas_project_brief.json (also published as /project/brief.json) before continuing Atlas. This file captures the user's chosen goal and dated decisions; it is not live telemetry.",
