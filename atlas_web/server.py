@@ -359,6 +359,14 @@ class NativeAttachmentStore(AtlasStore):
         return [{k: v for k, v in group.items() if k != "prefix"}
                 for group in self.groups.values()]
 
+    def overview(self):
+        result = super().overview()
+        # The UI groups 976 original series/source identities into 5 providers.
+        # Do not report 5 provider groups as 5 original indexed native sources.
+        result["native_provider_groups"] = len(self.groups)
+        result["native_sources"] = sum(group["series"] for group in self.groups.values())
+        return result
+
     def _group(self, fid, layer):
         if layer != "source_native" or fid not in self.groups:
             raise ValueError("Choose a private source-native provider")
