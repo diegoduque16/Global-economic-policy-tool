@@ -87,7 +87,7 @@ def insert_jolts(dbpath, panel, manifest, *,
                     period=row['period']
                     if not isinstance(sid,str) or not SERIES_REGEX.fullmatch(sid):
                         raise ValueError('BLS source series code invalid')
-                    if not re.fullmatch(r'20\\d{2}-(0[1-9]|1[0-2])',period):
+                    if not re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])',period):
                         raise ValueError('BLS native monthly period invalid')
                     if period[:4]!=str(row['year']) or int(row['year'])>2026:
                         raise ValueError('BLS year / period inconsistent')
