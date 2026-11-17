@@ -10,10 +10,10 @@ on:
   workflow_dispatch:
     inputs:
       batch_size:
-        description: 'Official source tables per run (default 75, cap 150; resume missing IDs only)'
+        description: 'Official source tables per run (default 150, cap 150; resume missing IDs only)'
         type: string
         required: true
-        default: '75'
+        default: '150'
       profile_backfill_files:
         description: 'Max previously saved SHA-verified raw tables to value-profile (0-20, cap 128 MiB)'
         type: string
@@ -45,7 +45,7 @@ jobs:
     timeout-minutes: 240
     env:
       RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-      BATCH_SIZE: ${{ inputs.batch_size || '75' }}
+      BATCH_SIZE: ${{ inputs.batch_size || '150' }}
       MAX_FILE_MIB: ${{ inputs.max_file_mib || '512' }}
       MAX_RUN_MIB: ${{ inputs.max_run_mib || '2048' }}
       PROFILE_BACKFILL_FILES: ${{ inputs.profile_backfill_files || '5' }}
@@ -102,7 +102,7 @@ jobs:
           TARGET = BASE + '/indicator-data'
           MANIFEST = BASE + '/checkpoint/state.json'
           NOW = datetime.now(timezone.utc).isoformat()
-          BATCH = int(os.environ.get('BATCH_SIZE', '75'))
+          BATCH = int(os.environ.get('BATCH_SIZE', '150'))
           MAX_FILE = int(os.environ.get('MAX_FILE_MIB', '512')) * 1024 * 1024
           MAX_RUN = int(os.environ.get('MAX_RUN_MIB', '2048')) * 1024 * 1024
           OUT = Path('ilostat_bulk_run_report')
