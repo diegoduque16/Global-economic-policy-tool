@@ -44,7 +44,7 @@ class EurostatFredNativeSQLiteTest(unittest.TestCase):
             self.make_db(db)
             row={'series':'PAYEMS','period':'2026-01-01','country_iso3':'USA','status_flag':'',
                  'value':'158','unit':'thousands','frequency':'monthly','source_url':'x'}
-            with self.assertRaises(sqlite3.IntegrityError):
+            with self.assertRaisesRegex(ValueError,'Duplicate provider/geography/series/period'):
                 extend_sqlite(db,[('us',row),('us',row)],{('us','PAYEMS'):'a'*64},expected_parent_rows=1)
             with sqlite3.connect(db) as c:
                 self.assertEqual(c.execute('SELECT COUNT(*) FROM native_records').fetchone()[0],1)
