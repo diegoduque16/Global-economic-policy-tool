@@ -3,7 +3,7 @@
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
   "updated_date": "2026-11-17",
-  "status_basis": "Certified November 17, 2026 GitHub Actions production results: ILOSTAT 1,692/1,963 official table IDs and 1,693/1,964 checkpoint entries (271 unverified); original BLS JOLTS source run 44170002938 verified 252,710 numeric observations across 830 series; native SQLite production run 44171117929 appended all 252,710 BLS JOLTS values to the existing 630,408-record private Atlas source attachment for 883,118 source-native records total, with private OneDrive restored SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. Historical canonical and public 32-series WDI edition remain unchanged. Snapshot, not live telemetry. Real private five-provider Atlas explorer data proof succeeded in GitHub Actions run 44189089919 (exact SHA-pinned 883,118-row archive and BLS monthly chart query). ILOSTAT 150-table resumption run 44188570690 started after correcting test-only assertion; source collection new count pending certified post-run receipt.",
+  "status_basis": "Latest verified November 17, 2026 source and private query releases: ILOSTAT run 44188570690 verified 150 additional official bulk table IDs (0 failures, 0 losses), now 1,842/1,963 source tables, 121 missing; independent private checkpoint audit has 1,843/1,964 entries including one additional checkpoint-only entry, backed up with SHA256 be4f3401e495c3ab505e4c91ba56e2e266263f533f70f8a22206220e96cbd1ea. Certified private Atlas five-provider source-native SQLite remains 883,118 numeric records and 976 source identities, with real read-only explorer test run 44189089919 passing. The ILOSTAT bulk source files are not yet integrated into this source-native SQLite; historical canonical and public World Bank editions remain separate and unchanged. Snapshot, not live telemetry.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -49,9 +49,9 @@
   "workstreams": [
     {
       "name": "ILOSTAT official bulk",
-      "stage": "1,692/1,963 official bulk table IDs verified (1,693/1,964 with checkpoint guard's additional entry); 271 missing",
-      "evidence": "The November 17 main-branch run 44155957216 independently verified 75 newly downloaded official source tables with zero failed downloads and zero lost files. Its provider collection summary reported 1,692 of 1,963 available table IDs, leaving 271. The separate private OneDrive checkpoint post-guard verified 1,693 of 1,964 tracked entries (including an additional checkpoint/non-table entry) and SHA256 84d12c488e52c17c8a741203239a166506b20af9b4d1f277c22d74699aa7d1b3. Source-file coverage is distinct from numerical observations indexed into a queryable warehouse; the older 1,243/1,964 figure is historical.",
-      "next": "Continue the existing bounded 75-table ILOSTAT schedule for the 271 official missing bulk files; retain per-table verification and the private no-loss checkpoint. After source-file completion, make the original numeric values queryable with correct series dimensions, units and provenance rather than declaring the downloader itself research-ready.",
+      "stage": "1,842 of 1,963 official ILOSTAT indicator bulk source table IDs verified (93.8%); 121 still missing; private checkpoint guard covers 1,843/1,964 entries with one extra non-TOC entry",
+      "evidence": "GitHub main run 44188570690 (November 17, 2026) recovered and SHA-verified 150 additional official bulk source tables with 0 failed downloads, 0 lost files and 0 refreshed files. Collector provider TOC summary: 1,842 / 1,963 table IDs and 121 remaining. Private checkpoint audit post-run: 1,843 / 1,964 entries including an additional non-TOC checkpoint entry; SHA256 be4f3401e495c3ab505e4c91ba56e2e266263f533f70f8a22206220e96cbd1ea restored and backed up privately. Source tables and their raw row counts are NOT 1-to-1 unique economic series or harmonized observations; verified ILOSTAT numeric integration into existing 883,118-row source-native SQLite is a separate unfinished task.",
+      "next": "Complete the remaining 121 official TOC bulk table IDs through the existing bounded 150-table workflow, with no-loss private checkpoint and per-file SHA restore; investigate any source endpoint/size-cap exceptions rather than claiming guaranteed completion in one run. Then select priority employment/wages/AI-exposure series, preserve full original dimensional keys, units, dates, flags, country-versus-aggregate classifications and source vintage, and index original numeric rows in the SAME versioned private Atlas native SQLite using verified source hashes.",
       "links": [
         {
           "label": "Last completed 920-file checkpoint",
@@ -84,6 +84,10 @@
         {
           "label": "November 17 latest certified 75-table ILOSTAT run and private checkpoint",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44155957216"
+        },
+        {
+          "label": "Successful 150-table November 17 ILOSTAT collection and private no-loss checkpoint",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44188570690"
         }
       ]
     },
@@ -600,10 +604,16 @@
       "title": "Verify the real private 883,118-record Atlas source explorer in production",
       "description": "PR #51 merged and GitHub production run 44189089919 successfully restored SHA-pinned private OneDrive archive ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625, extracted only native SQLite, and ran source-native explorer against actual numeric records. Verified 5 provider groups, 976 original source identities, 883,118 numeric source-native records and actual BLS monthly job-openings query eligibility plus retained state/industry/units with SQLite read-only and integrity checks. No private data uploaded to public GitHub artifacts or Cloudflare, and no claim of hosted UI deployment.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44189089919"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Certify accelerated 150-table ILOSTAT ingestion and prioritize final 121 provider tables",
+      "description": "Replacement collector main run 44188570690 passed, verifying 150 new official source table IDs with zero failed downloads, zero lost source files, now 1,842/1,963 official TOC entries covered, 121 missing. Private checkpoint guard independently verified 1,843/1,964 tracked entries (one extra checkpoint-only entry) and immutable SHA256 be4f3401e495c3ab505e4c91ba56e2e266263f533f70f8a22206220e96cbd1ea. Next existing bounded batch could finish all remaining if no new failures, deferred size cap or provider changes. Do not claim unique ILOSTAT numeric series, harmonized records or an addition to 883,118-row source-native SQLite.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44188570690"
     }
   ],
   "next_actions": [
-    "ILOSTAT remains at last certified run 44155957216: 1,692/1,963 official TOC source tables (271 missing). Supported 150-table batch default merged PR #48, but main run 44187801840 failed at a stale 75-table test assertion BEFORE downloads. Guard test corrected in PR #50, main re-collection run 44188570690 started. No new source count until that run finishes and checksum/checkpoint pass.",
+    "ILOSTAT latest certified November 17 run 44188570690: 1,842/1,963 original provider TOC table IDs covered (121 outstanding) after 150 new files, zero failed downloads and zero lost source files, private checkpoint SHA256 be4f3401e495c3ab505e4c91ba56e2e266263f533f70f8a22206220e96cbd1ea. Run the existing guarded 150-table schedule again; investigate any missing/oversized source IDs explicitly. Source-table counts must not be added to native numeric row counts until numeric integration.",
     "BLS JOLTS completion: 252,710 original source-verified monthly numeric observations and 830 official BLS series added to same private SQLite attachment, production run 44171117929; new 883,118-record immutable archive restored with SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. No re-collection needed absent revised source vintage.",
     "Private five-provider Atlas explorer source-native access is now independently verified on the EXACT immutable private 883,118-row attachment in successful main run 44189089919 (976 original source identities, BLS actual job-openings monthly plot query, SQLite integrity and source-metadata preservation). Keep private via local-only read-only binding; any authenticated remote hosting and public release remain separate pending decisions.",
     "Complete specific missing U.S. BLS, Census and fiscal source datasets rather than only expanding catalog metadata, reusing existing collectors. Identify unique source IDs, archive original numeric responses privately and integrate only verified additions.",
