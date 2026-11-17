@@ -272,6 +272,232 @@ class AtlasStore:
         return output.getvalue()
 
 
+
+class NativeAttachmentStore(AtlasStore):
+    """Open a SHA-verified private native SQLite attachment without the >10GB parent.
+
+    Reuses the existing Atlas HTTP explorer, never publishes or harmonizes data.
+    Provider groups are presentation filters, not pooled comparable series.
+    """
+
+    PROVIDERS = (
+        ("wdi", "World Bank WDI (private native)", "world_bank_wdi_"),
+        ("wid", "World Inequality Database (private native)", "wid_world_"),
+        ("fred", "FRED U.S. economic series (private native)", "fred_"),
+        ("eurostat", "Eurostat (private native)", "eurostat_"),
+        ("bls_jolts", "BLS JOLTS jobs and labor turnover (private native)", "bls_jolts_"),
+    )
+    BLS_LABELS = {"JO": "Job openings", "HI": "Hires", "TS": "Total separations",
+                  "QU": "Quits", "LD": "Layoffs and discharges"}
+
+    def __init__(self, path):
+        self.path = Path(path).resolve()
+        if not self.path.is_file():
+            raise FileNotFoundError(f"Atlas source-native attachment not found: {self.path}")
+        self.geography_names = {"WLD": "World aggregate"}
+        iso_path = HERE.parent / "research" / "iso3_country_codes.csv"
+        if iso_path.is_file():
+            with iso_path.open(encoding="utf-8-sig", newline="") as source:
+                for row in csv.DictReader(source):
+                    if row.get("iso3") and row.get("name"):
+                        self.geography_names[row["iso3"]] = row["name"]
+        self.groups = {}
+        self.source_details = {}
+        with closing(self.connect()) as db:
+            if not {"native_sources", "native_records"}.issubset(self.tables(db)):
+                raise ValueError("Expected Atlas private source-native attachment tables")
+            columns = {r[1] for r in db.execute("PRAGMA table_info(native_records)")}
+            if not {"source_id", "ordinal", "year_text", "period_text", "geo_code",
+                    "series_code", "value_text", "raw_row_json"}.issubset(columns):
+                raise ValueError("Incompatible Atlas source-native attachment schema")
+            sources = [dict(x) for x in db.execute(
+                "SELECT source_id, indexed_records, original_scope FROM native_sources")]
+            for group_id, label, prefix in self.PROVIDERS:
+                matches = [r for r in sources if r["source_id"].startswith(prefix)]
+                if matches:
+                    self.groups[group_id] = {
+                        "id": group_id, "name": label, "layer": "source_native",
+                        "observations": sum(int(r["indexed_records"]) for r in matches),
+                        "series": len(matches), "prefix": prefix,
+                    }
+                    for record in matches:
+                        try:
+                            detail = json.loads(record["original_scope"])
+                        except (ValueError, TypeError):
+                            detail = {}
+                        self.source_details[record["source_id"]] = detail if isinstance(detail, dict) else {}
+            if not self.groups or sum(x["observations"] for x in self.groups.values()) != db.execute(
+                    "SELECT COUNT(*) FROM native_records").fetchone()[0]:
+                raise ValueError("Unrecognized or incomplete provider sources in private Atlas attachment")
+
+    def families(self):
+        return [{k: v for k, v in group.items() if k != "prefix"}
+                for group in self.groups.values()]
+
+    def _group(self, fid, layer):
+        if layer != "source_native" or fid not in self.groups:
+            raise ValueError("Choose a private source-native provider")
+        return self.groups[fid]
+
+    def _title(self, fid, code):
+        if fid != "bls_jolts":
+            return code
+        details = next((v for key, v in self.source_details.items()
+                        if key.startswith("bls_jolts_") and v.get("original_provider_series_id") == code), {})
+        measure = self.BLS_LABELS.get(code[-3:-1], code[-3:-1])
+        state = details.get("state_code", "?")
+        industry = details.get("industry_code", "?")
+        rate = "rate" if code.endswith("R") else "level"
+        return f"{measure} · {rate} · state {state} · industry {industry} · seasonally adjusted"
+
+    def series(self, fid, layer, q="", max_results=250):
+        group = self._group(fid, layer)
+        with closing(self.connect()) as db:
+            rows = [dict(r) for r in db.execute(
+                """SELECT series_code AS name, COUNT(*) AS rows,
+                          MIN(substr(period_text,1,4)) AS first_year,
+                          MAX(substr(period_text,1,4)) AS last_year,
+                          NULL AS units
+                   FROM native_records
+                   WHERE source_id GLOB ? AND series_code IS NOT NULL AND series_code != ''
+                   GROUP BY series_code ORDER BY rows DESC, series_code""",
+                (group["prefix"] + "*",))]
+        needle = q.strip().lower()[:80]
+        out = []
+        for item in rows:
+            item["title"] = self._title(fid, item["name"])
+            if not needle or needle in item["name"].lower() or needle in item["title"].lower():
+                out.append(item)
+                if len(out) >= max_results:
+                    break
+        return out
+
+    def geographies(self, fid, layer, series="", q=""):
+        group = self._group(fid, layer)
+        with closing(self.connect()) as db:
+            rows = [dict(r) for r in db.execute(
+                """SELECT geo_code AS code, COUNT(*) AS rows FROM native_records
+                   WHERE source_id GLOB ? AND (?='' OR series_code=?)
+                         AND (?='' OR geo_code LIKE ?)
+                         AND geo_code IS NOT NULL AND geo_code!=''
+                   GROUP BY geo_code ORDER BY rows DESC LIMIT 350""",
+                (group["prefix"] + "*", series, series, q, "%" + q + "%"))]
+        for row in rows:
+            row["name"] = self.geography_names.get(row["code"], row["code"])
+            row["geography_type"] = "aggregate" if row["code"] == "WLD" else "unclassified"
+        return rows
+
+    def rows(self, fid, layer, series, geos, first, last, limit=LIMIT):
+        group = self._group(fid, layer)
+        if not series or len(series) > 160:
+            raise ValueError("Choose an indicator/series first")
+        if len(geos) > 8 or any(len(x) > 32 for x in geos):
+            raise ValueError("Choose up to eight geographic areas")
+        if first > last or first < -1000 or last > 2200:
+            raise ValueError("Invalid year range")
+        limit = max(1, min(CSV_LIMIT, int(limit)))
+        args = [group["prefix"] + "*", series, f"{first:04d}", f"{last:04d}"]
+        sql = """SELECT source_id, ordinal, geo_code AS geography,
+                        year_text, period_text AS period, series_code AS series,
+                        value_text AS raw_value, raw_row_json
+                 FROM native_records
+                 WHERE source_id GLOB ? AND series_code=?
+                   AND substr(period_text,1,4) BETWEEN ? AND ?"""
+        if geos:
+            sql += " AND geo_code IN (" + ",".join("?" for _ in geos) + ")"
+            args.extend(geos)
+        sql += " ORDER BY period_text, geo_code, source_id, ordinal LIMIT ?"
+        args.append(limit + 1)
+        with closing(self.connect()) as db:
+            raw = [dict(r) for r in db.execute(sql, args)]
+        truncated = len(raw) > limit
+        items = []
+        for r in raw[:limit]:
+            try:
+                source = json.loads(r.pop("raw_row_json"))
+            except (ValueError, TypeError) as exc:
+                raise ValueError("Invalid original source-native row metadata") from exc
+            if not isinstance(source, dict):
+                raise ValueError("Original Atlas native row is not a source object")
+            dims = source.get("disaggregation", {})
+            if isinstance(dims, str):
+                try:
+                    dims = json.loads(dims)
+                except ValueError as exc:
+                    raise ValueError("Invalid original dimension record") from exc
+            if not isinstance(dims, dict):
+                dims = {}
+            period = str(r["period"] or r["year_text"] or "")
+            year = int(period[:4]) if len(period) >= 4 and period[:4].isdigit() else None
+            source_detail = self.source_details.get(r["source_id"], {})
+            unit = str(source.get("unit") or source_detail.get("unit") or "source_defined_unverified")
+            frequency = str(source.get("frequency") or ("annual" if len(period) == 4 else "source_native"))
+            flag = str(source.get("status_flag") or source.get("obs_status") or source.get("data_status") or "")
+            item = {
+                "provider": str(source.get("provider") or source_detail.get("provider") or group["name"]),
+                "geography": r["geography"], "year": year, "period": period,
+                "series": r["series"], "value": numeric(r["raw_value"]),
+                "raw_value": r["raw_value"], "unit": unit,
+                "frequency": frequency,
+                "source_status": ("SOURCE_NATIVE_UNHARMONIZED" + (" | " + flag if flag else "")),
+                "source_url": str(source.get("source_url") or source_detail.get("original_source_url")
+                                  or source_detail.get("source_url") or ""),
+                "source_id": r["source_id"], "state_code": dims.get("state_code", ""),
+                "industry_code": dims.get("industry_code", ""),
+                "disaggregation": json.dumps(dims, ensure_ascii=False, sort_keys=True),
+            }
+            items.append(item)
+        units = sorted({r["unit"] for r in items})
+        freqs = sorted({r["frequency"] for r in items})
+        keys = [(r["geography"], r["series"], r["period"]) for r in items]
+        duplicate_keys = len(keys) - len(set(keys))
+        blockers = []
+        if truncated:
+            blockers.append("Selection exceeds displayed row limit; narrow the filters.")
+        if len(units) > 1:
+            blockers.append("Multiple source units; do not plot on one scale.")
+        if len(freqs) > 1:
+            blockers.append("Mixed frequencies; narrow the selection.")
+        if duplicate_keys:
+            blockers.append("Repeated geography/period/series keys; inspect original dimensions.")
+        yearly = [(r["geography"], r["year"]) for r in items if r["year"] is not None]
+        if len(yearly) != len(set(yearly)):
+            blockers.append("Multiple observations within a year; review original monthly or subgroup periods.")
+        if any(r["period"] not in ("", str(r["year"])) for r in items):
+            blockers.append("Nonannual periods require a period-aware plot; use Table or CSV.")
+        warnings = ["Private original source-native data; units, vintages and providers are not harmonized."]
+        if any(r["value"] is None for r in items):
+            warnings.append("Suppressed/nonnumeric values are retained without zero filling.")
+        return {"rows": items, "returned": len(items), "truncated": truncated,
+                "units": units, "frequencies": freqs, "duplicate_keys": duplicate_keys,
+                "chart_warnings": blockers + warnings, "chart_blockers": blockers,
+                "layer": layer, "family": fid, "series": series,
+                "can_plot": not blockers and any(r["value"] is not None for r in items),
+                "not_cross_provider_harmonized": True}
+
+    def export_csv(self, *args):
+        result = self.rows(*args, limit=CSV_LIMIT)
+        if not result["rows"]:
+            raise ValueError("No source-native records to export")
+        if result["truncated"]:
+            raise ValueError("CSV export exceeds 10,000 rows; narrow the filters")
+        fields = ("provider", "geography", "year", "period", "series", "value",
+                  "raw_value", "unit", "frequency", "source_status", "source_url",
+                  "source_id", "state_code", "industry_code", "disaggregation")
+        stream = io.StringIO()
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        for row in result["rows"]:
+            safe = {}
+            for key in fields:
+                value = row.get(key, "")
+                if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
+                    value = "'" + value
+                safe[key] = value
+            writer.writerow(safe)
+        return stream.getvalue()
+
+
 class AtlasHandler(BaseHTTPRequestHandler):
     store=None
 
@@ -337,17 +563,29 @@ class AtlasHandler(BaseHTTPRequestHandler):
 
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--db",required=True,help="Existing verified Atlas warehouse.sqlite snapshot")
+    ap.add_argument("--db",required=True,help="Verified Atlas canonical SQLite or private source-native attachment")
     ap.add_argument("--host",default="127.0.0.1",
                     help="Bind locally by default; a remote host MUST add authentication")
     ap.add_argument("--port",type=int,default=8765)
     args=ap.parse_args()
     if args.host not in ("127.0.0.1","localhost","::1"):
         ap.error("External hosting requires an authenticated reverse proxy; local-only by default")
-    AtlasHandler.store=AtlasStore(args.db)
+    db_path = Path(args.db).resolve()
+    if not db_path.is_file():
+        ap.error("The selected Atlas SQLite file does not exist")
+    # The 883,118-row private attachment is a compact *separate* SQLite,
+    # while the older canonical warehouse has observations/source_files.
+    with closing(sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True)) as db:
+        kinds = AtlasStore.tables(db)
+    if {"observations", "source_files"}.issubset(kinds):
+        AtlasHandler.store = AtlasStore(db_path)
+    elif {"native_sources", "native_records"}.issubset(kinds):
+        AtlasHandler.store = NativeAttachmentStore(db_path)
+    else:
+        ap.error("Unrecognized Atlas SQLite release: neither canonical nor native attachment")
     server=ThreadingHTTPServer((args.host,args.port),AtlasHandler)
     print(f"Atlas Data Explorer: http://{args.host}:{args.port}/")
-    print("Read-only source-separated warehouse; no data is uploaded to GitHub")
+    print("Read-only Atlas data; this localhost explorer does not publish private source records")
     try: server.serve_forever()
     except KeyboardInterrupt: pass
     finally: server.server_close()
