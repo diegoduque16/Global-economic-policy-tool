@@ -3,7 +3,7 @@
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
   "updated_date": "2026-11-17",
-  "status_basis": "Certified November 17, 2026 GitHub Actions production results: ILOSTAT 1,692/1,963 official table IDs and 1,693/1,964 checkpoint entries (271 unverified); original BLS JOLTS source run 44170002938 verified 252,710 numeric observations across 830 series; native SQLite production run 44171117929 appended all 252,710 BLS JOLTS values to the existing 630,408-record private Atlas source attachment for 883,118 source-native records total, with private OneDrive restored SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. Historical canonical and public 32-series WDI edition remain unchanged. Snapshot, not live telemetry.",
+  "status_basis": "Certified November 17, 2026 GitHub Actions production results: ILOSTAT 1,692/1,963 official table IDs and 1,693/1,964 checkpoint entries (271 unverified); original BLS JOLTS source run 44170002938 verified 252,710 numeric observations across 830 series; native SQLite production run 44171117929 appended all 252,710 BLS JOLTS values to the existing 630,408-record private Atlas source attachment for 883,118 source-native records total, with private OneDrive restored SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. Historical canonical and public 32-series WDI edition remain unchanged. Snapshot, not live telemetry. Real private five-provider Atlas explorer data proof succeeded in GitHub Actions run 44189089919 (exact SHA-pinned 883,118-row archive and BLS monthly chart query). ILOSTAT 150-table resumption run 44188570690 started after correcting test-only assertion; source collection new count pending certified post-run receipt.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -293,9 +293,9 @@
     },
     {
       "name": "Private source-native Atlas explorer",
-      "stage": "Existing Atlas localhost/private explorer now supports the source-native 883,118-row five-provider SQLite attachment; provider source grouping and geography classification improvements merged with GitHub CI success on November 17. Live local runtime with private archive not independently verified.",
-      "evidence": "The existing local read-only explorer now opens certified standalone native_source_extension.sqlite without the historical >10GB canonical warehouse. PR #45 CI run 44184350767 passed; PR #46 protects unresolved source codes from mistaken country labels. PR #47 reused the existing approved public World Bank geography catalog (261 provider codes, 217 countries/territories, 44 aggregates), with a fallback ISO3 reference and explicit unknown classification; read-only provider/series/geography/year filtering and source-aware BLS exports remained regression-tested. PR #47 premerge run 44185301050 passed. Five provider groupings display 976 original indexed source IDs without conflating group count and source count. All CI data are synthetic fixtures, not actual private SQLite runtime data, and no private archive was uploaded to GitHub or Cloudflare.",
-      "next": "Verify PR-only tests, then run new read-only private production smoke with exact pinned archived 883,118-record native SQLite from previous SHA-verified release. Test all five provider groups and 976 source IDs, source geo/period filters, BLS monthly chart on actual data, and SQLite integrity; only claim live data success after this specific main workflow passes. Do not upload private data to GitHub or public Cloudflare.",
+      "stage": "Private Atlas explorer fully production-smoke-verified against actual 883,118-record / 976-source-identity five-provider native SQLite on Nov 17, using checksum-pinned private OneDrive archive; local read-only service only, not public Cloudflare.",
+      "evidence": "GitHub Actions production run 44189089919 restored the exact SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625 archive, safely extracted only private native_source_extension.sqlite, and opened the real read-only Atlas source explorer. Verified 883,118 actual rows across 976 indexed original source series and 5 provider groups, exact WDI 572,179 / WID 40,908 / FRED 13,885 / Eurostat 3,436 / BLS JOLTS 252,710 source-native numeric records, successfully queried an actual BLS job-openings monthly series with original state and industry dimensions and source units, and passed SQLite integrity and read-only checks. These are actual private-data smoke results; no private source values were published in artifact or public Atlas. Monthly/quarterly period chart logic merged in PR #49 and tests passed.",
+      "next": "Use the existing read-only private explorer with its SHA-verified actual archive; next implement authenticated remote exploration if required, separately from public WDI site. Continue explicit gap-driven source acquisition (ILOSTAT official bulk source collection and missing Census/fiscal/P0 series), exact source definitions, duplicate providers/units and evidence-backed periodicity. Do not call new data publicly deployed.",
       "links": [
         {
           "label": "Existing private Atlas explorer backend",
@@ -328,6 +328,10 @@
         {
           "label": "Original certified 883,118-row private attachment production release",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44171117929"
+        },
+        {
+          "label": "Real 883,118-row private archive source query and monthly chart verification",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44189089919"
         }
       ]
     }
@@ -590,12 +594,18 @@
       "title": "Correct ILOSTAT 150-file test assertion before any new source completion claim",
       "description": "First mainline accelerated ILOSTAT run 44187801840 failed before the downloader at an older unit test expecting default batch 75. PR #50 updated the unit-test expectations for the already-guarded 150 maximum and merged after checks passed; main replacement run 44188570690 is underway at time of this snapshot. Continue to use official latest run and private no-loss SHA evidence for counts, not merged pipeline settings alone.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44187801840"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Verify the real private 883,118-record Atlas source explorer in production",
+      "description": "PR #51 merged and GitHub production run 44189089919 successfully restored SHA-pinned private OneDrive archive ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625, extracted only native SQLite, and ran source-native explorer against actual numeric records. Verified 5 provider groups, 976 original source identities, 883,118 numeric source-native records and actual BLS monthly job-openings query eligibility plus retained state/industry/units with SQLite read-only and integrity checks. No private data uploaded to public GitHub artifacts or Cloudflare, and no claim of hosted UI deployment.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44189089919"
     }
   ],
   "next_actions": [
     "ILOSTAT remains at last certified run 44155957216: 1,692/1,963 official TOC source tables (271 missing). Supported 150-table batch default merged PR #48, but main run 44187801840 failed at a stale 75-table test assertion BEFORE downloads. Guard test corrected in PR #50, main re-collection run 44188570690 started. No new source count until that run finishes and checksum/checkpoint pass.",
     "BLS JOLTS completion: 252,710 original source-verified monthly numeric observations and 830 official BLS series added to same private SQLite attachment, production run 44171117929; new 883,118-record immutable archive restored with SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. No re-collection needed absent revised source vintage.",
-    "The provider-aware private explorer is merged through PRs #45–#47, including verified WDI geo labels. Monthly/quarterly period-aware charting merged in PR #49. Now independently smoke-test the REAL 883,118-record private source-native archive via pinned SHA and localhost-only query adapter; new main-branch smoke workflow proposed and not yet production-verified.",
+    "Private five-provider Atlas explorer source-native access is now independently verified on the EXACT immutable private 883,118-row attachment in successful main run 44189089919 (976 original source identities, BLS actual job-openings monthly plot query, SQLite integrity and source-metadata preservation). Keep private via local-only read-only binding; any authenticated remote hosting and public release remain separate pending decisions.",
     "Complete specific missing U.S. BLS, Census and fiscal source datasets rather than only expanding catalog metadata, reusing existing collectors. Identify unique source IDs, archive original numeric responses privately and integrate only verified additions.",
     "Reconcile WDI official units/265 provider geography codes including aggregates, WID 60+23 country vintage boundaries, Eurostat/FRED definitions and JOLTS state/national and FRED series overlap before cross-country comparison.",
     "Publish to Cloudflare only selectively after provenance, source definition, licensing and privacy checks; a successful GitHub/private archive is not proof of public website deployment.",
