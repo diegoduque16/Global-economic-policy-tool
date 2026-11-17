@@ -5,7 +5,9 @@ state/region total-nonfarm series; seasonally adjusted levels/rates retained
 separately. All quantities are survey estimates, not policy-shock instruments.
 """
 from __future__ import annotations
+import argparse
 import csv
+import tempfile
 import datetime as dt
 import hashlib
 import io
@@ -55,12 +57,14 @@ def read_bls_rows(payload):
 def build(*,out='data/bls_jolts',start=2000,end=2026, fetch=retrieve):
     if not (2000<=start<=end<=2100):raise ValueError('Invalid year bounds')
     output=Path(out);(output/'processed').mkdir(parents=True,exist_ok=True)
+    (output/'raw').mkdir(parents=True,exist_ok=True)
     timestamp=dt.datetime.now(dt.timezone.utc).isoformat()
     manifest=[]
     def get(filename,cap):
         b=fetch(filename,max_size=cap)
         manifest.append({'name':filename,'source_url':BASE+filename,
                          'sha256':hashlib.sha256(b).hexdigest(),'bytes':len(b)})
+        (output/'raw'/filename).write_bytes(b)
         return b
 
     meta_payload=get('jt.series',1_500_000)
@@ -161,9 +165,77 @@ def build(*,out='data/bls_jolts',start=2000,end=2026, fetch=retrieve):
     return report
 
 
+def verify_release(out='data/bls_jolts'):
+    """Independently replay the exact saved official BLS bytes against every numeric row.
+
+    Checks per-file hashes and exact provider dimensions, units, flags, observed
+    values and order. Does not call the public network or trust a green workflow.
+    """
+    root=Path(out)
+    report=json.loads((root/'run_report.json').read_text(encoding='utf-8'))
+    manifest=report.get('manifest',[])
+    expected={'jt.series','jt.data.1.AllItems'}
+    if {m['name'] for m in manifest}!=expected or len(manifest)!=len(expected):
+        raise ValueError('JOLTS original-source manifest is incomplete')
+    originals={}
+    for item in manifest:
+        filename=item['name']
+        if item['source_url']!=BASE+filename:
+            raise ValueError('BLS original-source URL changed')
+        file=root/'raw'/filename
+        if not file.is_file() or file.is_symlink():
+            raise ValueError('Original BLS source missing or unsafe')
+        data=file.read_bytes()
+        if (hashlib.sha256(data).hexdigest()!=item['sha256']
+            or len(data)!=item['bytes']):
+            raise ValueError('Original BLS source SHA256 mismatch')
+        originals[filename]=data
+    panel=root/'processed'/'bls_jolts_panel.csv'
+    if hashlib.sha256(panel.read_bytes()).hexdigest()!=report['panel_sha256']:
+        raise ValueError('BLS processed panel SHA256 mismatch')
+    with tempfile.TemporaryDirectory() as temp:
+        def offline_fetch(filename,*,max_size,retries=3):
+            data=originals[filename]
+            if len(data)>max_size:
+                raise ValueError('Original BLS replay exceeds configured size cap')
+            return data
+        recreated=build(out=temp,start=report['requested_years'][0],
+                        end=report['requested_years'][1],fetch=offline_fetch)
+        checks=('observations','first_year','last_year','series_ids',
+                'geographic_codes','industry_codes','measures',
+                'omitted_non_numeric','omitted_invalid_numeric')
+        if any(recreated[k]!=report[k] for k in checks):
+            raise ValueError('Independent BLS source numeric coverage changed')
+        with panel.open(newline='',encoding='utf-8') as f:
+            original_rows=list(csv.DictReader(f))
+        with (Path(temp)/'processed'/'bls_jolts_panel.csv').open(newline='',encoding='utf-8') as f:
+            replay_rows=list(csv.DictReader(f))
+        if len(original_rows)!=recreated['observations']:
+            raise ValueError('BLS source panel row count mismatch')
+        for a,b in zip(original_rows,replay_rows):
+            if {k:v for k,v in a.items() if k!='retrieved_utc'} != {
+                    k:v for k,v in b.items() if k!='retrieved_utc'}:
+                raise ValueError('Independent BLS original numeric/metadata replay failed')
+        if len(original_rows)!=len(replay_rows):
+            raise ValueError('BLS original source/panel lengths mismatch')
+    return {'status':'BLS_JOLTS_ORIGINAL_NUMERIC_REPLAY_VERIFIED',
+            'source_files':len(originals),'observations':report['observations'],
+            'series_ids':report['series_ids'],'first_year':report['first_year'],
+            'last_year':report['last_year'],'panel_sha256':report['panel_sha256']}
+
+
 if __name__=='__main__':
-    x=build()
-    print(json.dumps({'status':'VALIDATED_EXTRACT','observations':x['observations'],
-         'first_year':x['first_year'],'last_year':x['last_year'],
-         'geographies':len(x['geographic_codes']),'industries':len(x['industry_codes']),
-         'series_ids':x['series_ids'],'errors':x['errors']},indent=2))
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--out',default='data/bls_jolts')
+    p.add_argument('--start',type=int,default=2000)
+    p.add_argument('--end',type=int,default=2026)
+    p.add_argument('--verify-only',action='store_true')
+    a=p.parse_args()
+    if a.verify_only:
+        print(json.dumps(verify_release(a.out),indent=2))
+    else:
+        x=build(out=a.out,start=a.start,end=a.end)
+        print(json.dumps({'status':'VALIDATED_EXTRACT','observations':x['observations'],
+             'first_year':x['first_year'],'last_year':x['last_year'],
+             'geographies':len(x['geographic_codes']),'industries':len(x['industry_codes']),
+             'series_ids':x['series_ids'],'errors':x['errors']},indent=2))
