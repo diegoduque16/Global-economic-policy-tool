@@ -91,6 +91,7 @@ class PrivateNativeExplorerTests(unittest.TestCase):
         self.assertEqual(o["native_records"],6)
         self.assertEqual(o["canonical_records"],0)
         self.assertEqual(o["native_sources"],4)
+        self.assertEqual(o["native_provider_groups"],4)
         self.assertFalse(o["counts_additive"])
         families={f["id"]:f for f in self.store.families()}
         self.assertEqual(families["wdi"]["observations"],2)
