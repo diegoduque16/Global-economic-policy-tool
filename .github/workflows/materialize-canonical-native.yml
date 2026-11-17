@@ -8,6 +8,12 @@ on:
       - 'warehouse/wdi_native_extension.py'
       - 'warehouse/us_europe_native_extension.py'
       - 'tests/test_us_europe_native_extension.py'
+  pull_request:
+    paths:
+      - '.github/workflows/materialize-canonical-native.yml'
+      - 'warehouse/us_europe_native_extension.py'
+      - 'tests/test_us_europe_native_extension.py'
+      - 'docs/atlas_project_brief.json'
   workflow_dispatch:
     inputs:
       canonical_run_id:
@@ -35,6 +41,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate-economic-native-extension:
+    # Read-only PR CI: no OneDrive secrets, no downloads or private attachments.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate source-native extension and existing source replay
+        run: |
+          python -m unittest discover -s tests -p 'test_us_europe_native_extension.py' -v
+          python -m unittest discover -s tests -p 'test_us_europe.py' -v
+          python -m unittest discover -s tests -p 'test_wdi_native_extension.py' -v
+      - name: Validate project brief and public Atlas build without uploading data
+        run: |
+          python -m json.tool docs/atlas_project_brief.json > /dev/null
+          python -m unittest discover -s tests -p 'test_atlas_public.py' -v
+          python atlas_public/build_site.py
+
   materialize:
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'historical_five'
     runs-on: ubuntu-latest
