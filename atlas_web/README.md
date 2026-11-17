@@ -26,7 +26,7 @@ Use the **private SHA-verified native source archive** from the existing Atlas p
 - Search source series IDs and, for JOLTS, descriptive labels such as job openings, hires, quits and layoffs. The original 830 BLS series IDs encode the actual state/industry dimensions.
 - Separate verified countries and territories from World Bank aggregate areas using the existing approved 261-code WDI public catalog (including 44 aggregates); retain unclassified codes as unclassified rather than guessing.
 - Select up to eight geographies and a year range.
-- Change between **line, bar, scatter, heatmap and table** views.
+- Change between **line, bar, scatter, heatmap and table** views. Annual measurements use year spacing, while verified monthly (YYYY-MM or YYYY-MM-DD) and quarterly (YYYY-Q1 through YYYY-Q4) series use an explicitly labeled original-period axis. Mixed, malformed, duplicate or ambiguous periods are blocked from charts rather than silently annualized.
 - Inspect recorded values, frequencies, source units and provider attribution.
 - Export filtered source observations as CSV; private native exports include original provider source ID and selected source-native state/industry dimensions.
 - See source-separated canonical rows and additional native records **as separate layers**.
@@ -69,7 +69,7 @@ The materialized snapshot generally stores its actual SQLite file in canonical_w
 - Put an authenticated reverse proxy or Cloudflare Access Tunnel in front of it before offering remote access.
 - Source SQL queries are parameterized; browser text is rendered safely.
 - The visible table is limited to 2,000 records. CSV exports refuse to silently truncate selections over 10,000 records.
-- The site blocks misleading annual charts for duplicate-year, mixed-unit or sub-annual selections; original BLS monthly periods, units, source flags and state/industry codes remain accessible in Table or source-dimension-preserving CSV.
+- The site charts strict original monthly and quarterly periods on dedicated period axes; it blocks inconsistent frequency encodings, duplicate geography/period keys, conflicting units and truncated selections. Original BLS state/industry codes are shown in Table and preserved in CSV; data are not annualized or harmonized.
 - Suppressed or nonnumeric source-native values are not transformed into zero.
 - It never edits the SQLite database or modifies GitHub collection schedules.
 
@@ -83,4 +83,4 @@ The existing Atlas source-registry CI executes these tests whenever the website 
 
 ## Not yet a public website
 
-This version is a functioning local/private website; it is **not yet hosted at a public URL**. For hosted use, deploy this same read-only service behind authentication, retaining the private SQLite and versioned snapshot lineage. More advanced monthly and quarterly charting, geographic labels, and verified cross-provider harmonization can be added without changing the core architecture.
+This version is a functioning local/private website; it is **not yet hosted at a public URL**. For hosted use, deploy this same read-only service behind authentication, retaining the private SQLite and versioned snapshot lineage. Monthly and quarterly original source-period charting is now supported for safe selections. Geographic coverage and verified cross-provider harmonization remain separate follow-up work.

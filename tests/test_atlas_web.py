@@ -105,10 +105,12 @@ class AtlasWebTests(unittest.TestCase):
     def test_subannual_values_are_not_misplotted_as_one_annual_point(self):
         r=self.store.rows("labor","source_separated","WAGES",["USA"],2020,2021)
         self.assertEqual(r["returned"],2)
-        self.assertFalse(r["can_plot"])
-        self.assertIn("Multiple observations within a year"," ".join(r["chart_blockers"]))
+        self.assertTrue(r["can_plot"])
+        self.assertEqual(r["plot_granularity"], "quarterly")
+        self.assertEqual([x["period"] for x in r["rows"]], ["2020-Q1", "2020-Q2"])
         q=self.store.rows("qcew","source_native","EMP",["01"],2020,2020)
         self.assertFalse(q["can_plot"])
+        self.assertEqual(q["plot_granularity"], "unsupported")
 
     def test_invalid_family_limit_and_filter_rejected(self):
         with self.assertRaisesRegex(ValueError,"Choose a source"):
