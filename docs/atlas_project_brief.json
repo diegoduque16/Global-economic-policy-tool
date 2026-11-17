@@ -89,7 +89,7 @@
     },
     {
       "name": "World Inequality Database (WID)",
-      "stage": "60 newer-country WID original source files and 40,908 values preserved in verified 630,408-row private multi-provider source-native SQLite attachment",
+      "stage": "60 newer-country WID source files and 40,908 numeric records preserved in certified 883,118-record private five-provider native SQLite edition",
       "evidence": "The three official WID source-native country expansion waves collected 60 disjoint new source-country CSVs with 40,908 selected numerical distribution shares, backed up in private OneDrive. Subsequent production integration run 43720165809 independently rechecked all 60 original provider source SHA values, indexed exactly 40,908 source-native observations in the existing Atlas native_sources/native_records SQLite schema, preserved the certified 2,780,117 canonical observations and 2,104,609 historical native records by immutable parent reference, and successfully SHA-256 restored the private attachable source-native edition. Private WID attachment SHA256 faa6f785156d208cd71893fd4d8806a38a9ff68047f2fdacb496271b5fbe2122. These remain distinct physical and statistical layers, not a physical single-database merge or harmonized panel. Historical 23-country WID source remains separately stored, so 83 distinct country codes refer to combined source holdings, not one research-ready series.",
       "next": "Preserve all 40,908 WID original values and their source identities in latest SHA-verified private attachment; compare 60 newer WID countries with the separate historical 23-country WID vintage/panel before harmonized joined research.",
       "links": [
@@ -157,7 +157,7 @@
     },
     {
       "name": "Eurostat macro and labor costs",
-      "stage": "Six original Eurostat source series, 3,436 native numeric observations now queryable in the private 630,408-row multi-provider attachment",
+      "stage": "Six Eurostat source series, 3,436 native numeric records preserved in certified 883,118-record private five-provider native SQLite edition",
       "evidence": "November 14 new Eurostat collector run completed successfully: six official source series, 3,436 numeric observations and 31 geography codes. Includes GDP and unemployment plus employment 20–64, hourly wages/salaries and total hourly employer labor cost. Original source checks and private OneDrive archive SHA-256 round-trip passed. Not yet published as Atlas's canonical or public dataset. On November 17 production run 44167631766, all 3,436 original values were reverified, appended in the existing source-native SQLite schema without modifying historical canonical data, and preserved in an immutable private OneDrive archive with matching restored SHA256 6d4bbec96428a6981d548ec51c3d56160452de63fd4c363f5c9749878767ea85. This is source-native data, not a harmonized or published European panel.",
       "next": "Reconcile Eurostat source definitions, geographies and vintage with historical source records; then fill specific remaining official employment, earnings and industry gaps without re-downloading completed six sources.",
       "links": [
@@ -177,7 +177,7 @@
     },
     {
       "name": "World Bank WDI",
-      "stage": "59 selected WDI series and 572,179 original native values preserved in 630,408-row private WID+WDI+FRED+Eurostat attachment",
+      "stage": "59 World Bank WDI selected series and 572,179 native numeric records preserved in certified 883,118-record private five-provider SQLite edition",
       "evidence": "Original World Bank WDI official bulk CSV ZIP run 43637384781 independently verified all 59 selected indicator codes, 572,179 finite numeric values across 265 source geography codes (including World Bank region/income/world aggregates), and exact raw ZIP-to-panel source value keys. Full original source archive SHA 6f6253a1626bb0bbcf5c9e3e31c49e5f03736e7c15f1e8f73064f8b1666f8f9a privately backed up in run 43643193303. A later native source attachment extension in run 43780249697 completed successfully: it independently revalidated original WDI source raw ZIP/selected numeric panel, indexed all 572,179 values under 59 separate original source identifiers into a NEW version of the same private Atlas native SQLite attachment, and retained all 40,908 WID native records. The resulting 613,087-queryable-native-record attachment is private and SHA-256 restored and verified as 2037962a29cd3587303a93bf542b7ff7ce521ce6f6294b6ad03041b978f05284. The earlier historical 2,780,117 analytical observations and 2,104,609 indexed legacy native records stay physically unchanged and separate. WDI units remain source-defined and the 265 geography codes are NOT classified as 265 countries. This is not a harmonized, deduplicated or approved 59-series public release; the website retains the older 32 WDI series.",
       "next": "Keep 572,179 WDI values intact in the now four-provider source-native SQLite attachment. Classify official countries vs aggregates and map official units and vintage, and reconcile with the older public 32-series WDI edition before public release or economic-analysis joins.",
       "links": [
@@ -233,7 +233,7 @@
     },
     {
       "name": "FRED, BLS, U.S. Census, fiscal and remaining P0 sources",
-      "stage": "21 FRED and six Eurostat series integrated into same private Atlas source-native SQLite attachment; 17,321 additional values and 630,408 total records certified",
+      "stage": "21 FRED series and six Eurostat series (17,321 records), plus 830 BLS JOLTS series (252,710 records), now backed up in same 883,118-row five-provider private native SQLite attachment; further BLS, Census and fiscal gaps remain",
       "evidence": "On November 15, combined existing economic collector run 43681818626 finished successfully with 21 official FRED US time series (13,885 native numeric observations from one U.S. geography), plus six previously collected Eurostat source series (3,436 observations across 31 European geography codes): 17,321 source-native numerical values total, 27 original source response files, 32 distinct geography codes. Every original FRED CSV / Eurostat JSON-stat source was SHA-256 checked and independently re-parsed against the processed rows, preserving exact provider, native unit, frequency, period and value. Complete private OneDrive source release and checksum marker round-tripped with archive SHA-256 94d1f84eb450ebe0f0f47677d333a1948aa9e80a83bc1709acf1546b8537251a. New FRED scope includes labor earnings, productivity, unit labor costs, income, personal consumption, savings, hires and quits. These numeric values are source-native, not new additive canonical observations; the six Eurostat series overlap an earlier Eurostat release. Actual November 17 production integration run 44167631766 succeeded after fixing a duplicate source-key regression on PR #42. It restored original FRED/Eurostat sources and the exact prior 613,087-row WID+WDI attachment by SHA, numerically verified and indexed all 13,885 FRED and 3,436 Eurostat source records under 27 identities, preserved all parent rows, and verified private OneDrive archive restoration SHA256 6d4bbec96428a6981d548ec51c3d56160452de63fd4c363f5c9749878767ea85. The combined private attachment has exactly 630,408 source-native records, distinct from the historical warehouse and not a public or harmonized research release.",
       "next": "The 27-series FRED/Eurostat source-native integration is complete and privately backed up. Proceed to identifying and collecting specific missing BLS, U.S. Census and fiscal data series, and reconcile overlapping vintages/frequencies before cross-source research panels; do not re-collect these already verified 27 series.",
       "links": [
@@ -287,6 +287,22 @@
         },
         {
           "label": "Verified private 883,118-record WID/WDI/FRED/Eurostat/BLS JOLTS native SQLite source release",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44171117929"
+        }
+      ]
+    },
+    {
+      "name": "Private source-native Atlas explorer",
+      "stage": "Implementation in PR branch: reuse existing local Atlas explorer to open stand-alone private 883,118-record native SQLite file; live PR CI pending",
+      "evidence": "The prior atlas_web/server.py only accepted the full historical canonical database with observations/source_files and could not open the verified thin native_source_extension.sqlite from run 44171117929. The proposed source-native adapter groups the same five existing providers, allows series/geo/year filter, preserves raw source-defined values and monthly periods with state/industry disaggregation in CSV, maintains read-only loopback access and blocks false annual plotting. This is a local code change awaiting CI and merge, NOT a Cloudflare public release or live interface deployment.",
+      "next": "Verify existing source-registry/public build CI and new provider-filter/monthly-field regression tests, merge on success and then make private archive accessible in the existing secure local work environment; do not expose source originals on worldeconatlas.com.",
+      "links": [
+        {
+          "label": "Existing private Atlas explorer backend",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/atlas_web/server.py"
+        },
+        {
+          "label": "Last certified private 883,118-record SQLite attachment production run",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44171117929"
         }
       ]
@@ -502,12 +518,18 @@
       "title": "Certify 252,710 BLS JOLTS native records in the same private economic SQLite attachment",
       "description": "Production run 44171117929 verified and integrated official JOLTS monthly values from 830 original BLS series, preserving all 630,408 previously verified WDI/WID/FRED/Eurostat source-native records, retaining original state/industry dimensions and distinct units, and SHA256-restoring the immutable 883,118-row private source-native Atlas SQLite attachment as ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. Original BLS source receipts trace to run 44170002938. Historical canonical and public website editions were not modified.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44171117929"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Use the existing private Atlas explorer for the certified five-provider SQLite attachment",
+      "description": "Rather than duplicate the warehouse, API or website, extend the existing loopback-only atlas_web/server.py to accept the currently certified 883,118-record source-native SQLite attachment as well as the older historical canonical warehouse. Retain provider-separated source IDs, exact monthly periods and units, prohibit annual charts that misrepresent monthly observations, and preserve original BLS state/industry dimensions in private CSV exports. Public website remains limited to approved WDI release; new code is pending CI and merge.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44171117929"
     }
   ],
   "next_actions": [
     "Continue existing bounded ILOSTAT scheduled collection for 271 official bulk table IDs missing as of run 44155957216 (provider scope 1,692/1,963, plus one private checkpoint entry). Preserve private source numeric profiles and no-loss SHA backups; later index selected official ILOSTAT numeric dimensions in the SAME private source-native Atlas layer.",
     "BLS JOLTS completion: 252,710 original source-verified monthly numeric observations and 830 official BLS series added to same private SQLite attachment, production run 44171117929; new 883,118-record immutable archive restored with SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. No re-collection needed absent revised source vintage.",
-    "Make source-native 883,118 records usable through safe private queries and definition-aware filtering (provider, original series ID, geography, period, units, seasonal adjustment) before any new harmonized or public panels; do not sum historical canonical and native layers.",
+    "Enable existing local/private Atlas explorer for the standalone 883,118-row source-native SQLite archive with provider, series, geography, year, units and original BLS state/industry dimensions. Implementation pending pull-request regression checks; do not claim public deployment.",
     "Complete specific missing U.S. BLS, Census and fiscal source datasets rather than only expanding catalog metadata, reusing existing collectors. Identify unique source IDs, archive original numeric responses privately and integrate only verified additions.",
     "Reconcile WDI official units/265 provider geography codes including aggregates, WID 60+23 country vintage boundaries, Eurostat/FRED definitions and JOLTS state/national and FRED series overlap before cross-country comparison.",
     "Publish to Cloudflare only selectively after provenance, source definition, licensing and privacy checks; a successful GitHub/private archive is not proof of public website deployment.",
