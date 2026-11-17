@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from atlas_web.server import NativeAttachmentStore
+from atlas_web.server import NativeAttachmentStore, geography_reference
 
 
 class PrivateNativeExplorerTests(unittest.TestCase):
@@ -77,6 +77,14 @@ class PrivateNativeExplorerTests(unittest.TestCase):
             db.executemany("INSERT INTO native_records VALUES (?,?,?,?,?,?,?,?,?)",
                            [tuple(row[:8])+(json.dumps(row[8]),) for row in payload])
         self.store=NativeAttachmentStore(self.path)
+
+    def test_verified_wdi_aggregate_reference_is_reused(self):
+        names, kinds = geography_reference()
+        self.assertEqual(kinds["AFE"], "aggregate")
+        self.assertEqual(names["AFE"], "Africa Eastern and Southern")
+        self.assertEqual(kinds["USA"], "country_or_territory")
+        self.assertEqual(kinds["WLD"], "aggregate")
+        self.assertNotIn("ZZZ", kinds)
 
     def test_provider_groups_and_native_only_counts(self):
         o=self.store.overview()
