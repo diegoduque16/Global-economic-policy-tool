@@ -131,7 +131,7 @@ async function loadGeographies(){
   state.selected=new Set([...previous].filter(code=>geos.some(x=>x.code===code)));
   if(!state.selected.size){
    const first=geos.find(x=>x.code==="USA")||
-    geos.find(x=>x.geography_type!=="aggregate")||geos[0];
+    geos.find(x=>x.geography_type==="country_or_territory")||geos[0];
    if(first)state.selected.add(first.code);
   }
   renderGeographies();renderCountryPicker();await apply();
@@ -144,16 +144,16 @@ function renderCountryPicker(){
  const filtered=state.geographies.filter(x=>
   x.code.toLowerCase().includes(search)||String(x.name||"").toLowerCase().includes(search));
  const sorted=filtered.sort((a,b)=>
-  Number(a.geography_type==="aggregate")-Number(b.geography_type==="aggregate")||
+  Number(a.geography_type!=="country_or_territory")-Number(b.geography_type!=="country_or_territory")||
   String(a.name||a.code).localeCompare(String(b.name||b.code)));
  picker.replaceChildren(new Option("Select a country or region…",""));
  if(selectedGeo&&!sorted.some(x=>x.code===current)&&search)
   picker.add(new Option("Current: "+selectedGeo.name+" ("+current+")",current));
  const countries=document.createElement("optgroup"),regions=document.createElement("optgroup");
- countries.label="Countries and territories";regions.label="Regions and aggregates";
+ countries.label="Countries and territories";regions.label="Aggregates and unclassified source codes";
  for(const geo of sorted){
   const item=new Option((geo.name||geo.code)+" ("+geo.code+")",geo.code);
-  (geo.geography_type==="aggregate"?regions:countries).append(item);
+  (geo.geography_type==="country_or_territory"?countries:regions).append(item);
  }
  if(countries.children.length)picker.append(countries);
  if(regions.children.length)picker.append(regions);
