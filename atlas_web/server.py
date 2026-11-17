@@ -36,21 +36,50 @@ def numeric(value):
     return n if math.isfinite(n) else None
 
 
+def geography_reference():
+    """Reuse the already verified WDI public-release geography codes, never infer all are countries.
+
+    A public catalog has authoritative original country-vs-aggregate labels for
+    261 WDI codes. Any newer/private code absent there stays unclassified
+    unless also independently present in Atlas's ISO3 country reference.
+    This does not alter, publish or relabel observations in either database.
+    """
+    names = {"WLD": "World aggregate"}
+    kinds = {"WLD": "aggregate"}
+    iso_path = HERE.parent / "research" / "iso3_country_codes.csv"
+    if iso_path.is_file():
+        with iso_path.open(encoding="utf-8-sig", newline="") as source:
+            for row in csv.DictReader(source):
+                code, name = row.get("iso3", ""), row.get("name", "")
+                if code and name and code != "WLD":
+                    names[code] = name
+                    kinds[code] = "country_or_territory"
+    catalog_path = HERE.parent / "atlas_public" / "data" / "catalog.json"
+    if catalog_path.is_file():
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+        geos = catalog.get("geographies", {})
+        summary = catalog.get("summary", {})
+        if (catalog.get("public_edition") is not True
+            or not isinstance(geos, dict)
+            or len(geos) != summary.get("geographies")
+            or sum(v.get("kind") == "aggregate" for v in geos.values()) != summary.get("aggregate_codes")
+            or sum(v.get("kind") == "country_or_territory" for v in geos.values()) != summary.get("country_or_territory_codes")):
+            raise ValueError("Atlas verified public WDI geography catalog changed")
+        for code, entry in geos.items():
+            if entry.get("kind") not in ("aggregate", "country_or_territory"):
+                raise ValueError("Invalid World Bank geographic classification")
+            names[code] = entry["name"]
+            kinds[code] = entry["kind"]
+    return names, kinds
+
+
 class AtlasStore:
     def __init__(self, path):
         self.path = Path(path).resolve()
         if not self.path.is_file():
             raise FileNotFoundError(f"Atlas SQLite snapshot not found: {self.path}")
-        # Reuse the project's existing ISO-3 reference; do not create a second
-        # geography registry or infer that aggregate codes are countries.
-        self.geography_names = {"WLD": "World aggregate"}
-        iso_path = HERE.parent / "research" / "iso3_country_codes.csv"
-        if iso_path.is_file():
-            with iso_path.open(encoding="utf-8-sig", newline="") as source:
-                for row in csv.DictReader(source):
-                    code, name = row.get("iso3", ""), row.get("name", "")
-                    if code and name:
-                        self.geography_names[code] = name
+        # Reuse the verified public WDI source geography classifications.
+        self.geography_names, self.geography_types = geography_reference()
         with self.connect() as db:
             required = {"observations", "source_files"}
             if not required.issubset(self.tables(db)):
@@ -170,9 +199,7 @@ class AtlasStore:
             for row in geographies:
                 code = row.get("code") or ""
                 row["name"] = self.geography_names.get(code, code)
-                row["geography_type"] = ("aggregate" if code == "WLD" else
-                                          "country_or_territory" if code in self.geography_names else
-                                          "unclassified")
+                row["geography_type"] = self.geography_types.get(code, "unclassified")
             return geographies
 
     def rows(self, fid, layer, series, geos, first, last, limit=LIMIT):
@@ -298,13 +325,7 @@ class NativeAttachmentStore(AtlasStore):
         self.path = Path(path).resolve()
         if not self.path.is_file():
             raise FileNotFoundError(f"Atlas source-native attachment not found: {self.path}")
-        self.geography_names = {"WLD": "World aggregate"}
-        iso_path = HERE.parent / "research" / "iso3_country_codes.csv"
-        if iso_path.is_file():
-            with iso_path.open(encoding="utf-8-sig", newline="") as source:
-                for row in csv.DictReader(source):
-                    if row.get("iso3") and row.get("name"):
-                        self.geography_names[row["iso3"]] = row["name"]
+        self.geography_names, self.geography_types = geography_reference()
         self.groups = {}
         self.source_details = {}
         with closing(self.connect()) as db:
@@ -388,9 +409,7 @@ class NativeAttachmentStore(AtlasStore):
                 (group["prefix"] + "*", series, series, q, "%" + q + "%"))]
         for row in rows:
             row["name"] = self.geography_names.get(row["code"], row["code"])
-            row["geography_type"] = ("aggregate" if row["code"] == "WLD" else
-                                      "country_or_territory" if row["code"] in self.geography_names else
-                                      "unclassified")
+            row["geography_type"] = self.geography_types.get(row["code"], "unclassified")
         return rows
 
     def rows(self, fid, layer, series, geos, first, last, limit=LIMIT):
