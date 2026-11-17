@@ -228,13 +228,17 @@ function render(){
 }
 function renderTable(host,rows){
  const wrap=el("div","table-wrap"),table=el("table","data-table"),thead=el("thead"),headrow=el("tr");
- const cols=["Geography","Period","Series","Value","Unit","Provider","Status"];
+ const dimensions=rows.some(r=>r.state_code||r.industry_code);
+ const cols=["Geography","Period","Series","Value","Unit","Provider","Status",
+  ...(dimensions?["State","Industry"]:[])];
  for(const c of cols)headrow.append(el("th",c==="Value"?"numeric":"",c));
  thead.append(headrow);table.append(thead);
  const body=el("tbody");
  for(const r of rows){
   const tr=el("tr");
-  const vals=[geoName(r.geography)+" ("+r.geography+")",r.period,r.series,r.value==null?"Not numeric":short(r.value),r.unit,r.provider,r.source_status];
+  const vals=[geoName(r.geography)+" ("+r.geography+")",r.period,r.series,
+   r.value==null?"Not numeric":short(r.value),r.unit,r.provider,r.source_status,
+   ...(dimensions?[r.state_code||"—",r.industry_code||"—"]:[])];
   vals.forEach((v,i)=>tr.append(el("td",i===3?"numeric":"",String(v??""))));
   body.append(tr);
  }
@@ -266,9 +270,14 @@ function renderSvg(host,rows,type){
  }
  const names=[...groups.keys()].sort();
  if(!names.length){host.append(el("div","chart-empty","No numeric observations to plot."));return;}
- const vals=[...groups.values()].flat(),years=[...new Set(vals.map(x=>x.year))].sort((a,b)=>a-b);
- if(type==="heatmap"&&years.length>160){
-  host.append(el("div","chart-empty","Narrow the year range to 160 years for a heatmap."));return;
+ const vals=[...groups.values()].flat();
+ const granularity=state.lastResponse?.plot_granularity||"annual";
+ const subannual=granularity==="monthly"||granularity==="quarterly";
+ const years=[...new Set(vals.map(x=>x.year))].sort((a,b)=>a-b);
+ const slots=subannual?[...new Set(vals.map(x=>String(x.period)))].sort():years;
+ const slotIndex=new Map(slots.map((p,i)=>[p,i]));
+ if(type==="heatmap"&&slots.length>160){
+  host.append(el("div","chart-empty","Narrow the time-period range to 160 periods for a heatmap."));return;
  }
  if(type==="bar"&&vals.length>300){
   host.append(el("div","chart-empty","This bar chart has over 300 points. Narrow the range or select Line."));return;
@@ -280,7 +289,9 @@ function renderSvg(host,rows,type){
  let maxValue=type==="bar"?Math.max(0,rawMax):rawMax;
  if(minValue===maxValue){minValue-=Math.max(1,Math.abs(minValue)*.1);maxValue+=Math.max(1,Math.abs(maxValue)*.1);}
  const padding=(maxValue-minValue)*.08;minValue-=padding;maxValue+=padding;
- const posX=y=>left+(y-minYear)/yearRange*iw;
+ const posX=point=>subannual?
+  left+(slotIndex.get(String(point.period))||0)/Math.max(1,slots.length-1)*iw:
+  left+(point.year-minYear)/yearRange*iw;
  const posY=v=>top+ih-(v-minValue)/(maxValue-minValue)*ih;
  const root=svg("svg",{viewBox:"0 0 "+width+" "+height,role:"img","aria-label":type+" chart of "+state.lastResponse.series,class:"chart-svg"});
  root.append(svg("rect",{x:left,y:top,width:iw,height:ih,class:"plot-bg"}));
@@ -293,49 +304,62 @@ function renderSvg(host,rows,type){
  }else{
   for(let i=0;i<names.length;i++)root.append(svg("text",{class:"axis-text",x:16,y:top+ih*(i+.5)/names.length},names[i]));
  }
+ const labeled=new Set();
  for(let i=0;i<=6;i++){
-  const year=minYear+(maxYear-minYear)*i/6;
-  root.append(svg("text",{class:"axis-text","text-anchor":"middle",x:posX(year),y:height-23},String(Math.round(year))));
+  if(subannual){
+   const ix=Math.round((slots.length-1)*i/6);
+   if(labeled.has(ix))continue;
+   labeled.add(ix);
+   const period=slots[ix];
+   root.append(svg("text",{class:"axis-text","text-anchor":"middle",
+    x:posX({period}),y:height-23},period));
+  }else{
+   const year=minYear+(maxYear-minYear)*i/6;
+   root.append(svg("text",{class:"axis-text","text-anchor":"middle",
+    x:posX({year}),y:height-23},String(Math.round(year))));
+  }
  }
  if(type==="heatmap"){
-  const cw=iw/Math.max(1,years.length),ch=ih/names.length;
+  const cw=iw/Math.max(1,slots.length),ch=ih/names.length;
   const absMax=Math.max(1,Math.abs(rawMax),Math.abs(rawMin));
   names.forEach((geo,index)=>{
    const color=COLORS[index%COLORS.length];
-   const lookup=new Map(groups.get(geo).map(p=>[p.year,p]));
-   years.forEach((year,i)=>{
-    const p=lookup.get(year);if(!p)return;
+   const lookup=new Map(groups.get(geo).map(p=>[subannual?p.period:p.year,p]));
+   slots.forEach((slot,i)=>{
+    const p=lookup.get(slot);if(!p)return;
     const rect=svg("rect",{x:left+i*cw,y:top+index*ch,width:Math.max(1,cw-.5),
       height:Math.max(1,ch-.5),fill:color,opacity:Math.max(.14,Math.min(.96,Math.abs(p.value)/absMax))});
-    root.append(svgTitle(rect,geo+" · "+year+" · "+short(p.value)));
+    root.append(svgTitle(rect,geo+" · "+p.period+" · "+short(p.value)));
    });
   });
  }else if(type==="bar"){
-  const bw=Math.max(2,Math.min(18,iw/(Math.max(1,years.length)*Math.max(1,names.length))*.78));
+  const bw=Math.max(2,Math.min(18,iw/(Math.max(1,slots.length)*Math.max(1,names.length))*.78));
   names.forEach((geo,index)=>{
    for(const p of groups.get(geo)){
-    const baseline=posY(0),y=posY(p.value),center=posX(p.year)+(index-(names.length-1)/2)*bw;
+    const baseline=posY(0),y=posY(p.value),center=posX(p)+(index-(names.length-1)/2)*bw;
     const rect=svg("rect",{class:"bar",x:center-bw/2,y:Math.min(y,baseline),width:bw,
       height:Math.max(1,Math.abs(y-baseline)),fill:COLORS[index%COLORS.length]});
-    root.append(svgTitle(rect,geo+" · "+p.year+" · "+short(p.value)));
+    root.append(svgTitle(rect,geo+" · "+p.period+" · "+short(p.value)));
    }
   });
  }else{
   names.forEach((geo,index)=>{
-   const points=groups.get(geo).slice().sort((a,b)=>a.year-b.year);
+   const points=groups.get(geo).slice().sort((a,b)=>subannual?
+    String(a.period).localeCompare(String(b.period)):a.year-b.year);
    const color=COLORS[index%COLORS.length];
    if(type==="line"&&points.length>1){
     root.append(svg("polyline",{class:"line",stroke:color,
-      points:points.map(p=>posX(p.year).toFixed(2)+","+posY(p.value).toFixed(2)).join(" ")}));
+      points:points.map(p=>posX(p).toFixed(2)+","+posY(p.value).toFixed(2)).join(" ")}));
    }
    const dots=type==="scatter"||points.length<=180?points:points.filter((p,i)=>i%Math.ceil(points.length/180)===0);
    for(const p of dots){
-    root.append(svgTitle(svg("circle",{class:"dot",cx:posX(p.year),cy:posY(p.value),
+    root.append(svgTitle(svg("circle",{class:"dot",cx:posX(p),cy:posY(p.value),
       r:type==="scatter"?4.5:3.2,fill:color}),geo+" · "+p.period+" · "+short(p.value)));
    }
   });
  }
- root.append(svg("text",{class:"axis-label","text-anchor":"middle",x:width/2,y:height-3},"Year"));
+ root.append(svg("text",{class:"axis-label","text-anchor":"middle",x:width/2,y:height-3},
+  subannual?(granularity==="monthly"?"Monthly period":"Quarterly period"):"Year"));
  host.append(root);
  const legend=$("legend");
  names.forEach((geo,index)=>{
