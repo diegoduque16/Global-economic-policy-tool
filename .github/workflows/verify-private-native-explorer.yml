@@ -1,0 +1,156 @@
+name: Verify private Atlas explorer against immutable 883118-row native attachment
+
+on:
+  pull_request:
+    paths:
+      - 'atlas_web/**'
+      - 'tests/test_atlas_native_explorer.py'
+      - '.github/workflows/verify-private-native-explorer.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'atlas_web/**'
+      - 'tests/test_atlas_native_explorer.py'
+      - '.github/workflows/verify-private-native-explorer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-private-native-explorer-verification
+  cancel-in-progress: false
+
+jobs:
+  offline-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test existing private Atlas explorer, monthly-period and country/aggregate safety
+        run: |
+          python -m unittest discover -s tests -p 'test_atlas_web.py' -v
+          python -m unittest discover -s tests -p 'test_atlas_native_explorer.py' -v
+          python -m py_compile atlas_web/server.py
+          node --check atlas_web/static/app.js
+
+  verify-against-actual-private-archive:
+    # Credentials and private original numeric data must NEVER run on PR branches.
+    if: github.event_name != 'pull_request'
+    needs: offline-validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+      NATIVE_ID: 'atlas-native-wid-wdi-econ-bls-20261117-44171117929'
+      NATIVE_SHA256: 'ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Restore exact SHA-pinned original private Atlas archive from OneDrive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/atlas-real-private-smoke"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/atlas-real-private-smoke/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/atlas-real-private-smoke/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/atlas-real-private-smoke/rclone.conf"
+          rclone copyto "$ONEDRIVE_TARGET/snapshots/$NATIVE_ID.tar.gz" \
+            "$RUNNER_TEMP/atlas-real-private-smoke/official-native.tar.gz" --retries 3
+          actual=$(sha256sum "$RUNNER_TEMP/atlas-real-private-smoke/official-native.tar.gz" | cut -d ' ' -f1)
+          test "$actual" = "$NATIVE_SHA256"
+          echo "ATLAS_PRIVATE_SOURCE_ARCHIVE_PINNED_SHA_VERIFIED"
+      - name: Safely restore only source-native SQLite, never public raw sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_EXTRACT'
+          import os
+          import shutil
+          import tarfile
+          from pathlib import Path, PurePosixPath
+          root=Path(os.environ["RUNNER_TEMP"])/"atlas-real-private-smoke"
+          archive=root/"official-native.tar.gz"
+          target=os.environ["NATIVE_ID"]+"/native_source_extension.sqlite"
+          with tarfile.open(archive,"r:gz") as data:
+              matches=[]
+              for m in data.getmembers():
+                  p=PurePosixPath(m.name)
+                  if p.is_absolute() or '..' in p.parts or m.issym() or m.islnk():
+                      raise ValueError("Untrusted private Atlas archive member")
+                  if m.name==target:
+                      if not m.isfile() or not (1_000_000<=m.size<=2_000_000_000):
+                          raise ValueError("Native SQLite archive size/type inconsistent")
+                      matches.append(m)
+              if len(matches)!=1:
+                  raise ValueError("Missing or repeated exact private SQLite archive member")
+              with data.extractfile(matches[0]) as src, (root/"native_source_extension.sqlite").open("wb") as dst:
+                  shutil.copyfileobj(src,dst)
+          print("ATLAS_PRIVATE_NATIVE_SQLITE_EXTRACTED_SAFELY")
+          PY_EXTRACT
+      - name: Smoke-test actual provider filters, BLS original periods and safe research queries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_SMOKE'
+          import os
+          import sqlite3
+          from pathlib import Path
+          from atlas_web.server import NativeAttachmentStore
+          root=Path(os.environ["RUNNER_TEMP"])/"atlas-real-private-smoke"
+          store=NativeAttachmentStore(root/"native_source_extension.sqlite")
+          expected={"wdi":572179,"wid":40908,"fred":13885,"eurostat":3436,"bls_jolts":252710}
+          actual={x["id"]:x["observations"] for x in store.families()}
+          if actual!=expected:
+              raise ValueError("Real private provider source counts do not match certified release")
+          overview=store.overview()
+          if (overview["native_records"]!=883118 or overview["native_sources"]!=976
+              or overview["native_provider_groups"]!=5
+              or overview["canonical_records"]!=0
+              or overview["counts_additive"] is not False):
+              raise ValueError("Private source-native explorer incorrectly reports data layer")
+          for provider in expected:
+              values=store.series(provider,"source_native",max_results=2)
+              if not values or any(not v["name"] for v in values):
+                  raise ValueError("Private provider series cannot be selected: "+provider)
+          matches=store.series("bls_jolts","source_native",q="job openings")
+          if not matches:
+              raise ValueError("No actual native BLS job-openings series found")
+          code=matches[0]["name"]
+          rows=store.rows("bls_jolts","source_native",code,["USA"],2000,2026)
+          if (not rows["returned"] or rows["plot_granularity"]!="monthly"
+              or not rows["can_plot"] or rows["truncated"]):
+              raise ValueError("Certified BLS monthly series cannot be safely charted")
+          if not all(r["industry_code"] and r["state_code"] is not None for r in rows["rows"]):
+              raise ValueError("Original BLS dimensions lost from explorer query")
+          labels=store.geographies("wdi","source_native")
+          for item in labels:
+              if item["code"]=="AFE" and item["geography_type"]!="aggregate":
+                  raise ValueError("WDI aggregate incorrectly displayed as country")
+          with store.connect() as db:
+              if db.execute("PRAGMA query_only").fetchone()[0]!=1:
+                  raise ValueError("Private Atlas native SQLite was not opened read-only")
+              if db.execute("PRAGMA integrity_check").fetchone()[0]!="ok":
+                  raise ValueError("Private native SQLite integrity check failed")
+          print("ATLAS_ACTUAL_PRIVATE_NATIVE_EXPLORER_VERIFIED",
+                {"original_source_numeric_rows":883118,"source_series":976,
+                 "provider_groups":5,"bls_monthly_chart_works":True,
+                 "source_data_public":False})
+          PY_SMOKE
+      - name: Remove private source material and OneDrive credentials
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/atlas-real-private-smoke"
