@@ -293,9 +293,9 @@
     },
     {
       "name": "Private source-native Atlas explorer",
-      "stage": "Existing private Atlas localhost explorer now supports the stand-alone 883,118-record source-native SQLite attachment; PR #45 merged with source-registry/public-build CI successful (live private archive UI session not independently verified)",
-      "evidence": "November 17 PR #45 merged at 9f9be94dce74102860d7b3dbf3f0b7fcc756117d and existing source-registry/Atlas UI/public-site CI completed successfully in run 44184350767. The explorer accepts the private native_source_extension.sqlite in local read-only mode without the >10GB parent database; separates WDI/WID/FRED/Eurostat/BLS provider groups, series and geography/year filters; preserves monthly dates, provider units, flags, original BLS state/industry dimensions and CSV, and blocks invalid annual plots. All regression tests use synthetic fixture records; this does not establish a live private runtime session or a public Cloudflare deployment. A follow-up patch marks World aggregate, reference-backed country/territory and unclassified source codes separately; source-provider official geo classification still required for full approval.",
-      "next": "Open a locally extracted SHA-verified 883,118-record native SQLite using the documented private localhost explorer, and test actual user filtering against saved original provider rows; improve monthly plotting and reconcile provider geography classifications before public release. Never expose private attachment on public Cloudflare Pages.",
+      "stage": "Local/private five-provider Atlas explorer merged and CI-tested for 883,118-row SQLite attachment; provider geography-code separation fix PR #46 merged; now reusing the existing verified 261-code public WDI country/aggregate catalog (code PR pending).",
+      "evidence": "November 17 PR #45 merged at 9f9be94dce74102860d7b3dbf3f0b7fcc756117d and existing source-registry/Atlas UI/public-site CI completed successfully in run 44184350767. The explorer accepts the private native_source_extension.sqlite in local read-only mode without the >10GB parent database; separates WDI/WID/FRED/Eurostat/BLS provider groups, series and geography/year filters; preserves monthly dates, provider units, flags, original BLS state/industry dimensions and CSV, and blocks invalid annual plots. All regression tests use synthetic fixture records; this does not establish a live private runtime session or a public Cloudflare deployment. A follow-up patch marks World aggregate, reference-backed country/territory and unclassified source codes separately; source-provider official geo classification still required for full approval. Country/aggregate picker correction merged in PR #46 after successful registry/public-build tests. Atlas's already-verified public WDI catalog provides 261 geography definitions, 217 country/territory codes and 44 source aggregates; upcoming query adapter reuses exactly those definitions, leaving nonmatching private-source geography codes explicitly unclassified. It does not assert the 265-code expanded private WDI source has identical geography membership or that the public website includes the added source-native values.",
+      "next": "Confirm PR CI before merging the existing public-WDI geography reference into private query classification. Then independently inspect the local private 883,118-row attachment against real queries (the current CI uses synthetic database fixtures); keep all raw source native data private.",
       "links": [
         {
           "label": "Existing private Atlas explorer backend",
@@ -312,6 +312,10 @@
         {
           "label": "Successful main-branch private explorer and public-site CI",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44184350767"
+        },
+        {
+          "label": "Merged classification safety fix PR #46",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/46"
         }
       ]
     }
@@ -538,12 +542,18 @@
       "title": "Merge private source-native Atlas explorer and protect country-vs-aggregate labels",
       "description": "PR #45 merged and existing Atlas registry/public-build CI passed, implementing a private read-only query interface for the 883,118-record five-provider source-native attachment. Country ISO3 reference codes are identified separately from World aggregate and unresolved source geographies; unclassified identifiers must not be displayed as confirmed countries. Follow-up UI classification adjustment remains pending PR CI and merge. Source original archive remains private; no live Cloudflare deployment is claimed.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44184350767"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Reuse original public WDI geography metadata in the private Atlas explorer",
+      "description": "Atlas already contains a source-reviewed public WDI catalog with 261 verified geography codes (217 country/territory and 44 aggregate). Use that same reference in both private canonical and private source-native query views for matching codes rather than create an alternative registry or infer aggregate codes are countries. Do not infer classification of additional private WDI source codes absent from the public catalog. Code/tests pending PR merge, no publication or new numeric records.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/atlas_public/data/catalog.json"
     }
   ],
   "next_actions": [
     "Continue existing bounded ILOSTAT scheduled collection for 271 official bulk table IDs missing as of run 44155957216 (provider scope 1,692/1,963, plus one private checkpoint entry). Preserve private source numeric profiles and no-loss SHA backups; later index selected official ILOSTAT numeric dimensions in the SAME private source-native Atlas layer.",
     "BLS JOLTS completion: 252,710 original source-verified monthly numeric observations and 830 official BLS series added to same private SQLite attachment, production run 44171117929; new 883,118-record immutable archive restored with SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. No re-collection needed absent revised source vintage.",
-    "Private five-provider Atlas explorer implementation merged in PR #45 and CI verified in run 44184350767. To use the real 883,118-record archive, restore the SHA-pinned private native SQLite locally and launch the existing Atlas localhost service. Provider geography grouping remains conservative: WLD known aggregate; ISO3-backed country codes identified; all other codes explicitly unclassified until official geographic metadata are reconciled.",
+    "Private five-provider Atlas explorer implementation merged in PR #45 and CI verified in run 44184350767. To use the real 883,118-record archive, restore the SHA-pinned private native SQLite locally and launch the existing Atlas localhost service. Provider geography grouping remains conservative: WLD known aggregate; ISO3-backed country codes identified; all other codes explicitly unclassified until official geographic metadata are reconciled. Reuse existing 261-code public World Bank country/aggregate geography catalog for matched private source codes (pending new CI), leaving mismatched codes unclassified.",
     "Complete specific missing U.S. BLS, Census and fiscal source datasets rather than only expanding catalog metadata, reusing existing collectors. Identify unique source IDs, archive original numeric responses privately and integrate only verified additions.",
     "Reconcile WDI official units/265 provider geography codes including aggregates, WID 60+23 country vintage boundaries, Eurostat/FRED definitions and JOLTS state/national and FRED series overlap before cross-country comparison.",
     "Publish to Cloudflare only selectively after provenance, source definition, licensing and privacy checks; a successful GitHub/private archive is not proof of public website deployment.",
