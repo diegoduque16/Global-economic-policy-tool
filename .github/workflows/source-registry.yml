@@ -1,5 +1,11 @@
 name: Build economic source registry
 on:
+  pull_request:
+    paths:
+      - 'atlas_web/**'
+      - 'tests/test_atlas_native_explorer.py'
+      - 'docs/atlas_project_brief.json'
+      - '.github/workflows/source-registry.yml'
   workflow_dispatch:
   push:
     paths:
@@ -21,6 +27,7 @@ on:
       - '.github/workflows/world-bank.yml'
       - 'research/query_atlas_wdi.py'
       - 'tests/test_atlas_web.py'
+      - 'tests/test_atlas_native_explorer.py'
       - 'scripts/audit_public_wdi_series.py'
       - 'scripts/build_source_registry.py'
       - 'research/atlas1_reconcile_inventory.py'
@@ -86,6 +93,7 @@ jobs:
           PY_ILOSTAT_EMBED
           python -m unittest discover -s tests -p 'test_open_data_v07.py' -v
           python -m unittest discover -s tests -p 'test_atlas_web.py' -v
+          python -m unittest discover -s tests -p 'test_atlas_native_explorer.py' -v
           node --check atlas_web/static/app.js
           python -m unittest discover -s tests -p 'test_atlas_public.py' -v
           python - <<'PY_CONTEXT'
