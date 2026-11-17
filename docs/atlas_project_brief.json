@@ -3,7 +3,7 @@
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
   "updated_date": "2026-11-17",
-  "status_basis": "Verified GitHub Actions production results through November 17, 2026: ILOSTAT source acquisition 1,692/1,963 official tables (1,693/1,964 checkpoint entries), 271 remaining, zero loss in run 44155957216. A new private WID+WDI+FRED+Eurostat source-native SQLite attachment holds 630,408 original records after successful production run 44167631766 and private SHA256 restoration 6d4bbec96428a6981d548ec51c3d56160452de63fd4c363f5c9749878767ea85. Historical canonical and public 32-series WDI editions are unchanged. BLS JOLTS source run 44170002938 successfully verified and SHA-archived 252,710 source-native original observations across 830 official series; new private SQLite integration is pending production proof. Snapshot, not live telemetry.",
+  "status_basis": "Certified November 17, 2026 GitHub Actions production results: ILOSTAT 1,692/1,963 official table IDs and 1,693/1,964 checkpoint entries (271 unverified); original BLS JOLTS source run 44170002938 verified 252,710 numeric observations across 830 series; native SQLite production run 44171117929 appended all 252,710 BLS JOLTS values to the existing 630,408-record private Atlas source attachment for 883,118 source-native records total, with private OneDrive restored SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. Historical canonical and public 32-series WDI edition remain unchanged. Snapshot, not live telemetry.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -42,8 +42,8 @@
     },
     {
       "label": "Verified queryable private economic attachment",
-      "value": "630,408",
-      "detail": "40,908 WID + 572,179 WDI + 13,885 FRED + 3,436 Eurostat source-native records; privately SHA-backed and distinct from historical/public data"
+      "value": "883,118",
+      "detail": "40,908 WID + 572,179 WDI + 13,885 FRED + 3,436 Eurostat + 252,710 BLS JOLTS source-native numeric rows; SHA-restored in one private attachable SQLite source layer, not additive to historical canonical observations"
     }
   ],
   "workstreams": [
@@ -269,9 +269,9 @@
     },
     {
       "name": "BLS JOLTS original source",
-      "stage": "252,710 original BLS JOLTS source rows across 830 series and 56 geographies, years 2000–2026; independently replayed and private SHA restore verified, but SQLite attachment integration pending PR/test/production.",
-      "evidence": "November 17 production run 44170002938 independently re-parsed and verified 252,710 original numeric observations from 830 seasonally adjusted BLS series, 56 source geography codes and full 2000–2026 window; validated both BLS original source files against SHA and independently reconstructed numeric values, dimensions, flags and units from saved original bytes. Source + processed source release SHA 668cb9857c7e3af856162d0c9ef693ca8706ad26efe589c84e2709c0f70824cf was restored from private OneDrive. Native SQLite extension in progress on PR branch, not yet production-certified.",
-      "next": "Complete code review/CI then run native private source attachment extension from 630,408 to 883,118 values with 830 original BLS series IDs; require exact preservation of all prior native rows, original BLS numeric replay and new private SHA round-trip before declaring queryability.",
+      "stage": "252,710 official monthly BLS JOLTS observations across 830 distinct source series and 56 provider geography codes, years 2000–2026, now queryable in certified 883,118-record private multi-provider SQLite attachment",
+      "evidence": "Official BLS JOLTS source release run 44170002938 independently re-parsed 252,710 numerical records from two original raw files, verified original source SHA and processed labels/dimensions/units/flags and backed up originals privately with archive SHA 668cb9857c7e3af856162d0c9ef693ca8706ad26efe589c84e2709c0f70824cf. Subsequent native SQLite extension production run 44171117929 verified original source again, restored the exact certified 630,408-record parent, appended 830 source IDs and 252,710 records using original official source series IDs, retained parent row count and passed SQLite integrity. A NEW 883,118-record private attachment was restored from OneDrive with byte-identical SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. This is not a harmonized or public JOLTS dataset; state, national and industry rows can overlap and must not be summed.",
+      "next": "Build source-aware queries for distinct JOLTS original BLS series, state/industry/seasonal adjustment and monthly periods in the existing private native SQLite, and validate overlap with FRED national JOLTS series before cross-provider aggregation or public release. Continue other genuinely missing BLS, Census and fiscal source IDs.",
       "links": [
         {
           "label": "BLS JOLTS original source and SHA archive PR #43",
@@ -284,6 +284,10 @@
         {
           "label": "Completed 252,710-row official BLS JOLTS original source/private SHA release",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44170002938"
+        },
+        {
+          "label": "Verified private 883,118-record WID/WDI/FRED/Eurostat/BLS JOLTS native SQLite source release",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44171117929"
         }
       ]
     }
@@ -492,16 +496,22 @@
       "title": "Complete original BLS JOLTS source collection and prepare same-layer private SQLite queryability",
       "description": "Source production run 44170002938 verified 252,710 source-native BLS monthly observations from 830 official series, 56 geography codes and two SHA-validated BLS original response files with private OneDrive archive restore SHA 668cb9857c7e3af856162d0c9ef693ca8706ad26efe589c84e2709c0f70824cf. The separate source-native SQLite attachment extension targeting 883,118 records is pending live CI and production evidence.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44170002938"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Certify 252,710 BLS JOLTS native records in the same private economic SQLite attachment",
+      "description": "Production run 44171117929 verified and integrated official JOLTS monthly values from 830 original BLS series, preserving all 630,408 previously verified WDI/WID/FRED/Eurostat source-native records, retaining original state/industry dimensions and distinct units, and SHA256-restoring the immutable 883,118-row private source-native Atlas SQLite attachment as ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. Original BLS source receipts trace to run 44170002938. Historical canonical and public website editions were not modified.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44171117929"
     }
   ],
   "next_actions": [
-    "Complete existing 75-table ILOSTAT schedule for 271 official bulk table IDs still unverified as of run 44155957216; retain numeric source profiles, SHA-verified backups, and no-loss checks (1,692/1,963 source tables; 1,693/1,964 checkpoint entries).",
-    "BLS JOLTS original source collection now verified: 252,710 observations, 830 original series, 56 geography codes (run 44170002938; private archive SHA 668cb9857c7e3af856162d0c9ef693ca8706ad26efe589c84e2709c0f70824cf). Pending a separate native attachment extension; do not count as queryable until its 883,118-row production release passes.",
-    "In review: extend SAME 630,408-record Atlas source-native SQLite attachment to 883,118 with 252,710 source-original BLS JOLTS monthly rows and 830 distinct original BLS series identifiers; include all state/industry, seasonal adjustment, levels/rates and source flags, then private SHA-restore. No release claim before CI and production success.",
-    "World Bank WDI: preserve the 572,179 verified native original values and classify 265 provider geography codes into countries/aggregates; map source units/versions and overlaps with existing 32-series public edition before any selective publication.",
-    "WID: preserve the 40,908 newer-country native original values; reconcile with historical 23-country WID vintages before comparable inequality panels.",
-    "FRED/Eurostat 27-series private native integration completed in verified 630,408-row attachment run 44167631766. Do not re-run acquisition unnecessarily. Continue explicit missing BLS, U.S. Census and official fiscal data source IDs; improve queryable data, not only audits.",
-    "Update the same dated Atlas brief and cite actual successful production receipts whenever a material result is verified; a merged commit or archive is not a live public website deployment."
+    "Continue existing bounded ILOSTAT scheduled collection for 271 official bulk table IDs missing as of run 44155957216 (provider scope 1,692/1,963, plus one private checkpoint entry). Preserve private source numeric profiles and no-loss SHA backups; later index selected official ILOSTAT numeric dimensions in the SAME private source-native Atlas layer.",
+    "BLS JOLTS completion: 252,710 original source-verified monthly numeric observations and 830 official BLS series added to same private SQLite attachment, production run 44171117929; new 883,118-record immutable archive restored with SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. No re-collection needed absent revised source vintage.",
+    "Make source-native 883,118 records usable through safe private queries and definition-aware filtering (provider, original series ID, geography, period, units, seasonal adjustment) before any new harmonized or public panels; do not sum historical canonical and native layers.",
+    "Complete specific missing U.S. BLS, Census and fiscal source datasets rather than only expanding catalog metadata, reusing existing collectors. Identify unique source IDs, archive original numeric responses privately and integrate only verified additions.",
+    "Reconcile WDI official units/265 provider geography codes including aggregates, WID 60+23 country vintage boundaries, Eurostat/FRED definitions and JOLTS state/national and FRED series overlap before cross-country comparison.",
+    "Publish to Cloudflare only selectively after provenance, source definition, licensing and privacy checks; a successful GitHub/private archive is not proof of public website deployment.",
+    "Update the same version-controlled Atlas Project Brief after each real completion with production run, numerical rows, series IDs, original-source hashes and private restore result."
   ],
   "assistant_start_here": [
     "Read the current source of truth at docs/atlas_project_brief.json (also published as /project/brief.json) before continuing Atlas. This file captures the user's chosen goal and dated decisions; it is not live telemetry.",
