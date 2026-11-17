@@ -83,6 +83,8 @@ class AtlasWebTests(unittest.TestCase):
         geos={r["code"]:r["name"] for r in self.store.geographies("wdi","source_separated","GDP")}
         self.assertEqual(geos["USA"],"United States")
         self.assertEqual(geos["GBR"],"United Kingdom")
+        metadata={r["code"]:r for r in self.store.geographies("wdi","source_separated","GDP")}
+        self.assertEqual(metadata["USA"]["geography_type"],"country_or_territory")
         got=self.store.rows("wdi","source_separated","GDP",["USA","GBR"],2020,2021)
         self.assertEqual(got["returned"],3)
         self.assertTrue(got["can_plot"])

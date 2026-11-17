@@ -168,7 +168,11 @@ class AtlasStore:
                          GROUP BY geo_code ORDER BY rows DESC LIMIT 350"""
             geographies = [dict(r) for r in db.execute(sql, (fid, series, series, q, "%" + q + "%"))]
             for row in geographies:
-                row["name"] = self.geography_names.get(row.get("code"), row.get("code", ""))
+                code = row.get("code") or ""
+                row["name"] = self.geography_names.get(code, code)
+                row["geography_type"] = ("aggregate" if code == "WLD" else
+                                          "country_or_territory" if code in self.geography_names else
+                                          "unclassified")
             return geographies
 
     def rows(self, fid, layer, series, geos, first, last, limit=LIMIT):
@@ -384,7 +388,9 @@ class NativeAttachmentStore(AtlasStore):
                 (group["prefix"] + "*", series, series, q, "%" + q + "%"))]
         for row in rows:
             row["name"] = self.geography_names.get(row["code"], row["code"])
-            row["geography_type"] = "aggregate" if row["code"] == "WLD" else "unclassified"
+            row["geography_type"] = ("aggregate" if row["code"] == "WLD" else
+                                      "country_or_territory" if row["code"] in self.geography_names else
+                                      "unclassified")
         return rows
 
     def rows(self, fid, layer, series, geos, first, last, limit=LIMIT):

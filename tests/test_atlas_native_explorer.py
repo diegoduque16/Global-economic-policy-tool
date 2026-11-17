@@ -98,6 +98,8 @@ class PrivateNativeExplorerTests(unittest.TestCase):
         self.assertEqual(rows["rows"][0]["source_url"],"https://worldbank.org")
         geos = {r["code"]:r for r in self.store.geographies("wdi","source_native","SP.POP.TOTL")}
         self.assertEqual(geos["WLD"]["geography_type"], "aggregate")
+        self.assertEqual(geos["USA"]["geography_type"], "country_or_territory")
+        self.assertEqual(self.store.geographies("wid","source_native","sptinc992j")[0]["geography_type"], "unclassified")
         self.assertEqual(self.store.series("fred","source_native")[0]["name"],"UNRATE")
 
     def test_bls_search_monthly_period_not_mislabeled_annual(self):
