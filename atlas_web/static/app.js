@@ -38,7 +38,7 @@ function selectOptions(node,records,placeholder){
 function populateOverview(){
  const x=state.overview;
  $("stat-records").textContent=fmt(x.canonical_records);
- $("stat-families").textContent=fmt(x.canonical_families);
+ $("stat-families").textContent=fmt(x.canonical_families||x.native_provider_groups||0);
  $("stat-native").textContent=fmt(x.native_records);
  $("stat-native-sources").textContent=fmt(x.native_sources);
  $("snapshot").textContent=x.snapshots?.[0]?.snapshot_id||"Existing SQLite";
