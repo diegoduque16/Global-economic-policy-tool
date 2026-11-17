@@ -8,11 +8,15 @@ on:
       - 'warehouse/wdi_native_extension.py'
       - 'warehouse/us_europe_native_extension.py'
       - 'tests/test_us_europe_native_extension.py'
+      - 'warehouse/bls_jolts_native_extension.py'
+      - 'tests/test_bls_jolts_native_extension.py'
   pull_request:
     paths:
       - '.github/workflows/materialize-canonical-native.yml'
       - 'warehouse/us_europe_native_extension.py'
       - 'tests/test_us_europe_native_extension.py'
+      - 'warehouse/bls_jolts_native_extension.py'
+      - 'tests/test_bls_jolts_native_extension.py'
       - 'docs/atlas_project_brief.json'
   workflow_dispatch:
     inputs:
@@ -31,6 +35,7 @@ on:
           - wid_attach
           - wdi_attach
           - fred_eurostat_attach
+          - bls_jolts_attach
 
 permissions:
   actions: read
@@ -59,6 +64,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_us_europe_native_extension.py' -v
           python -m unittest discover -s tests -p 'test_us_europe.py' -v
           python -m unittest discover -s tests -p 'test_wdi_native_extension.py' -v
+          python -m unittest discover -s tests -p 'test_bls_jolts_native_extension.py' -v
       - name: Validate project brief and public Atlas build without uploading data
         run: |
           python -m json.tool docs/atlas_project_brief.json > /dev/null
@@ -327,6 +333,7 @@ jobs:
       - name: Test World Bank original source numeric replay and existing WID SQLite preservation offline
         run: |
           python -m unittest discover -s tests -p 'test_wdi_native_extension.py' -v
+          python -m unittest discover -s tests -p 'test_bls_jolts_native_extension.py' -v
           python -m unittest discover -s tests -p 'test_wdi_bulk.py' -v
           python -m unittest discover -s tests -p 'test_wid_native_extension.py' -v
       - name: Prove original WDI and WID source runs completed on main
@@ -440,7 +447,7 @@ jobs:
   
   extend-existing-private-source-attachment-with-fred-eurostat:
     # Append only verified original data into the NEXT version of the SAME private SQLite ATTACH layer.
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'fred_eurostat_attach')
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'fred_eurostat_attach'
     runs-on: ubuntu-latest
     timeout-minutes: 240
     env:
@@ -460,6 +467,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_us_europe_native_extension.py' -v
           python -m unittest discover -s tests -p 'test_us_europe.py' -v
           python -m unittest discover -s tests -p 'test_wdi_native_extension.py' -v
+          python -m unittest discover -s tests -p 'test_bls_jolts_native_extension.py' -v
       - name: Confirm original source collection and parent SQLite were verified on main
         shell: bash
         run: |
@@ -540,3 +548,104 @@ jobs:
         if: always()
         shell: bash
         run: rm -f "$RUNNER_TEMP/atlas-economic-rclone/rclone.conf"
+
+  extend-existing-private-attachment-with-bls-jolts:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'bls_jolts_attach')
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test original BLS source replay and SQLite importer
+        run: |
+          python -m unittest discover -s tests -p 'test_bls_jolts_native_extension.py' -v
+          python -m unittest discover -s tests -p 'test_bls_jolts_source.py' -v
+          python -m unittest discover -s tests -p 'test_us_europe_native_extension.py' -v
+      - name: Verify certified parent and source runs on main
+        shell: bash
+        run: |
+          set -euo pipefail
+          for run in 44170002938 44167631766; do
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.conclusion')" = success
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.head_branch')" = main
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.head_repository.full_name')" = "$GH_REPO"
+          done
+      - name: Restore SHA-pinned private parent and original BLS archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/atlas-jolts-native-rclone" "$RUNNER_TEMP/atlas-jolts-native-inputs"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/atlas-jolts-native-rclone/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/atlas-jolts-native-rclone/rclone.conf"
+          export RCLONE_CONFIG="$RUNNER_TEMP/atlas-jolts-native-rclone/rclone.conf"
+          echo "RCLONE_CONFIG=$RCLONE_CONFIG" >> "$GITHUB_ENV"
+          parent="$RUNNER_TEMP/atlas-jolts-native-inputs/atlas-native-wid-wdi-econ-20261117-44167631766.tar.gz"
+          source="$RUNNER_TEMP/atlas-jolts-native-inputs/bls-jolts-original-source.tar.gz"
+          rclone copyto "$ONEDRIVE_TARGET/snapshots/atlas-native-wid-wdi-econ-20261117-44167631766.tar.gz" "$parent" --retries 3
+          rclone copyto "$ONEDRIVE_TARGET/atlas/bls-jolts-source-v1/run-44170002938-attempt-1/bls-jolts-original-source.tar.gz" "$source" --retries 3
+          test "$(sha256sum "$parent" | cut -d ' ' -f1)" = 6d4bbec96428a6981d548ec51c3d56160452de63fd4c363f5c9749878767ea85
+          test "$(sha256sum "$source" | cut -d ' ' -f1)" = 668cb9857c7e3af856162d0c9ef693ca8706ad26efe589c84e2709c0f70824cf
+          echo "ATLAS_JOLTS_PARENT=$parent" >> "$GITHUB_ENV"
+          echo "ATLAS_JOLTS_SOURCE=$source" >> "$GITHUB_ENV"
+      - name: Append original BLS JOLTS monthly source records to the same native SQLite
+        shell: bash
+        run: |
+          set -euo pipefail
+          id="atlas-native-wid-wdi-econ-bls-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"
+          echo "ATLAS_JOLTS_EDITION_ID=$id" >> "$GITHUB_ENV"
+          python -m warehouse.bls_jolts_native_extension --parent-archive "$ATLAS_JOLTS_PARENT" \
+            --bls-archive "$ATLAS_JOLTS_SOURCE" --out native_output --snapshot-id "$id"
+      - name: Verify all native row counts before any private release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_VERIFY'
+          import json,os
+          from pathlib import Path
+          p=Path('native_output')/(os.environ['ATLAS_JOLTS_EDITION_ID']+'.integration_report.json')
+          x=json.loads(p.read_text())
+          assert x['parent_records_preserved']==630408
+          assert x['bls_jolts_records_added']==252710
+          assert x['new_attachment_records']==883118
+          assert x['bls_original_series_added']==830
+          assert x['parent_source_series_preserved']==146
+          assert x['public_release'] is False
+          print('ATLAS_BLS_JOLTS_252710_ORIGINAL_NATIVE_ROWS_INDEXED',x['archive_sha256'])
+          PY_VERIFY
+      - name: Save immutable private native attachment and byte-restore checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="native_output/$ATLAS_JOLTS_EDITION_ID.tar.gz"
+          remote="$ONEDRIVE_TARGET/snapshots/$ATLAS_JOLTS_EDITION_ID.tar.gz"
+          expected=$(sha256sum "$archive" | cut -d ' ' -f1)
+          rclone copyto "$archive" "$remote" --retries 3 --low-level-retries 10
+          restored=$(rclone cat "$remote" | sha256sum | cut -d ' ' -f1)
+          test "$expected" = "$restored"
+          rclone copyto "native_output/$ATLAS_JOLTS_EDITION_ID.integration_report.json" \
+            "$ONEDRIVE_TARGET/snapshots/$ATLAS_JOLTS_EDITION_ID.integration_report.json"
+          echo "ATLAS_BLS_JOLTS_PRIVATE_NATIVE_SQLITE_SHA_RESTORED $expected"
+      - name: Publish metadata-only verification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-bls-jolts-native-receipt-${{ github.run_id }}
+          path: native_output/*.integration_report.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Erase temporary private OneDrive credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/atlas-jolts-native-rclone/rclone.conf"
