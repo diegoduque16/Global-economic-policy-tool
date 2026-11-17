@@ -14,6 +14,7 @@ import io
 import json
 import math
 import mimetypes
+import re
 import sqlite3
 from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -71,6 +72,52 @@ def geography_reference():
             names[code] = entry["name"]
             kinds[code] = entry["kind"]
     return names, kinds
+
+
+YEAR_PERIOD = re.compile(r"[0-9]{4}\Z")
+MONTH_PERIOD = re.compile(r"([0-9]{4})-(0[1-9]|1[0-2])\Z")
+ISO_DATE_PERIOD = re.compile(r"([0-9]{4})-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])\Z")
+QUARTER_PERIOD = re.compile(r"[0-9]{4}-Q[1-4]\Z")
+
+
+def plot_period_granularity(rows):
+    """Classify one source-native time axis without inferring an annual series.
+
+    Charting is allowed only when original source frequencies and period
+    encodings agree. Mixed monthly YYYY-MM and YYYY-MM-DD representations
+    are deliberately not silently treated as identical points.
+    """
+    if not rows:
+        return "unsupported"
+    periods = [str(r.get("period") or "") for r in rows]
+    frequencies = {
+        str(r.get("frequency") or "").strip().lower() for r in rows
+    }
+    names = {
+        "m": "monthly", "monthly": "monthly",
+        "q": "quarterly", "quarterly": "quarterly",
+        "a": "annual", "annual": "annual", "yearly": "annual",
+    }
+    modes = {names.get(freq, freq) for freq in frequencies}
+    if modes == {"monthly"}:
+        if all(MONTH_PERIOD.fullmatch(p) for p in periods):
+            return "monthly"
+        if all(ISO_DATE_PERIOD.fullmatch(p) for p in periods):
+            # Reject invalid calendar dates (e.g. February 31).
+            from datetime import date
+            try:
+                for period in periods:
+                    date.fromisoformat(period)
+            except ValueError:
+                return "unsupported"
+            return "monthly"
+    if modes == {"quarterly"} and all(QUARTER_PERIOD.fullmatch(p) for p in periods):
+        return "quarterly"
+    if all(YEAR_PERIOD.fullmatch(p) for p in periods) and not modes.intersection(
+        {"monthly", "quarterly"}
+    ):
+        return "annual"
+    return "unsupported"
 
 
 class AtlasStore:
@@ -263,11 +310,13 @@ class AtlasStore:
             blocked.append("Mixed source frequencies; narrow the selection.")
         if duplicate_keys:
             blocked.append("Repeated geography/period/series keys; inspect source disaggregations in Table.")
-        year_keys = [(r["geography"], r["year"]) for r in items if r["year"] is not None]
-        if len(year_keys) != len(set(year_keys)):
-            blocked.append("Multiple observations within a year; use Table rather than an annual x-axis.")
-        if any(r["period"] not in (str(r["year"]), None, "") for r in items):
-            blocked.append("Nonannual periods require a more precise period axis; inspect in Table.")
+        granularity = plot_period_granularity(items)
+        if granularity == "unsupported":
+            blocked.append("Unknown or inconsistent source periods; use Table and inspect original frequency.")
+        if granularity == "annual":
+            year_keys = [(r["geography"], r["year"]) for r in items if r["year"] is not None]
+            if len(year_keys) != len(set(year_keys)):
+                blocked.append("Multiple observations within a year; inspect source disaggregations in Table.")
         if layer == "source_native":
             warnings.append("Exploratory only: source-native units and definitions have not been independently harmonized.")
         if any(r["value"] is None for r in items):
@@ -277,6 +326,7 @@ class AtlasStore:
                 "duplicate_keys":duplicate_keys, "chart_warnings":blocked+warnings,
                 "chart_blockers":blocked,
                 "layer":layer, "family":fid, "series":series,
+                "plot_granularity":granularity,
                 "can_plot":not blocked and any(r["value"] is not None for r in items),
                 "not_cross_provider_harmonized":True}
 
@@ -493,11 +543,13 @@ class NativeAttachmentStore(AtlasStore):
             blockers.append("Mixed frequencies; narrow the selection.")
         if duplicate_keys:
             blockers.append("Repeated geography/period/series keys; inspect original dimensions.")
-        yearly = [(r["geography"], r["year"]) for r in items if r["year"] is not None]
-        if len(yearly) != len(set(yearly)):
-            blockers.append("Multiple observations within a year; review original monthly or subgroup periods.")
-        if any(r["period"] not in ("", str(r["year"])) for r in items):
-            blockers.append("Nonannual periods require a period-aware plot; use Table or CSV.")
+        granularity = plot_period_granularity(items)
+        if granularity == "unsupported":
+            blockers.append("Unknown or inconsistent original source periods; inspect Table or CSV.")
+        if granularity == "annual":
+            yearly = [(r["geography"], r["year"]) for r in items if r["year"] is not None]
+            if len(yearly) != len(set(yearly)):
+                blockers.append("Repeated original annual periods; inspect source dimensions.")
         warnings = ["Private original source-native data; units, vintages and providers are not harmonized."]
         if any(r["value"] is None for r in items):
             warnings.append("Suppressed/nonnumeric values are retained without zero filling.")
@@ -505,6 +557,7 @@ class NativeAttachmentStore(AtlasStore):
                 "units": units, "frequencies": freqs, "duplicate_keys": duplicate_keys,
                 "chart_warnings": blockers + warnings, "chart_blockers": blockers,
                 "layer": layer, "family": fid, "series": series,
+                "plot_granularity": granularity,
                 "can_plot": not blockers and any(r["value"] is not None for r in items),
                 "not_cross_provider_harmonized": True}
 
