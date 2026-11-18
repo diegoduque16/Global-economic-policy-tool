@@ -1,0 +1,166 @@
+name: Append 3 original ILOSTAT SDG tables to private Atlas source-native SQLite
+
+on:
+  pull_request:
+    paths:
+      - 'warehouse/ilostat_native_extension.py'
+      - 'tests/test_ilostat_native_extension.py'
+      - 'atlas_web/server.py'
+      - 'tests/test_atlas_native_explorer.py'
+      - '.github/workflows/atlas-ilostat-native-first-sdg.yml'
+      - 'docs/atlas_project_brief.json'
+  push:
+    branches: [main]
+    paths:
+      - 'warehouse/ilostat_native_extension.py'
+      - 'tests/test_ilostat_native_extension.py'
+      - '.github/workflows/atlas-ilostat-native-first-sdg.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-ilostat-first-sdg-native-private-release
+  cancel-in-progress: false
+
+jobs:
+  test-original-source-importer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate ILO original rows and transactional native SQLite append
+        run: |
+          python -m unittest discover -s tests -p 'test_ilostat_native_extension.py' -v
+          python -m unittest discover -s tests -p 'test_ilostat_native_profile.py' -v
+          python -m unittest discover -s tests -p 'test_atlas_native_explorer.py' -v
+          python -m py_compile warehouse/ilostat_native_extension.py
+          python -m json.tool docs/atlas_project_brief.json > /dev/null
+
+  append-original-ilostat-private:
+    if: github.event_name != 'pull_request'
+    needs: test-original-source-importer
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PARENT: 'atlas-native-wid-wdi-econ-bls-20261117-44171117929'
+      PARENT_SHA: 'ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Require previously certified original Atlas and official ILOSTAT source runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for run in 44171117929 44188570690; do
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.conclusion')" = success
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.head_branch')" = main
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.head_repository.full_name')" = "$GH_REPO"
+          done
+      - name: Restore SHA-pinned parent and previously verified official ILOSTAT sources privately
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          root="$RUNNER_TEMP/atlas-ilostat-sdg-native"
+          mkdir -p "$root/sources"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$root/rclone.conf"
+          chmod 600 "$root/rclone.conf"
+          echo "RCLONE_CONFIG=$root/rclone.conf" >> "$GITHUB_ENV"
+          rclone copyto "$ONEDRIVE_TARGET/snapshots/$PARENT.tar.gz" "$root/parent.tar.gz" --retries 3
+          test "$(sha256sum "$root/parent.tar.gz" | cut -d ' ' -f1)" = "$PARENT_SHA"
+          rclone copyto "$ONEDRIVE_TARGET/atlas/ilostat-bulk-v1/checkpoint/state.json" \
+            "$root/source-state.json" --retries 3
+          python - <<'PY_RESTORE'
+          import json,os,subprocess
+          from pathlib import Path
+          from warehouse.ilostat_native_extension import checkpoint_records
+          root=Path(os.environ['RUNNER_TEMP'])/'atlas-ilostat-sdg-native'
+          state=json.loads((root/'source-state.json').read_text())
+          verified=checkpoint_records(state)
+          for table,record in verified.items():
+              destination=root/'sources'/(table+'.csv.gz')
+              subprocess.run(['rclone','copyto',record['remote'],str(destination),
+                              '--retries','3'],check=True,capture_output=True,text=True)
+              from warehouse.native_materialize import sha256
+              if sha256(destination)!=record['sha256']:
+                  raise ValueError('Exact original ILOSTAT private source SHA changed')
+              print('ILOSTAT_CERTIFIED_SOURCE_RESTORED',table,record['records_validated'])
+          PY_RESTORE
+      - name: Index original ILOSTAT source rows into SAME private SQLite, not canonical/public
+        shell: bash
+        run: |
+          set -euo pipefail
+          id="atlas-native-wdi-wid-fred-eurostat-bls-ilostat-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"
+          echo "ATLAS_ILOSTAT_NATIVE_EDITION=$id" >> "$GITHUB_ENV"
+          python -m warehouse.ilostat_native_extension \
+            --parent-archive "$RUNNER_TEMP/atlas-ilostat-sdg-native/parent.tar.gz" \
+            --checkpoint "$RUNNER_TEMP/atlas-ilostat-sdg-native/source-state.json" \
+            --source-dir "$RUNNER_TEMP/atlas-ilostat-sdg-native/sources" \
+            --out ilostat_native_output --snapshot-id "$id"
+      - name: Verify 153116 preserved ILOSTAT source rows and 1036234 total
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_VERIFY'
+          import json,os
+          from pathlib import Path
+          id=os.environ['ATLAS_ILOSTAT_NATIVE_EDITION']
+          report=json.loads((Path('ilostat_native_output')/(id+'.integration_report.json')).read_text())
+          assert report['parent_original_records_preserved']==883118
+          assert report['original_source_rows_added']==153116
+          assert report['new_attachment_source_native_rows']==1036234
+          assert report['parent_original_source_ids_preserved']==976
+          assert report['new_attachment_source_ids']==979
+          assert set(report['tables'])=={
+              'SDG_0831_SEX_ECO_RT_A','SDG_0851_SEX_OCU_NB_A',
+              'SDG_0852_SEX_AGE_RT_A'}
+          assert (report['finite_numeric_values_added']+
+                  report['missing_source_values_retained']+
+                  report['other_nonnumeric_values_retained'])==153116
+          assert report['public_release'] is False
+          assert report['cross_provider_harmonized'] is False
+          print('ATLAS_ILOSTAT_153116_SOURCE_NATIVE_ROWS_VERIFIED',
+                report['new_attachment_source_native_rows'],
+                report['finite_numeric_values_added'])
+          PY_VERIFY
+      - name: Preserve new immutable private edition in OneDrive with exact SHA restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="ilostat_native_output/$ATLAS_ILOSTAT_NATIVE_EDITION.tar.gz"
+          remote="$ONEDRIVE_TARGET/snapshots/$ATLAS_ILOSTAT_NATIVE_EDITION.tar.gz"
+          expected=$(sha256sum "$archive" | cut -d ' ' -f1)
+          rclone copyto "$archive" "$remote" --retries 3 --low-level-retries 10
+          actual=$(rclone cat "$remote" | sha256sum | cut -d ' ' -f1)
+          test "$actual" = "$expected"
+          rclone copyto "ilostat_native_output/$ATLAS_ILOSTAT_NATIVE_EDITION.integration_report.json" \
+            "$ONEDRIVE_TARGET/snapshots/$ATLAS_ILOSTAT_NATIVE_EDITION.integration_report.json"
+          echo "ATLAS_ILOSTAT_PRIVATE_SQLITE_RESTORED_SHA256 $expected"
+      - name: Publish metadata-only source-native integration receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-ilostat-sdg-private-native-receipt-${{ github.run_id }}
+          path: ilostat_native_output/*.integration_report.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Remove transient private original rows and OneDrive credentials
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/atlas-ilostat-sdg-native"
