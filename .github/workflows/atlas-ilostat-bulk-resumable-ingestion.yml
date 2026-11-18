@@ -10,6 +10,8 @@ on:
       - '.github/workflows/atlas-ilostat-bulk-resumable-ingestion.yml'
       - 'scripts/ilostat_gap_report.py'
       - 'tests/test_ilostat_gap_report.py'
+      - 'scripts/ilostat_refresh_priority.py'
+      - 'tests/test_ilostat_refresh_priority.py'
   workflow_dispatch:
     inputs:
       batch_size:
@@ -73,6 +75,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_ilostat_checkpoint_guard.py' -v
           python -m unittest discover -s tests -p 'test_ilostat_native_profile.py' -v
           python -m unittest discover -s tests -p 'test_ilostat_gap_report.py' -v
+          python -m unittest discover -s tests -p 'test_ilostat_refresh_priority.py' -v
 
       - name: Verify ILOSTAT checkpoint before ingestion
         shell: bash
@@ -98,6 +101,7 @@ jobs:
               write_inventory, sha256_bytes,
           )
           from scripts.ilostat_gap_report import write_gap_report
+          from scripts.ilostat_refresh_priority import prioritize_official_tables, PRIORITY_LABOUR_TABLES
 
           HOST = 'rplumber.ilo.org'
           TOC = 'https://rplumber.ilo.org/metadata/toc/indicator?format=.csv&lang=en'
@@ -365,8 +369,13 @@ jobs:
                   state['latest_toc']={'source_url':TOC,'sha256':toc_hash,'remote':toc_remote,'entries':len(toc)}
                   save_checkpoint(state,work)
                   load_dictionaries(work,state,report)
-                  # Prioritize three GenAI tables, then all other official bulk files.
-                  ids=sorted(toc,key=lambda k:(k in state['downloaded'],not ('_GAI_' in k),k))
+                  # Missing official files first. For archived-but-changed
+                  # vintages, keep GenAI first, then the three already
+                  # queryable Atlas SDG labour datasets before all others.
+                  # Existing size/checkpoint/no-loss and freshness gates unchanged.
+                  ids=prioritize_official_tables(toc,state['downloaded'])
+                  report['research_priority_labour_table_ids_in_toc']=[
+                      key for key in PRIORITY_LABOUR_TABLES if key in toc]
                   pending=[]; already=0; oversized=0; recent_failures=0
                   for key in ids:
                       r=toc[key]
