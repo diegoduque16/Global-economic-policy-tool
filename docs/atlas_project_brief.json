@@ -299,7 +299,7 @@
       "name": "Private source-native Atlas explorer",
       "stage": "Private Atlas explorer fully production-smoke-verified against actual 883,118-record / 976-source-identity five-provider native SQLite on Nov 17, using checksum-pinned private OneDrive archive; local read-only service only, not public Cloudflare.",
       "evidence": "GitHub Actions production run 44189089919 restored the exact SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625 archive, safely extracted only private native_source_extension.sqlite, and opened the real read-only Atlas source explorer. Verified 883,118 actual rows across 976 indexed original source series and 5 provider groups, exact WDI 572,179 / WID 40,908 / FRED 13,885 / Eurostat 3,436 / BLS JOLTS 252,710 source-native numeric records, successfully queried an actual BLS job-openings monthly series with original state and industry dimensions and source units, and passed SQLite integrity and read-only checks. These are actual private-data smoke results; no private source values were published in artifact or public Atlas. Monthly/quarterly period chart logic merged in PR #49 and tests passed.",
-      "next": "Run a real-data, SHA-pinned query check against the NEW 1,036,234-row six-provider attachment from run 44209878280, including real ILOSTAT original SDG selections, source status flags, sex/age/occupation metadata, and read-only SQLite integrity. The earlier real 883,118-row five-provider archive is independently verified but does not prove usability for the new ILOSTAT extension; new private source data are NOT published.",
+      "next": "Real-data six-provider smoke is now being updated to restore exact SHA-verified new 1,036,234-row private edition (run 44209878280), verify all 979 original native source identities, query actual ILOSTAT unemployment source series by sex/age/source dimensions, retain BLS monthly functionality, and SQLite read-only/physical integrity. New run pending CI and merge; no hosted public deployment asserted.",
       "links": [
         {
           "label": "Existing private Atlas explorer backend",
@@ -657,6 +657,12 @@
       "date": "2026-11-17",
       "title": "Certify first original ILOSTAT numeric SDG source-native attachment with private SHA-recovered 1036234 rows",
       "description": "After pre-merge tests and two production integration blockers corrected (same-shell rclone config; shared 500MB small-source archive cap), main run 44209878280 successfully imported 57,488 + 47,322 + 48,306 original ILOSTAT SDG 8.3.1/8.5.1/8.5.2 physical source rows, of which 149,148 finite numeric and 3,968 empty. It preserved 883,118 parent rows and all 976 previous source IDs, yielding 1,036,234 source-native rows / 979 source IDs, retaining 20,167 structural dimension combinations unverified as independent statistical series. Private OneDrive immutable archive was byte-restored with SHA256 0f4124954303f07478b1e4c7dd23af4f4e21146cd7139b9b9fde783d65934538. Historical canonical/public releases unchanged; source-native observations not harmonized.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44209878280"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Validate the actual expanded six-provider economic Atlas explorer against the newly certified private ILOSTAT edition",
+      "description": "The new SHA-restored native SQLite attachment certified in production run 44209878280 contains 1,036,234 source-native rows, 979 source IDs, including 153,116 original ILOSTAT annual SDG rows and 20,167 structural dimension combinations, not necessarily independent statistical series. Update existing private-readonly Atlas explorer smoke workflow to pin this new archive, verify six provider groups, unchanged WDI/WID/FRED/Eurostat/BLS totals, original ILOSTAT unemployment sex/classif/source codes, BLS monthly query and SQLite integrity. Production CI pending, and public Cloudflare edition remains unchanged.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44209878280"
     }
   ],
