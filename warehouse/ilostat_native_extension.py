@@ -14,7 +14,8 @@ import gzip
 import hashlib
 import json
 import math
-from pathlib import Path
+import shutil
+from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 import tarfile
@@ -22,7 +23,6 @@ import tempfile
 
 from scripts.ilostat_native_profile import profile_native_file
 from warehouse.native_materialize import sha256, dump
-from warehouse.us_europe_native_extension import read_members
 
 PARENT_SHA = "ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625"
 PARENT_ID = "atlas-native-wid-wdi-econ-bls-20261117-44171117929"
@@ -238,6 +238,49 @@ def append_originals(dbpath: Path, checkpoint: dict, source_dir: Path,
     return report
 
 
+def restore_large_parent(archive: Path, destination: Path) -> dict:
+    """Stream exactly two SHA-pinned native-archive files without loading SQLite into RAM.
+
+    The earlier small-source helper has a 500MB aggregate cap. This archive is
+    larger and must be handled via bounded streaming, not a global cap increase.
+    """
+    allowed = {"native_source_extension.sqlite", "source_native_release_manifest.json"}
+    destination = Path(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    found = set()
+    total = 0
+    with tarfile.open(archive, "r:gz") as src:
+        for member in src:
+            p = PurePosixPath(member.name)
+            if (p.is_absolute() or ".." in p.parts or member.issym()
+                or member.islnk() or member.isdev()):
+                raise ValueError("Unsafe ILOSTAT native parent archive member")
+            if member.isdir():
+                continue
+            if not member.isfile() or len(p.parts) != 2 or p.parts[0] != PARENT_ID:
+                raise ValueError("Unexpected private native attachment member")
+            relative = p.parts[1]
+            if relative not in allowed or relative in found:
+                raise ValueError("Unexpected or repeated Atlas private native source file")
+            if member.size < 1 or member.size > 3_000_000_000:
+                raise ValueError("Unsafe native source member byte size")
+            total += member.size
+            if total > 3_100_000_000:
+                raise ValueError("Private native SQLite archive exceeds bounded source scope")
+            target = destination / relative
+            source = src.extractfile(member)
+            if source is None:
+                raise ValueError("Cannot read certified private native source file")
+            with source, target.open("xb") as out:
+                shutil.copyfileobj(source, out, length=1024*1024)
+            if target.stat().st_size != member.size:
+                raise ValueError("Truncated privately restored Atlas native SQLite")
+            found.add(relative)
+    if found != allowed:
+        raise ValueError("Incomplete certified private Atlas original source edition")
+    return json.loads((destination / "source_native_release_manifest.json").read_text(encoding="utf-8"))
+
+
 def build(parent_archive: Path, checkpoint_path: Path, source_dir: Path,
           output: Path, snapshot: str) -> dict:
     if not re.fullmatch(r"atlas-native-[A-Za-z0-9_-]+", snapshot):
@@ -253,18 +296,13 @@ def build(parent_archive: Path, checkpoint_path: Path, source_dir: Path,
     if archive.exists() or receipt.exists():
         raise FileExistsError("Refusing to overwrite an existing private edition")
     with tempfile.TemporaryDirectory() as folder:
-        members = read_members(parent_archive,PARENT_ID,
-            {"native_source_extension.sqlite","source_native_release_manifest.json"})
-        if set(members) != {"native_source_extension.sqlite","source_native_release_manifest.json"}:
-            raise ValueError("Missing certified original Atlas native parent files")
-        parent_manifest = json.loads(members["source_native_release_manifest.json"])
+        root=Path(folder)/snapshot
+        root.mkdir()
+        parent_manifest = restore_large_parent(parent_archive, root)
         if (parent_manifest.get("new_attachment_records") != PARENT_RECORDS or
             parent_manifest.get("public_release") is not False):
             raise ValueError("Parent source-native Atlas version inconsistent")
-        root=Path(folder)/snapshot
-        root.mkdir()
         sqlite=root/"native_source_extension.sqlite"
-        sqlite.write_bytes(members["native_source_extension.sqlite"])
         result=append_originals(sqlite,state,source_dir)
         if result["original_source_rows_added"] != EXPECTED_ORIGINAL_ROWS:
             raise ValueError("ILOSTAT 3-table row count changed")

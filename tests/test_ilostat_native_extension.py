@@ -4,13 +4,15 @@ import gzip
 import json
 from pathlib import Path
 import sqlite3
+import tarfile
 import tempfile
 import unittest
 
 from scripts.ilostat_native_profile import profile_native_file
 from warehouse.native_materialize import sha256
 from warehouse.ilostat_native_extension import (
-    SOURCE_BASE, append_originals, checkpoint_records, identity,
+    SOURCE_BASE, PARENT_ID, append_originals, checkpoint_records, identity,
+    restore_large_parent,
 )
 
 
@@ -134,6 +136,42 @@ class IlostatPrivateNativeTests(unittest.TestCase):
         r3["sex"]="SEX_F"
         self.assertEqual(identity(TABLE,r1)[0],identity(TABLE,r2)[0])
         self.assertNotEqual(identity(TABLE,r1)[0],identity(TABLE,r3)[0])
+
+    def test_streaming_parent_archive_restores_only_exact_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            source=root/PARENT_ID
+            source.mkdir()
+            (source/"native_source_extension.sqlite").write_bytes(b"SQLite original source bytes")
+            (source/"source_native_release_manifest.json").write_text(
+                json.dumps({"new_attachment_records":883118,"public_release":False}))
+            parent=root/"private-native.tar.gz"
+            with tarfile.open(parent,"w:gz") as out:
+                out.add(source,arcname=PARENT_ID)
+            restored=root/"restored"
+            result=restore_large_parent(parent,restored)
+            self.assertEqual(result["new_attachment_records"],883118)
+            self.assertEqual((restored/"native_source_extension.sqlite").read_bytes(),
+                             b"SQLite original source bytes")
+
+    def test_streaming_parent_archive_rejects_missing_and_out_of_scope_members(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            invalid=root/"invalid.tar.gz"
+            contents=b"test"
+            import io
+            with tarfile.open(invalid,"w:gz") as out:
+                item=tarfile.TarInfo(PARENT_ID+"/native_source_extension.sqlite")
+                item.size=len(contents)
+                out.addfile(item,io.BytesIO(contents))
+            with self.assertRaisesRegex(ValueError,"Incomplete"):
+                restore_large_parent(invalid,root/"missing")
+            with tarfile.open(invalid,"w:gz") as out:
+                item=tarfile.TarInfo(PARENT_ID+"/../outside.sqlite")
+                item.size=len(contents)
+                out.addfile(item,io.BytesIO(contents))
+            with self.assertRaisesRegex(ValueError,"Unsafe"):
+                restore_large_parent(invalid,root/"unsafe")
 
     def test_private_archive_step_exports_config_before_using_rclone(self):
         workflow=(Path(__file__).resolve().parents[1] /
