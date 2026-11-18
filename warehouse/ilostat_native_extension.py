@@ -197,7 +197,7 @@ def append_originals(dbpath: Path, checkpoint: dict, source_dir: Path,
                         source.setdefault("unit", "source_defined_unverified")
                         source["disaggregation"] = dimensions
                         batch.append((source_id,rows,time,time,area,code,
-                                      raw.get("indicator",""),value,
+                                      "",value,
                                       json.dumps(source,sort_keys=True,
                                                  ensure_ascii=False,separators=(",",":"))))
                         if len(batch)>=4000:
