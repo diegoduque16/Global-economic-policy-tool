@@ -82,6 +82,7 @@ jobs:
           mkdir -p "$root/sources"
           printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$root/rclone.conf"
           chmod 600 "$root/rclone.conf"
+          export RCLONE_CONFIG="$root/rclone.conf"
           echo "RCLONE_CONFIG=$root/rclone.conf" >> "$GITHUB_ENV"
           rclone copyto "$ONEDRIVE_TARGET/snapshots/$PARENT.tar.gz" "$root/parent.tar.gz" --retries 3
           test "$(sha256sum "$root/parent.tar.gz" | cut -d ' ' -f1)" = "$PARENT_SHA"
