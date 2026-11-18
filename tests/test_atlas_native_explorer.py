@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 from atlas_web.server import NativeAttachmentStore, geography_reference, plot_period_granularity
+from atlas_web.ilostat_dictionaries import VerifiedILOCodeLists
 
 
 class PrivateNativeExplorerTests(unittest.TestCase):
@@ -156,13 +157,27 @@ class PrivateNativeExplorerTests(unittest.TestCase):
                 (source_id,1,"2024","2024","GHA",code,"","5.7",json.dumps(original)))
             db.execute("INSERT INTO native_ilostat_series VALUES (?,?,?,?)",
                 (source_id,code,json.dumps(dims),1))
-        store=NativeAttachmentStore(self.path)
+        codes={
+            "cl_sex":{"SEX_F":"Female"},
+            "cl_classif1":{"AGE_Y15-24":"Age 15 to 24"},
+            "cl_ref_area":{"GHA":"Ghana"},
+            "cl_source":{"ILOEST":"ILO modeled estimates"},
+            "cl_obs_status":{"E":"Estimated"},
+        }
+        receipt={key:{"sha256":"a"*64,
+                       "source_url":"https://rplumber.ilo.org/metadata/dic?var="+key}
+                 for key in codes}
+        official=VerifiedILOCodeLists(codes,receipt)
+        store=NativeAttachmentStore(self.path,ilostat_dictionaries=official)
         family={f["id"]:f for f in store.families()}
         self.assertEqual(family["ilostat"]["observations"],1)
         self.assertEqual(store.overview()["native_records"],7)
         selected=store.series("ilostat","source_native",q="Unemployment")
         self.assertEqual(len(selected),1)
         self.assertIn("AGE_Y15-24",selected[0]["title"])
+        self.assertIn("Female",selected[0]["title"])
+        self.assertIn("Age 15 to 24",selected[0]["title"])
+        self.assertEqual(len(store.series("ilostat","source_native",q="Female Unemployment")),1)
         self.assertEqual(selected[0]["name"],code)
         self.assertEqual(selected[0]["reported_measurement_reference"],"Percentage (%)")
         self.assertFalse(selected[0]["source_row_unit_verified"])
@@ -179,12 +194,17 @@ class PrivateNativeExplorerTests(unittest.TestCase):
         self.assertFalse(rows["indicator_reference"]["source_row_unit_verified"])
         self.assertFalse(rows["indicator_reference"]["cross_country_comparison_approved"])
         self.assertEqual(rows["rows"][0]["sex"],"SEX_F")
+        self.assertEqual(rows["rows"][0]["original_dictionary_labels"]["sex"],"Female")
+        self.assertEqual(rows["rows"][0]["original_dictionary_labels"]["classif1"],"Age 15 to 24")
+        self.assertEqual(len(rows["original_code_dictionary_receipts"]),5)
+        self.assertTrue(any("dictionary labels are SHA verified" in w for w in rows["chart_warnings"]))
         self.assertEqual(rows["rows"][0]["classif1"],"AGE_Y15-24")
         self.assertEqual(rows["rows"][0]["original_source_code"],"ILOEST")
         self.assertIn("E",rows["rows"][0]["source_status"])
         csv_data=list(csv.DictReader(io.StringIO(store.export_csv(
             "ilostat","source_native",code,["GHA"],2024,2024))))
         self.assertEqual(csv_data[0]["sex"],"SEX_F")
+        self.assertEqual(json.loads(csv_data[0]["original_dictionary_labels"])["sex"],"Female")
         self.assertEqual(csv_data[0]["original_source_code"],"ILOEST")
         self.assertTrue(any("unverified" in x.lower()
                             for x in rows["chart_warnings"]))
@@ -196,7 +216,7 @@ class PrivateNativeExplorerTests(unittest.TestCase):
                        (source_id,2,"2024","2024","USA",code,"","6.2",json.dumps(second)))
             db.execute("UPDATE native_sources SET original_records=2,indexed_records=2 WHERE source_id=?",
                        (source_id,))
-        store=NativeAttachmentStore(self.path)
+        store=NativeAttachmentStore(self.path,ilostat_dictionaries=official)
         combined=store.rows("ilostat","source_native",code,["GHA","USA"],2024,2024)
         self.assertEqual(combined["returned"],2)
         self.assertFalse(combined["can_plot"])

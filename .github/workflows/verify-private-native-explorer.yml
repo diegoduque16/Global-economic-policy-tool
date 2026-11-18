@@ -6,6 +6,7 @@ on:
       - 'atlas_web/**'
       - 'tests/test_atlas_native_explorer.py'
       - 'tests/test_ilostat_indicator_reference.py'
+      - 'tests/test_ilostat_dictionaries.py'
       - '.github/workflows/verify-private-native-explorer.yml'
   push:
     branches: [main]
@@ -13,6 +14,7 @@ on:
       - 'atlas_web/**'
       - 'tests/test_atlas_native_explorer.py'
       - 'tests/test_ilostat_indicator_reference.py'
+      - 'tests/test_ilostat_dictionaries.py'
       - '.github/workflows/verify-private-native-explorer.yml'
   workflow_dispatch:
 
@@ -38,6 +40,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_atlas_web.py' -v
           python -m unittest discover -s tests -p 'test_atlas_native_explorer.py' -v
           python -m unittest discover -s tests -p 'test_ilostat_indicator_reference.py' -v
+          python -m unittest discover -s tests -p 'test_ilostat_dictionaries.py' -v
           python -m py_compile atlas_web/server.py
           node --check atlas_web/static/app.js
 
@@ -104,6 +107,46 @@ jobs:
                   shutil.copyfileobj(src,dst)
           print("ATLAS_PRIVATE_NATIVE_SQLITE_EXTRACTED_SAFELY")
           PY_EXTRACT
+      - name: Restore original SHA-backed private ILOSTAT dictionary code lists
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/atlas-real-private-smoke"
+          export RCLONE_CONFIG="$root/rclone.conf"
+          mkdir -p "$root/dictionaries"
+          rclone copyto "$ONEDRIVE_TARGET/atlas/ilostat-bulk-v1/checkpoint/state.json" \
+            "$root/ilostat-state.json" --retries 3
+          python - <<'PY_DICTIONARIES'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+          from atlas_web.ilostat_dictionaries import (
+              SOURCE_ROOT, KINDS, load_code_lists
+          )
+          root=Path(os.environ["RUNNER_TEMP"])/"atlas-real-private-smoke"
+          state=json.loads((root/"ilostat-state.json").read_text(encoding="utf-8"))
+          for kind in KINDS:
+              proof=state.get("dictionaries",{}).get(kind)
+              if not isinstance(proof,dict):
+                  raise ValueError("Missing original official ILOSTAT dictionary receipt")
+              sha=proof.get("sha256")
+              if not isinstance(sha,str) or not re.fullmatch(r"[a-f0-9]{64}",sha):
+                  raise ValueError("Invalid ILOSTAT dictionary source SHA")
+              if proof.get("remote") != SOURCE_ROOT+kind+"-"+sha[:16]+".csv":
+                  raise ValueError("Original ILOSTAT dictionary remote does not match source SHA")
+              target=root/"dictionaries"/(kind+".csv")
+              subprocess.run(["rclone","copyto",proof["remote"],str(target),
+                              "--retries","3"],check=True,capture_output=True,text=True)
+              if target.stat().st_size>20_000_000 or hashlib.sha256(target.read_bytes()).hexdigest()!=sha:
+                  raise ValueError("Original ILOSTAT source dictionary SHA mismatch")
+          verified=load_code_lists(root/"ilostat-state.json",root/"dictionaries")
+          if len(verified.public_safe_provenance())!=len(KINDS):
+              raise ValueError("Original ILOSTAT dictionary classification incomplete")
+          print("ATLAS_PRIVATE_ILOSTAT_ORIGINAL_DICTIONARIES_SHA_VERIFIED",len(KINDS))
+          PY_DICTIONARIES
       - name: Smoke-test actual provider filters, BLS original periods and safe research queries
         shell: bash
         run: |
@@ -113,8 +156,11 @@ jobs:
           import sqlite3
           from pathlib import Path
           from atlas_web.server import NativeAttachmentStore
+          from atlas_web.ilostat_dictionaries import load_code_lists, KINDS
           root=Path(os.environ["RUNNER_TEMP"])/"atlas-real-private-smoke"
-          store=NativeAttachmentStore(root/"native_source_extension.sqlite")
+          labels=load_code_lists(root/"ilostat-state.json",root/"dictionaries")
+          store=NativeAttachmentStore(root/"native_source_extension.sqlite",
+                                      ilostat_dictionaries=labels)
           expected={"wdi":572179,"wid":40908,"fred":13885,"eurostat":3436,
                     "bls_jolts":252710,"ilostat":153116}
           actual={x["id"]:x["observations"] for x in store.families()}
@@ -145,7 +191,10 @@ jobs:
           source_series=store.series("ilostat","source_native",q="Unemployment",max_results=12)
           if not source_series:
               raise ValueError("Original ILOSTAT unemployment series not available in private explorer")
+          if not any(x.get("original_dictionary_labels_verified") for x in source_series):
+              raise ValueError("Original ILOSTAT code lists not attached to private source query")
           found=False
+          found_verified_label=False
           for candidate in source_series:
               geos=store.geographies("ilostat","source_native",candidate["name"])
               for geo in geos[:6]:
@@ -157,11 +206,16 @@ jobs:
                          and r["source_status"].startswith("SOURCE_NATIVE_UNHARMONIZED")
                          for r in check["rows"]):
                       found=True
+                      if any(r.get("original_dictionary_labels",{}).get("sex")
+                             for r in check["rows"]):
+                          found_verified_label=True
                       break
               if found:
                   break
           if not found:
               raise ValueError("Actual ILOSTAT original classification/source fields unavailable")
+          if not found_verified_label:
+              raise ValueError("No original ILOSTAT sex code matched a verified archived dictionary")
           with store.connect() as db:
               if db.execute("SELECT COUNT(*) FROM native_ilostat_series").fetchone()[0]!=20167:
                   raise ValueError("ILOSTAT original structural dimensions do not match certified edition")
@@ -180,6 +234,8 @@ jobs:
                 {"original_source_native_rows":1036234,"original_source_ids":979,
                  "provider_groups":6,"bls_monthly_chart_works":True,
                  "ilostat_annual_original_dimensions_queryable":True,
+                 "ilostat_original_dictionary_files_sha_verified":len(KINDS),
+                 "ilostat_original_code_label_query_verified":True,
                  "source_data_public":False})
           PY_SMOKE
       - name: Remove private source material and OneDrive credentials

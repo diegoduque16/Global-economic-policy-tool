@@ -254,9 +254,11 @@ function renderTable(host,rows){
  const wrap=el("div","table-wrap"),table=el("table","data-table"),thead=el("thead"),headrow=el("tr");
  const dimensions=rows.some(r=>r.state_code||r.industry_code);
  const ilostatDimensions=rows.some(r=>r.sex||r.classif1||r.classif2||r.original_source_code);
+ const dictionaryLabels=rows.some(r=>Object.keys(r.original_dictionary_labels||{}).length);
  const cols=["Geography","Period","Series","Value","Unit","Provider","Status",
   ...(dimensions?["State","Industry"]:[]),
-  ...(ilostatDimensions?["Sex","Classification 1","Classification 2","Original source"]:[])];
+  ...(ilostatDimensions?["Sex","Classification 1","Classification 2","Original source"]:[]),
+  ...(dictionaryLabels?["Original ILOSTAT dictionary labels"]:[])];
  for(const c of cols)headrow.append(el("th",c==="Value"?"numeric":"",c));
  thead.append(headrow);table.append(thead);
  const body=el("tbody");
@@ -266,7 +268,9 @@ function renderTable(host,rows){
    r.value==null?"Not numeric":short(r.value),r.unit,r.provider,r.source_status,
    ...(dimensions?[r.state_code||"—",r.industry_code||"—"]:[]),
    ...(ilostatDimensions?[r.sex||"—",r.classif1||"—",r.classif2||"—",
-     r.original_source_code||"—"]:[])];
+     r.original_source_code||"—"]:[]),
+   ...(dictionaryLabels?[Object.entries(r.original_dictionary_labels||{})
+       .map(([key,label])=>key+": "+label).join(" · ")||"—"]:[])];
   vals.forEach((v,i)=>tr.append(el("td",i===3?"numeric":"",String(v??""))));
   body.append(tr);
  }
