@@ -343,7 +343,7 @@
       "name": "First source-native ILOSTAT SDG labor indicator integration",
       "stage": "Proposed original-value private SQLite extension pending PR tests, production provider-source SHA restore, and new archive certification; no new ILOSTAT rows counted yet",
       "evidence": "From successful original ILOSTAT bulk collection 44188570690, the official source-table IDs SDG_0831_SEX_ECO_RT_A (57,488 physical rows), SDG_0851_SEX_OCU_NB_A (47,322), and SDG_0852_SEX_AGE_RT_A (48,306) are already backed up. In total, 153,116 source rows include possible blanks, flagged values and overlapping dimensions; they are not automatically comparable or 153,116 independent statistical observations. The implementing branch adds a bounded importer which checks original SHA against private checkpoint, preserves complete original structural dimensions (sex, age, source, classifications), source flags and annual periods, and appends to the SAME verified 883,118-row native SQLite. Expected new private native edition is 1,036,234 rows if all 3 source files match last verified vintages, but this is NOT YET a verified production release.",
-      "next": "Run full offline regression tests and private production SHA restore; confirm exact finite numeric vs blank vs status/nonfinite source values, protect parent records and existing 5 source-provider totals, and only then update the certified attachment size. For actual research, reconcile the official ILOSTAT unit/indicator definitions and source vintages, and audit source overlap with Eurostat/World Bank before any harmonized time series.",
+      "next": "The first production attempt failed before archive restoration due unexported same-step OneDrive config (fixed in PR #54); the second correctly restored all original source files but stopped before SQLite indexing because a 500MB small-source helper rejected the valid larger 883,118-row native parent archive. A bounded streaming-only extraction patch with tests is pending. No original source rows have been appended in a certified edition yet; preserve the verified 883,118-row parent.",
       "links": [
         {
           "label": "Original ILOSTAT SDG source-file verification run",
@@ -352,6 +352,10 @@
         {
           "label": "Prior certified 883,118-row Atlas private native attachment",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44171117929"
+        },
+        {
+          "label": "Second production run blocked by overly restrictive legacy small-source archive cap",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44209313683"
         }
       ]
     }
@@ -638,6 +642,12 @@
       "title": "Prioritize original unemployment, earnings and informal-employment SDG tables for first private numeric ILOSTAT integration",
       "description": "Three already official-source-verified ILOSTAT annual indicator files from run 44188570690 total 153,116 original physical rows. Develop first bounded source-native append to same immutable private Atlas SQLite, preserving original table identities, sex/age/occupation/source classifications, dates, flags, missing values, raw values and checksum. Explicitly do not assign harmonized units or count physical rows as 153,116 distinct causal-ready observations. Target 1,036,234-source-row private SQLite edition only if CI and actual new private SHA-restored production release succeed.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44188570690"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Handle larger original Atlas parent SQLite via bounded streaming rather than relaxing shared source limits",
+      "description": "The initial ILOSTAT 3-table importer passed offline tests but its first main run 44208965534 failed before source restoration due same-step rclone config (fixed). The second main run 44209313683 restored original source files by SHA and then failed at the older shared read_members() helper's 500MB aggregate cap, because the real verified 883,118-row private SQLite is larger. Proposed repair uses a dedicated strict two-file, bounded, streamed extraction from exact SHA-pinned parent archive; leaves smaller-source shared helper and public/canonical data unchanged. Production count 883,118 remains latest certified until new full SHA-restored edition succeeds.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44209313683"
     }
   ],
   "next_actions": [
