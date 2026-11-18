@@ -307,7 +307,7 @@
       "name": "Private source-native Atlas explorer",
       "stage": "Verified against actual 1,036,234-row / 979-source six-provider private native SQLite, including searchable original ILOSTAT dimensions. Official ILO 8.3.1/8.5.1/8.5.2 measurement-reference labels and explicit unverified-row-unit safeguards are merged and real archive regression verified in main run 44225695039. Public website unchanged.",
       "evidence": "The prior real-private smoke run 44189089919 verified the 883,118-row five-provider parent. New successful main production run 44210751632 SHA-restored the exact immutable source-native private edition from run 44209878280 (SHA256 0f4124954303f07478b1e4c7dd23af4f4e21146cd7139b9b9fde783d65934538) and queried the actual source data through the existing local/read-only explorer. Independently confirmed 1,036,234 native source rows, 979 original source IDs, 6 provider groups, preserved WDI 572,179 / WID 40,908 / FRED 13,885 / Eurostat 3,436 / BLS JOLTS 252,710 / ILOSTAT original 153,116 source rows, the existing BLS monthly chart path, a real original ILOSTAT unemployment source series and nonempty sex/classif/source structural metadata, source geography classification, SQLite integrity/read-only gates, and zero public data uploads. The original ILOSTAT 20,167 dimensional combinations have not been certified as independent statistical series or harmonized data. November 17 local / Nov 18 UTC PR #59 added separately sourced ILO public measurement labels for exact SDG 8.3.1 informal employment (%) / 8.5.1 hourly earnings (local currency) / 8.5.2 unemployment (%) hashed original series. Backend leaves every source row unit at source_defined_unverified and multi-country comparisons blocked; public label includes its own NOT_ROW_VERIFIED status. Main run 44225695039 restored SHA-pinned six-provider private source data and passed offline source original labels and query tests; registry/public build 44225694940 also passed. No public original ILOSTAT data deployment.",
-      "next": "PR #60 merged source-dictionary read-only ILOSTAT label functionality after full CI, but its first private production run 44227289878 restored the exact SHA-pinned original 1,036,234-row SQLite and then stopped because the original source checkpoint lacked at least one of eight optional code-list receipts. A pending repair checks which dictionaries are truly present, SHA-validates only their original archived files, and leaves non-archived code labels unresolved rather than inventing them; production proof must be rerun before claiming official source-label usability. Original numeric database remains unchanged/private.",
+      "next": "The original 1,036,234-row private SQLite was restored successfully, but actual code-list smoke 44227860586 found that the source-original cl_indicator dictionary does not have the exact 3-column CSV layout assumed by the initial loader. A pending change identifies a unique original label column across 2–12 original source fields, keeps the original first-column code, accepts original codes with no English label as unresolved and rejects ambiguous/duplicate structures; each original CSV must still match SHA-256 and checkpoint row count. Production source-level verification remains pending; all numeric rows/private release unchanged.",
       "links": [
         {
           "label": "Existing private Atlas explorer backend",
@@ -360,6 +360,10 @@
         {
           "label": "First source dictionary private smoke missing optional original receipt; no numeric archive change",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44227289878"
+        },
+        {
+          "label": "Original private code-list restoration uncovered ILO original indicator dictionary column variant",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44227860586"
         }
       ]
     },
@@ -736,6 +740,12 @@
       "title": "Respect partial source-original ILOSTAT code-list archive; label only SHA-received original codes",
       "description": "After code-label PR #60 merged and synthetic regression passed, main private smoke 44227289878 restored certified 1,036,234-row native SQLite but failed at dictionary restoration because the existing ILOSTAT checkpoint does not contain all eight optional source code-list receipts. The numeric Atlas database was not edited. The follow-up change allows the optional loader to use only code lists present in original SHA-backed checkpoint, with strong exact SHA and original record count gates, leaving unsupported code labels missing and explicitly reporting which optional dictionaries were not archived. A new successful production private smoke run is required to establish actual label coverage. No public dataset or private source content is published.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44227289878"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Read exact original ILOSTAT dictionary label columns without assuming a three-field live CSV schema",
+      "description": "New main six-provider source smoke 44227860586 successfully restored the real 1,036,234-row SHA-pinned SQLite and verified available original dictionary receipts, but stopped before labels at original cl_indicator dictionary CSV, which differs from the three-column shape in the public ILO bulk guide. A narrowly scoped follow-up parser handles 2-12 columns by locating an explicit single .label/var_label/label column, falls back to second field only for 2-column files, preserves original source key/field rows, and refuses ambiguous/duplicate file keys. Blank labels remain unresolved. This does NOT infer standard country IDs, currencies or unit comparability; production private-label proof remains pending.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44227860586"
     }
   ],
   "next_actions": [
