@@ -132,6 +132,50 @@ class PrivateNativeExplorerTests(unittest.TestCase):
         self.assertEqual(values[0]["state_code"],"00")
         self.assertIn("series_id",values[0]["disaggregation"])
 
+    def test_ilostat_source_original_sdg_dimensions_and_missing_flags(self):
+        source_id="ilostat_SDG_0852_SEX_AGE_RT_A_abc123"
+        code="SDG_0852_SEX_AGE_RT_A_0123456789abcdef"
+        dims={"indicator":"SDG_0852","source":"ILOEST",
+              "sex":"SEX_F","classif1":"AGE_Y15-24","classif2":""}
+        original={"ref_area":"GHA","time":"2024","obs_value":"5.7",
+                  "obs_status":"E","provider":"ILO / ILOSTAT",
+                  "frequency":"annual","unit":"source_defined_unverified",
+                  "source_url":"https://rplumber.ilo.org/data/indicator?format=.csv.gz&id=SDG_0852_SEX_AGE_RT_A",
+                  "disaggregation":dims}
+        with sqlite3.connect(self.path) as db:
+            db.execute("""CREATE TABLE native_ilostat_series (
+                source_id TEXT NOT NULL, series_code TEXT NOT NULL,
+                original_dimensions_json TEXT NOT NULL,
+                original_rows INTEGER NOT NULL,
+                PRIMARY KEY(source_id,series_code))""")
+            db.execute("INSERT INTO native_sources VALUES (?,?,?,?,?,?,?,?,?)",
+                (source_id,"a"*64,1,1,
+                 json.dumps({"provider":"ILO / ILOSTAT","unit":"source_defined_unverified"}),
+                 "original ILOSTAT", "SOURCE_NATIVE_UNHARMONIZED",0,"[]"))
+            db.execute("INSERT INTO native_records VALUES (?,?,?,?,?,?,?,?,?)",
+                (source_id,1,"2024","2024","GHA",code,"","5.7",json.dumps(original)))
+            db.execute("INSERT INTO native_ilostat_series VALUES (?,?,?,?)",
+                (source_id,code,json.dumps(dims),1))
+        store=NativeAttachmentStore(self.path)
+        family={f["id"]:f for f in store.families()}
+        self.assertEqual(family["ilostat"]["observations"],1)
+        self.assertEqual(store.overview()["native_records"],7)
+        selected=store.series("ilostat","source_native",q="Unemployment")
+        self.assertEqual(len(selected),1)
+        self.assertIn("AGE_Y15-24",selected[0]["title"])
+        self.assertEqual(selected[0]["name"],code)
+        rows=store.rows("ilostat","source_native",code,["GHA"],2024,2024)
+        self.assertTrue(rows["can_plot"])
+        self.assertEqual(rows["plot_granularity"],"annual")
+        self.assertEqual(rows["rows"][0]["sex"],"SEX_F")
+        self.assertEqual(rows["rows"][0]["classif1"],"AGE_Y15-24")
+        self.assertEqual(rows["rows"][0]["original_source_code"],"ILOEST")
+        self.assertIn("E",rows["rows"][0]["source_status"])
+        csv_data=list(csv.DictReader(io.StringIO(store.export_csv(
+            "ilostat","source_native",code,["GHA"],2024,2024))))
+        self.assertEqual(csv_data[0]["sex"],"SEX_F")
+        self.assertEqual(csv_data[0]["original_source_code"],"ILOEST")
+
     def test_bad_filter_does_not_mix_provider_layers(self):
         with self.assertRaisesRegex(ValueError,"source-native"):
             self.store.rows("wdi","source_separated","SP.POP.TOTL",[],2020,2021)
