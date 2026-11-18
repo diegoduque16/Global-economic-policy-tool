@@ -3,7 +3,7 @@
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
   "updated_date": "2026-11-17",
-  "status_basis": "Latest verified November 17, 2026 source and private query releases: ILOSTAT run 44188570690 verified 150 additional official bulk table IDs (0 failures, 0 losses), now 1,842/1,963 source tables, 121 missing; independent private checkpoint audit has 1,843/1,964 entries including one additional checkpoint-only entry, backed up with SHA256 be4f3401e495c3ab505e4c91ba56e2e266263f533f70f8a22206220e96cbd1ea. Certified private Atlas five-provider source-native SQLite remains 883,118 numeric records and 976 source identities, with real read-only explorer test run 44189089919 passing. The ILOSTAT bulk source files are not yet integrated into this source-native SQLite; historical canonical and public World Bank editions remain separate and unchanged. Snapshot, not live telemetry.",
+  "status_basis": "Verified private Atlas economic source layer through GitHub production run 44209878280: source-native SQLite now has 1,036,234 original source rows and 979 native source identities, including 153,116 newly indexed official annual ILOSTAT SDG 8.3.1, 8.5.1, 8.5.2 source rows (149,148 finite numeric, 3,968 blank, zero other nonnumeric), preserved from SHA-verified originals; the new private OneDrive archive restored with SHA256 0f4124954303f07478b1e4c7dd23af4f4e21146cd7139b9b9fde783d65934538. Existing private WID/WDI/FRED/Eurostat/BLS JOLTS 883,118-row parent remained intact. These are NOT harmonized independent observations. Last independently certified ILOSTAT official full-bulk scope 1,842/1,963 table IDs (121 outstanding, run 44188570690); final bulk ingestion run 44207334375 in progress, outcome pending. Historical canonical and public WDI site are unchanged. Dated snapshot, not live telemetry.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -42,8 +42,8 @@
     },
     {
       "label": "Verified queryable private economic attachment",
-      "value": "883,118",
-      "detail": "40,908 WID + 572,179 WDI + 13,885 FRED + 3,436 Eurostat + 252,710 BLS JOLTS source-native numeric rows; SHA-restored in one private attachable SQLite source layer, not additive to historical canonical observations"
+      "value": "1,036,234",
+      "detail": "883,118 previously verified WDI/WID/FRED/Eurostat/BLS JOLTS source rows + 153,116 exact ILOSTAT SDG 8.3.1/8.5.1/8.5.2 original source rows, including 149,148 numeric and 3,968 blank. Immutable private SHA-restored version 0f4124954303f07478b1e4c7dd23af4f4e21146cd7139b9b9fde783d65934538. Not 1,036,234 deduplicated/harmonized statistical observations."
     }
   ],
   "workstreams": [
@@ -299,7 +299,7 @@
       "name": "Private source-native Atlas explorer",
       "stage": "Private Atlas explorer fully production-smoke-verified against actual 883,118-record / 976-source-identity five-provider native SQLite on Nov 17, using checksum-pinned private OneDrive archive; local read-only service only, not public Cloudflare.",
       "evidence": "GitHub Actions production run 44189089919 restored the exact SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625 archive, safely extracted only private native_source_extension.sqlite, and opened the real read-only Atlas source explorer. Verified 883,118 actual rows across 976 indexed original source series and 5 provider groups, exact WDI 572,179 / WID 40,908 / FRED 13,885 / Eurostat 3,436 / BLS JOLTS 252,710 source-native numeric records, successfully queried an actual BLS job-openings monthly series with original state and industry dimensions and source units, and passed SQLite integrity and read-only checks. These are actual private-data smoke results; no private source values were published in artifact or public Atlas. Monthly/quarterly period chart logic merged in PR #49 and tests passed.",
-      "next": "Use the existing read-only private explorer with its SHA-verified actual archive; next implement authenticated remote exploration if required, separately from public WDI site. Continue explicit gap-driven source acquisition (ILOSTAT official bulk source collection and missing Census/fiscal/P0 series), exact source definitions, duplicate providers/units and evidence-backed periodicity. Do not call new data publicly deployed.",
+      "next": "Run a real-data, SHA-pinned query check against the NEW 1,036,234-row six-provider attachment from run 44209878280, including real ILOSTAT original SDG selections, source status flags, sex/age/occupation metadata, and read-only SQLite integrity. The earlier real 883,118-row five-provider archive is independently verified but does not prove usability for the new ILOSTAT extension; new private source data are NOT published.",
       "links": [
         {
           "label": "Existing private Atlas explorer backend",
@@ -341,9 +341,9 @@
     },
     {
       "name": "First source-native ILOSTAT SDG labor indicator integration",
-      "stage": "Proposed original-value private SQLite extension pending PR tests, production provider-source SHA restore, and new archive certification; no new ILOSTAT rows counted yet",
-      "evidence": "From successful original ILOSTAT bulk collection 44188570690, the official source-table IDs SDG_0831_SEX_ECO_RT_A (57,488 physical rows), SDG_0851_SEX_OCU_NB_A (47,322), and SDG_0852_SEX_AGE_RT_A (48,306) are already backed up. In total, 153,116 source rows include possible blanks, flagged values and overlapping dimensions; they are not automatically comparable or 153,116 independent statistical observations. The implementing branch adds a bounded importer which checks original SHA against private checkpoint, preserves complete original structural dimensions (sex, age, source, classifications), source flags and annual periods, and appends to the SAME verified 883,118-row native SQLite. Expected new private native edition is 1,036,234 rows if all 3 source files match last verified vintages, but this is NOT YET a verified production release.",
-      "next": "The first production attempt failed before archive restoration due unexported same-step OneDrive config (fixed in PR #54); the second correctly restored all original source files but stopped before SQLite indexing because a 500MB small-source helper rejected the valid larger 883,118-row native parent archive. A bounded streaming-only extraction patch with tests is pending. No original source rows have been appended in a certified edition yet; preserve the verified 883,118-row parent.",
+      "stage": "Completed: exact three original ILOSTAT SDG 8.3.1, 8.5.1 and 8.5.2 table originals, 153,116 native source rows (149,148 finite numeric; 3,968 blanks), appended to same private Atlas source-native SQLite; 1,036,234 source rows total, 979 source identities, SHA-restored private backup verified",
+      "evidence": "Three previously independently verified original ILOSTAT annual SDG source tables from run 44188570690: 8.3.1 57,488 source rows SHA256 673d7115e940ef7723fbaa4cc942ce481faf3aa7e0611e6f36d3e99c6696825a; 8.5.1 47,322 SHA256 220aa4538f1ad186bb4bf28020bfe90fe85d5319e5dd45ea446464ce8ec2bfb8; and 8.5.2 48,306 SHA256 4800381be522241e7a4ca53d52136676866d73edbea65b9cf4c8e3ff93bdd4eb. Production run 44209878280 successfully streamed the exact previously verified 883,118 original source-native parent, preserved all 976 parent source IDs, appended the three ILOSTAT table IDs (153,116 rows, of which 149,148 finite numeric, 3,968 blank, zero nonfinite/other) with 20,167 structural dimensional combinations NOT yet proven independent series, original sex/age/occupation source definitions, complete raw row/status markers and source hashes. It passed SQLite row/source count/integrity and byte-identical private OneDrive SHA restore 0f4124954303f07478b1e4c7dd23af4f4e21146cd7139b9b9fde783d65934538. The 1,036,234-row total is original source-native rows, not deduplicated, cross-provider harmonized or publicly released.",
+      "next": "Now verify the EXISTING Atlas private source explorer against the actual newly SHA-pinned 1,036,234-row six-provider archive (including ILOSTAT SDG category labels and original sex/age/occupation dimensions), not only synthetic tests. Reconcile official source unit definitions and cross-provider overlap (WDI/Eurostat) before cross-country analytical panels. Complete the remaining ILOSTAT 121 official bulk source files and incorporate further source-native originals selectively.",
       "links": [
         {
           "label": "Original ILOSTAT SDG source-file verification run",
@@ -356,6 +356,10 @@
         {
           "label": "Second production run blocked by overly restrictive legacy small-source archive cap",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44209313683"
+        },
+        {
+          "label": "Successful first private ILOSTAT 153116-row append to 1036234 Atlas native source rows",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44209878280"
         }
       ]
     }
@@ -648,6 +652,12 @@
       "title": "Handle larger original Atlas parent SQLite via bounded streaming rather than relaxing shared source limits",
       "description": "The initial ILOSTAT 3-table importer passed offline tests but its first main run 44208965534 failed before source restoration due same-step rclone config (fixed). The second main run 44209313683 restored original source files by SHA and then failed at the older shared read_members() helper's 500MB aggregate cap, because the real verified 883,118-row private SQLite is larger. Proposed repair uses a dedicated strict two-file, bounded, streamed extraction from exact SHA-pinned parent archive; leaves smaller-source shared helper and public/canonical data unchanged. Production count 883,118 remains latest certified until new full SHA-restored edition succeeds.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44209313683"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Certify first original ILOSTAT numeric SDG source-native attachment with private SHA-recovered 1036234 rows",
+      "description": "After pre-merge tests and two production integration blockers corrected (same-shell rclone config; shared 500MB small-source archive cap), main run 44209878280 successfully imported 57,488 + 47,322 + 48,306 original ILOSTAT SDG 8.3.1/8.5.1/8.5.2 physical source rows, of which 149,148 finite numeric and 3,968 empty. It preserved 883,118 parent rows and all 976 previous source IDs, yielding 1,036,234 source-native rows / 979 source IDs, retaining 20,167 structural dimension combinations unverified as independent statistical series. Private OneDrive immutable archive was byte-restored with SHA256 0f4124954303f07478b1e4c7dd23af4f4e21146cd7139b9b9fde783d65934538. Historical canonical/public releases unchanged; source-native observations not harmonized.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44209878280"
     }
   ],
   "next_actions": [
