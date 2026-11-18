@@ -164,6 +164,11 @@ class PrivateNativeExplorerTests(unittest.TestCase):
         self.assertEqual(len(selected),1)
         self.assertIn("AGE_Y15-24",selected[0]["title"])
         self.assertEqual(selected[0]["name"],code)
+        # Multi-term search must match the indicator AND original source
+        # classifications, rather than requiring contiguous text.
+        exact=store.series("ilostat","source_native",q="Unemployment SEX_F AGE_Y15-24")
+        self.assertEqual([x["name"] for x in exact],[code])
+        self.assertEqual(store.series("ilostat","source_native",q="Unemployment SEX_M"),[])
         rows=store.rows("ilostat","source_native",code,["GHA"],2024,2024)
         self.assertTrue(rows["can_plot"])
         self.assertEqual(rows["plot_granularity"],"annual")
@@ -175,6 +180,24 @@ class PrivateNativeExplorerTests(unittest.TestCase):
             "ilostat","source_native",code,["GHA"],2024,2024))))
         self.assertEqual(csv_data[0]["sex"],"SEX_F")
         self.assertEqual(csv_data[0]["original_source_code"],"ILOEST")
+        self.assertTrue(any("unverified" in x.lower()
+                            for x in rows["chart_warnings"]))
+        # The same original indicator may appear in multiple countries,
+        # but unverified source units cannot be silently charted together.
+        second=dict(original,ref_area="USA",obs_value="6.2",obs_status="")
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO native_records VALUES (?,?,?,?,?,?,?,?,?)",
+                       (source_id,2,"2024","2024","USA",code,"","6.2",json.dumps(second)))
+            db.execute("UPDATE native_sources SET original_records=2,indexed_records=2 WHERE source_id=?",
+                       (source_id,))
+        store=NativeAttachmentStore(self.path)
+        combined=store.rows("ilostat","source_native",code,["GHA","USA"],2024,2024)
+        self.assertEqual(combined["returned"],2)
+        self.assertFalse(combined["can_plot"])
+        self.assertTrue(any("units have not been verified" in x
+                            for x in combined["chart_blockers"]))
+        self.assertEqual(len(list(csv.DictReader(io.StringIO(
+            store.export_csv("ilostat","source_native",code,["GHA","USA"],2024,2024))))),2)
 
     def test_bad_filter_does_not_mix_provider_layers(self):
         with self.assertRaisesRegex(ValueError,"source-native"):

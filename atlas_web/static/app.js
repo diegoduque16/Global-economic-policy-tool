@@ -83,8 +83,15 @@ async function loadFamily(){
  const f=currentFamily();
  state.geographies=[];state.selected.clear();state.seriesResults=[];state.lastResponse=null;
  $("search-indicator").value="";$("quick-indicator-search").value="";
+ const ilo=f?.id==="ilostat";
+ $("search-indicator").placeholder=ilo?
+  "Example: unemployment SEX_F AGE_Y15-24":"Search by series name or code";
+ $("quick-indicator-search").placeholder=ilo?
+  "Example: earnings SEX_F OCU":"Try GDP, population, inflation…";
  $("geo-search").value="";$("quick-country-search").value="";
- $("source-caption").textContent=f?.layer==="source_native"?
+ $("source-caption").textContent=ilo?
+  "Search indicator + exact ILOSTAT sex/age/classification codes. Original units remain unverified; cross-country charts are restricted.":
+  f?.layer==="source_native"?
   "Source-native records; original definitions and units are not harmonized.":
   "Source-separated values; not a harmonized statistical panel.";
  if(!f){$("chart").replaceChildren(el("div","chart-empty","No source found."));return;}
