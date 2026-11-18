@@ -8,6 +8,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/atlas-ilostat-bulk-resumable-ingestion.yml'
+      - 'scripts/ilostat_gap_report.py'
+      - 'tests/test_ilostat_gap_report.py'
   workflow_dispatch:
     inputs:
       batch_size:
@@ -70,6 +72,7 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_ilostat_checkpoint_guard.py' -v
           python -m unittest discover -s tests -p 'test_ilostat_native_profile.py' -v
+          python -m unittest discover -s tests -p 'test_ilostat_gap_report.py' -v
 
       - name: Verify ILOSTAT checkpoint before ingestion
         shell: bash
@@ -94,6 +97,7 @@ jobs:
               profile_native_file, plan_private_profile_backfill,
               write_inventory, sha256_bytes,
           )
+          from scripts.ilostat_gap_report import write_gap_report
 
           HOST = 'rplumber.ilo.org'
           TOC = 'https://rplumber.ilo.org/metadata/toc/indicator?format=.csv&lang=en'
@@ -472,6 +476,16 @@ jobs:
                           report['cumulative_downloaded_files']):
                       raise ValueError('ILOSTAT source table inventory exceeds current TOC coverage')
                   report['numeric_profile_evidence_stage']=inventory['stage']
+                  # Source-ID completion is a product gate: expose exactly
+                  # which public official indicator tables still lack originals,
+                  # while keeping every downloaded numeric record/remote path private.
+                  gap=write_gap_report(OUT,toc,state,now_day=NOW[:10],
+                                       max_file_mib=MAX_FILE//2**20)
+                  if gap['archived_toc_table_ids_any_vintage'] != report['cumulative_downloaded_files']:
+                      raise ValueError('Official missing-table register disagrees with source checkpoint')
+                  report['missing_official_source_ids_not_archived']=gap['official_table_ids_not_archived']
+                  report['official_source_ids_needing_current_vintage']=gap['current_vintage_attention_required']
+                  report['remaining_official_source_status']=gap['attention_by_category']
                   report['native_source_tables_value_profiled']=inventory['source_tables_with_numeric_value_profile']
                   report['native_source_tables_not_yet_value_profiled']=inventory['historical_source_tables_not_yet_profiled']
                   report['finite_numeric_rows_in_profiled_source_tables_only']=inventory[
@@ -482,7 +496,7 @@ jobs:
                       writer=csv.DictWriter(f,fieldnames=cols,extrasaction='ignore'); writer.writeheader();writer.writerows(report['attempted'])
                   manifest={p.name:{'sha256':digest(p),'bytes':p.stat().st_size} for p in OUT.iterdir() if p.is_file()}
                   (OUT/'sha256_manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n',encoding='utf-8')
-                  print('ILOSTAT_SUMMARY',json.dumps({k:report[k] for k in ('total_available_bulk_files','cumulative_downloaded_files','newly_verified_this_run','failed_this_run','remaining_not_verified')}),flush=True)
+                  print('ILOSTAT_SUMMARY',json.dumps({k:report[k] for k in ('total_available_bulk_files','cumulative_downloaded_files','newly_verified_this_run','failed_this_run','remaining_not_verified','official_source_ids_needing_current_vintage','remaining_official_source_status')}),flush=True)
               finally:
                   shutil.rmtree(work,ignore_errors=True)
 
