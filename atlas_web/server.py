@@ -302,19 +302,6 @@ class AtlasStore:
                         "source_url":""}
             else:
                 item = {**r, "value":v, "raw_value":str(r["value"])}
-            if fid == "ilostat" and self.ilostat_dictionaries:
-                codes = {
-                    "ref_area": r["geography"],
-                    "indicator": dims.get("indicator", ""),
-                    "source": dims.get("source", ""),
-                    "sex": dims.get("sex", ""),
-                    "classif1": dims.get("classif1", ""),
-                    "classif2": dims.get("classif2", ""),
-                    "obs_status": source.get("obs_status", ""),
-                }
-                item["original_dictionary_labels"] = self.ilostat_dictionaries.labels_for(codes)
-            else:
-                item["original_dictionary_labels"] = {}
             items.append(item)
         units = sorted({r["unit"] for r in items})
         periods = sorted({r["frequency"] for r in items})
@@ -610,6 +597,19 @@ class NativeAttachmentStore(AtlasStore):
                 "original_source_code": dims.get("source", ""),
                 "disaggregation": json.dumps(dims, ensure_ascii=False, sort_keys=True),
             }
+            if fid == "ilostat" and self.ilostat_dictionaries:
+                codes = {
+                    "ref_area": r["geography"],
+                    "indicator": dims.get("indicator", ""),
+                    "source": dims.get("source", ""),
+                    "sex": dims.get("sex", ""),
+                    "classif1": dims.get("classif1", ""),
+                    "classif2": dims.get("classif2", ""),
+                    "obs_status": source.get("obs_status", ""),
+                }
+                item["original_dictionary_labels"] = self.ilostat_dictionaries.labels_for(codes)
+            else:
+                item["original_dictionary_labels"] = {}
             items.append(item)
         units = sorted({r["unit"] for r in items})
         freqs = sorted({r["frequency"] for r in items})
@@ -675,6 +675,8 @@ class NativeAttachmentStore(AtlasStore):
             safe = {}
             for key in fields:
                 value = row.get(key, "")
+                if isinstance(value, dict):
+                    value = json.dumps(value, ensure_ascii=False, sort_keys=True)
                 if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
                     value = "'" + value
                 safe[key] = value
