@@ -87,6 +87,21 @@ class VerifiedILOCodeListTests(unittest.TestCase):
         self.assertEqual(verified.lookup("sex","SEX_F"),"Female")
         self.assertEqual(verified.lookup("ref_area","GHA"),"Ghana")
 
+    def test_original_code_with_blank_label_stays_unclassified(self):
+        path=self.code_dir/"cl_sex.csv"
+        with path.open("w",encoding="utf-8",newline="") as f:
+            writer=csv.writer(f)
+            writer.writerow(["sex","sex.label","sex.sort"])
+            writer.writerow(["SEX_F","Female","1"])
+            writer.writerow(["SEX_M","","2"])
+        sha=hashlib.sha256(path.read_bytes()).hexdigest()
+        self.state["dictionaries"]["cl_sex"]["sha256"]=sha
+        self.state["dictionaries"]["cl_sex"]["remote"]=SOURCE_ROOT+"cl_sex-"+sha[:16]+".csv"
+        self.checkpoint.write_text(json.dumps(self.state),encoding="utf-8")
+        dictionary=self.load()
+        self.assertEqual(dictionary.lookup("sex","SEX_F"),"Female")
+        self.assertIsNone(dictionary.lookup("sex","SEX_M"))
+
     def test_ambiguous_source_label_columns_fail_closed(self):
         file=self.code_dir/"cl_sex.csv"
         with file.open("w",encoding="utf-8",newline="") as f:
