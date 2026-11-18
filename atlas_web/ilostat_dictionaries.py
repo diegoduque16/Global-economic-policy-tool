@@ -68,10 +68,11 @@ def load_code_lists(checkpoint_file: Path, dictionary_dir: Path,
                     *, required: tuple[str, ...] | None = None) -> VerifiedILOCodeLists:
     """Fail closed for absent, tampered or malformed SHA-pinned private code lists.
 
-    Code lists officially use 3 CSV fields (code, label, order), but actual
-    header words vary between bulk and older descriptions. The *position*
-    and distinct nonempty code+label are validated; exact original columns
-    are never replaced or altered.
+    The ILO bulk guide describes a code, label and sort column, but archived
+    original code lists may include optional metadata columns. Find a unique
+    explicit label column or the second of two fields; preserve the original
+    code in the first column. Strict original source SHA and original CSV row
+    counts still guard the file and ambiguous structures fail closed.
     """
     checkpoint_file = Path(checkpoint_file)
     dictionary_dir = Path(dictionary_dir)
@@ -113,22 +114,45 @@ def load_code_lists(checkpoint_file: Path, dictionary_dir: Path,
         if h.hexdigest() != sha:
             raise ValueError("Original ILOSTAT code list failed SHA verification: " + kind)
         labels = {}
+        seen_codes = set()
         with path.open("r", encoding="utf-8-sig", errors="strict", newline="") as inp:
             reader = csv.reader(inp)
             columns = next(reader, [])
-            if (len(columns) != 3 or len(set(columns)) != 3 or
-                not all(x.strip() for x in columns)):
+            # ILO's published documentation describes three columns, while
+            # its live original code lists can contain optional extra
+            # metadata fields. Detect the named .label/var_label column,
+            # retaining the original code in column 0 and ignoring other
+            # verified-but-not-mapped metadata. A two-column code/label list
+            # is valid too, but unlabeled ambiguous multi-column files are not.
+            if (not 2 <= len(columns) <= 12 or len(set(columns)) != len(columns)
+                or not all(x.strip() for x in columns)):
                 raise ValueError("Unknown official ILOSTAT dictionary CSV columns: " + kind)
+            label_columns = [
+                index for index, name in enumerate(columns)
+                if name.strip().lower() in ("var_label","label","label_en","name_en","description")
+                   or name.strip().lower().endswith(".label")
+                   or name.strip().lower().endswith("_label")
+            ]
+            if len(label_columns) == 1 and label_columns[0] != 0:
+                label_index = label_columns[0]
+            elif len(columns) == 2 and len(label_columns) == 0:
+                label_index = 1
+            else:
+                raise ValueError("Ambiguous original ILOSTAT dictionary label column: " + kind)
             total = 0
             for row in reader:
-                if len(row) != 3:
+                if len(row) != len(columns):
                     raise ValueError("Ragged official ILOSTAT code list: " + kind)
-                code, label, _sort = row
-                if not code or not label.strip() or len(code) > 256 or len(label) > 4096:
+                code, label = row[0], row[label_index]
+                if not code or len(code) > 256 or len(label) > 4096:
                     raise ValueError("Invalid original ILOSTAT dictionary code or label: " + kind)
-                if code in labels:
+                if code in seen_codes:
                     raise ValueError("Duplicate official ILOSTAT dictionary code: " + kind)
-                labels[code] = label.strip()
+                seen_codes.add(code)
+                # Official original files can contain a source code with no
+                # English label. Keep the code unknown, never invent a label.
+                if label.strip():
+                    labels[code] = label.strip()
                 total += 1
                 if total > MAX_ROWS:
                     raise ValueError("Oversized official ILOSTAT code list")
