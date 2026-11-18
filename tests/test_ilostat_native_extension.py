@@ -135,6 +135,16 @@ class IlostatPrivateNativeTests(unittest.TestCase):
         self.assertEqual(identity(TABLE,r1)[0],identity(TABLE,r2)[0])
         self.assertNotEqual(identity(TABLE,r1)[0],identity(TABLE,r3)[0])
 
+    def test_private_archive_step_exports_config_before_using_rclone(self):
+        workflow=(Path(__file__).resolve().parents[1] /
+                  ".github/workflows/atlas-ilostat-native-first-sdg.yml").read_text()
+        config='export RCLONE_CONFIG="$root/rclone.conf"'
+        remote='rclone copyto "$ONEDRIVE_TARGET/snapshots/$PARENT.tar.gz"'
+        self.assertIn(config,workflow)
+        self.assertIn(remote,workflow)
+        self.assertLess(workflow.index(config),workflow.index(remote))
+        self.assertIn("if: github.event_name != 'pull_request'",workflow)
+
     def test_full_three_table_scope_change_requires_recaptured_source(self):
         state={"schema_version":1,"downloaded":{TABLE:self.entry}}
         with self.assertRaisesRegex(ValueError,"Certified official ILOSTAT table absent"):
