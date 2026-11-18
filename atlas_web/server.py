@@ -468,7 +468,11 @@ class NativeAttachmentStore(AtlasStore):
                        WHERE source_id GLOB ? AND series_code IS NOT NULL AND series_code != ''
                        GROUP BY series_code ORDER BY rows DESC, series_code""",
                     (group["prefix"] + "*",))]
-        needle = q.strip().lower()[:80]
+        needle = q.strip().lower()[:120]
+        # Each term may match any portion of the original ILO source code,
+        # SDG indicator label, or named original classification. No inferred
+        # concordance between occupational/age/sex codes is introduced.
+        terms = needle.split()[:12] if fid == "ilostat" else [needle]
         out = []
         for item in rows:
             if fid == "ilostat":
@@ -485,7 +489,8 @@ class NativeAttachmentStore(AtlasStore):
                 item["title"] = metric + (" · " + " · ".join(dimensions) if dimensions else "")
             else:
                 item["title"] = self._title(fid, item["name"])
-            if not needle or needle in item["name"].lower() or needle in item["title"].lower():
+            searchable = (item["name"] + " " + item["title"]).lower()
+            if all(term in searchable for term in terms):
                 out.append(item)
                 if len(out) >= max_results:
                     break
@@ -580,6 +585,11 @@ class NativeAttachmentStore(AtlasStore):
             blockers.append("Multiple source units; do not plot on one scale.")
         if len(freqs) > 1:
             blockers.append("Mixed frequencies; narrow the selection.")
+        if (fid == "ilostat" and len({r["geography"] for r in items}) > 1
+            and any(r["unit"] == "source_defined_unverified" for r in items)):
+            blockers.append(
+                "Original ILOSTAT units have not been verified as comparable across countries; "
+                "use Table/CSV until official rate, currency and source definitions are checked.")
         if duplicate_keys:
             blockers.append("Repeated geography/period/series keys; inspect original dimensions.")
         granularity = plot_period_granularity(items)
@@ -590,6 +600,8 @@ class NativeAttachmentStore(AtlasStore):
             if len(yearly) != len(set(yearly)):
                 blockers.append("Repeated original annual periods; inspect source dimensions.")
         warnings = ["Private original source-native data; units, vintages and providers are not harmonized."]
+        if fid == "ilostat" and any(r["unit"] == "source_defined_unverified" for r in items):
+            warnings.append("ILOSTAT raw source units are unverified, even for a single-country trend; do not infer comparable percentages or currencies.")
         if any(r["value"] is None for r in items):
             warnings.append("Suppressed/nonnumeric values are retained without zero filling.")
         return {"rows": items, "returned": len(items), "truncated": truncated,
