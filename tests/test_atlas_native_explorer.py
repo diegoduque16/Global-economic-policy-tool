@@ -164,6 +164,8 @@ class PrivateNativeExplorerTests(unittest.TestCase):
         self.assertEqual(len(selected),1)
         self.assertIn("AGE_Y15-24",selected[0]["title"])
         self.assertEqual(selected[0]["name"],code)
+        self.assertEqual(selected[0]["reported_measurement_reference"],"Percentage (%)")
+        self.assertFalse(selected[0]["source_row_unit_verified"])
         # Multi-term search must match the indicator AND original source
         # classifications, rather than requiring contiguous text.
         exact=store.series("ilostat","source_native",q="Unemployment SEX_F AGE_Y15-24")
@@ -172,6 +174,10 @@ class PrivateNativeExplorerTests(unittest.TestCase):
         rows=store.rows("ilostat","source_native",code,["GHA"],2024,2024)
         self.assertTrue(rows["can_plot"])
         self.assertEqual(rows["plot_granularity"],"annual")
+        self.assertEqual(rows["rows"][0]["unit"],"source_defined_unverified")
+        self.assertEqual(rows["indicator_reference"]["reported_measurement"],"Percentage (%)")
+        self.assertFalse(rows["indicator_reference"]["source_row_unit_verified"])
+        self.assertFalse(rows["indicator_reference"]["cross_country_comparison_approved"])
         self.assertEqual(rows["rows"][0]["sex"],"SEX_F")
         self.assertEqual(rows["rows"][0]["classif1"],"AGE_Y15-24")
         self.assertEqual(rows["rows"][0]["original_source_code"],"ILOEST")
