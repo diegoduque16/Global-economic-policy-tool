@@ -5,11 +5,17 @@ on:
     paths:
       - 'scripts/ilostat_checkpoint_guard.py'
       - 'tests/test_ilostat_checkpoint_guard.py'
+      - 'scripts/ilostat_gap_report.py'
+      - 'tests/test_ilostat_gap_report.py'
+      - '.github/workflows/atlas-ilostat-bulk-resumable-ingestion.yml'
       - '.github/workflows/atlas-ilostat-checkpoint-guard-tests.yml'
   pull_request:
     paths:
       - 'scripts/ilostat_checkpoint_guard.py'
       - 'tests/test_ilostat_checkpoint_guard.py'
+      - 'scripts/ilostat_gap_report.py'
+      - 'tests/test_ilostat_gap_report.py'
+      - '.github/workflows/atlas-ilostat-bulk-resumable-ingestion.yml'
       - '.github/workflows/atlas-ilostat-checkpoint-guard-tests.yml'
 
 permissions:
@@ -27,3 +33,8 @@ jobs:
           python-version: '3.11'
       - name: Exercise fail-closed checkpoint guard with synthetic data
         run: python -m unittest discover -s tests -p 'test_ilostat_checkpoint_guard.py' -v
+      - name: Reconcile original source IDs and remaining blockers without accessing private data
+        run: |
+          python -m unittest discover -s tests -p 'test_ilostat_gap_report.py' -v
+          python -m unittest discover -s tests -p 'test_ilostat_native_profile.py' -v
+          python -m py_compile scripts/ilostat_gap_report.py
