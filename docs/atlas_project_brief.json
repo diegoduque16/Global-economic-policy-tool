@@ -700,8 +700,8 @@
     {
       "date": "2026-11-17",
       "title": "Present official ILOSTAT SDG measurement references separately from unverified original row units",
-      "description": "Official ILOSTAT SDG public documentation identifies original table 8.3.1 informal employment share (%) and 8.5.2 unemployment rate (%) as percentage measures, while 8.5.1 average hourly earnings is local currency. A narrowly scoped private Atlas viewer PR adds source-linked reference notes and explicit limitations for these exact three previously integrated table IDs. Original SQLite row units remain source_defined_unverified and cross-country chart restrictions remain. No row, unit, currency or international harmonization is inferred, and the 1,036,234-record private native layer remains unchanged; implementation pending CI and merge.",
-      "evidence_url": "https://ilostat.ilo.org/databases/ilosdg/"
+      "description": "Official ILOSTAT SDG public documentation identifies original table 8.3.1 informal employment share (%) and 8.5.2 unemployment rate (%) as percentage measures, while 8.5.1 average hourly earnings is local currency. A narrowly scoped private Atlas viewer PR adds source-linked reference notes and explicit limitations for these exact three previously integrated table IDs. Original SQLite row units remain source_defined_unverified and cross-country chart restrictions remain. No row, unit, currency or international harmonization is inferred, and the 1,036,234-record private native layer remains unchanged; implementation pending CI and merge. Official public definition reference: https://ilostat.ilo.org/databases/ilosdg/ .",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44210751632"
     }
   ],
   "next_actions": [
