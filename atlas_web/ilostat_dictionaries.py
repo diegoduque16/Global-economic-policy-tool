@@ -114,6 +114,7 @@ def load_code_lists(checkpoint_file: Path, dictionary_dir: Path,
         if h.hexdigest() != sha:
             raise ValueError("Original ILOSTAT code list failed SHA verification: " + kind)
         labels = {}
+        seen_codes = set()
         with path.open("r", encoding="utf-8-sig", errors="strict", newline="") as inp:
             reader = csv.reader(inp)
             columns = next(reader, [])
@@ -143,11 +144,15 @@ def load_code_lists(checkpoint_file: Path, dictionary_dir: Path,
                 if len(row) != len(columns):
                     raise ValueError("Ragged official ILOSTAT code list: " + kind)
                 code, label = row[0], row[label_index]
-                if not code or not label.strip() or len(code) > 256 or len(label) > 4096:
+                if not code or len(code) > 256 or len(label) > 4096:
                     raise ValueError("Invalid original ILOSTAT dictionary code or label: " + kind)
-                if code in labels:
+                if code in seen_codes:
                     raise ValueError("Duplicate official ILOSTAT dictionary code: " + kind)
-                labels[code] = label.strip()
+                seen_codes.add(code)
+                # Official original files can contain a source code with no
+                # English label. Keep the code unknown, never invent a label.
+                if label.strip():
+                    labels[code] = label.strip()
                 total += 1
                 if total > MAX_ROWS:
                     raise ValueError("Oversized official ILOSTAT code list")
