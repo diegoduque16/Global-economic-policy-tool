@@ -18,11 +18,11 @@ Then open **http://127.0.0.1:8765/** in a browser.
 
 Requirements: Python 3.10+ and a modern browser. No external JavaScript libraries or pip dependencies are required. The database is opened **read-only**.
 
-Use the **private SHA-verified native source archive** from the existing Atlas production workflow (the November 17 BLS attachment run `44171117929` has 883,118 source-native records). Verify its checksum before extraction; the SQLite file inside is named `native_source_extension.sqlite`. The local server does not automatically fetch private source archives, and it does not publish them to Cloudflare or GitHub. If you open the older canonical-only warehouse, the viewer will still work, but additional native-source counts may be zero. These counts describe only the selected physical database.
+Use the **private SHA-verified native source archive** from an existing Atlas production workflow. The November 17 BLS attachment run `44171117929` contains 883,118 source-native rows; the separately versioned three-indicator ILOSTAT extension is being added under its own immutable, private release verification. Verify its checksum before extraction; the SQLite file inside is named `native_source_extension.sqlite`. The local server does not automatically fetch private source archives, and it does not publish them to Cloudflare or GitHub. If you open the older canonical-only warehouse, the viewer will still work, but additional native-source counts may be zero. These counts describe only the selected physical database.
 
 ## Explore the data
 
-- Choose one original provider group (World Bank WDI, WID, FRED, Eurostat or BLS JOLTS) in the native attachment, or one source family in the historical canonical warehouse.
+- Choose an original provider group (World Bank WDI, WID, FRED, Eurostat, BLS JOLTS, and—in the separately verified ILOSTAT extension—ILO/ILOSTAT) or a historical canonical source family. Provider groups are not statistically harmonized.
 - Search source series IDs and, for JOLTS, descriptive labels such as job openings, hires, quits and layoffs. The original 830 BLS series IDs encode the actual state/industry dimensions.
 - Separate verified countries and territories from World Bank aggregate areas using the existing approved 261-code WDI public catalog (including 44 aggregates); retain unclassified codes as unclassified rather than guessing.
 - Select up to eight geographies and a year range.
@@ -84,3 +84,7 @@ The existing Atlas source-registry CI executes these tests whenever the website 
 ## Not yet a public website
 
 This version is a functioning local/private website; it is **not yet hosted at a public URL**. For hosted use, deploy this same read-only service behind authentication, retaining the private SQLite and versioned snapshot lineage. Monthly and quarterly original source-period charting is now supported for safe selections. Geographic coverage and verified cross-provider harmonization remain separate follow-up work.
+
+### Original ILOSTAT SDG data (private edition only)
+
+The source-native ILOSTAT importer targets three already backed-up official annual SDG indicator tables: 8.3.1 (informal employment), 8.5.1 (average hourly earnings), and 8.5.2 (unemployment rate). Their 153,116 physical source rows, including blank/flagged/nonnumeric values, are **not 153,116 independent harmonized observations**. They are indexed separately in the existing private SQLite with original table IDs, source hashes, source provenance, annual periods, source status, sex and classification codes, plus full original source JSON. The queryable series IDs encode the full ILO structural dimension key and preserve exact disaggregation. No unit is guessed from a suffix; unit is marked source-defined/unverified until official unit definitions are reconciled. No private source data are uploaded to GitHub or Cloudflare. The new edition must pass SHA-replay, SQLite record preservation, and private restored-archive checksum verification before it can be counted as a completed release.

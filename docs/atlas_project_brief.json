@@ -338,6 +338,22 @@
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44189089919"
         }
       ]
+    },
+    {
+      "name": "First source-native ILOSTAT SDG labor indicator integration",
+      "stage": "Proposed original-value private SQLite extension pending PR tests, production provider-source SHA restore, and new archive certification; no new ILOSTAT rows counted yet",
+      "evidence": "From successful original ILOSTAT bulk collection 44188570690, the official source-table IDs SDG_0831_SEX_ECO_RT_A (57,488 physical rows), SDG_0851_SEX_OCU_NB_A (47,322), and SDG_0852_SEX_AGE_RT_A (48,306) are already backed up. In total, 153,116 source rows include possible blanks, flagged values and overlapping dimensions; they are not automatically comparable or 153,116 independent statistical observations. The implementing branch adds a bounded importer which checks original SHA against private checkpoint, preserves complete original structural dimensions (sex, age, source, classifications), source flags and annual periods, and appends to the SAME verified 883,118-row native SQLite. Expected new private native edition is 1,036,234 rows if all 3 source files match last verified vintages, but this is NOT YET a verified production release.",
+      "next": "Run full offline regression tests and private production SHA restore; confirm exact finite numeric vs blank vs status/nonfinite source values, protect parent records and existing 5 source-provider totals, and only then update the certified attachment size. For actual research, reconcile the official ILOSTAT unit/indicator definitions and source vintages, and audit source overlap with Eurostat/World Bank before any harmonized time series.",
+      "links": [
+        {
+          "label": "Original ILOSTAT SDG source-file verification run",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44188570690"
+        },
+        {
+          "label": "Prior certified 883,118-row Atlas private native attachment",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44171117929"
+        }
+      ]
     }
   ],
   "decisions": [
@@ -615,6 +631,12 @@
       "date": "2026-11-17",
       "title": "Complete ILOSTAT official bulk source files with explicit remaining IDs rather than a new catalog",
       "description": "Existing ILOSTAT 150-table workflow successfully recovered 150 sources in run 44188570690 (1,842/1,963 TOC IDs; 121 missing). A small enhancement to that same workflow now writes a metadata-only original indicator ID completion list and reason classification for missing, deferred oversized, failed today and previously backed-up but stale vintages. It retains exact private SHA source backup/no-loss guard and does not download duplicate verified tables. An implementing PR will rerun the supported existing collector immediately after merge; the next collection result is pending and counts remain at the last verified checkpoint.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44188570690"
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Prioritize original unemployment, earnings and informal-employment SDG tables for first private numeric ILOSTAT integration",
+      "description": "Three already official-source-verified ILOSTAT annual indicator files from run 44188570690 total 153,116 original physical rows. Develop first bounded source-native append to same immutable private Atlas SQLite, preserving original table identities, sex/age/occupation/source classifications, dates, flags, missing values, raw values and checksum. Explicitly do not assign harmonized units or count physical rows as 153,116 distinct causal-ready observations. Target 1,036,234-source-row private SQLite edition only if CI and actual new private SHA-restored production release succeed.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44188570690"
     }
   ],

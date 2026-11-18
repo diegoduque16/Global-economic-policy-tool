@@ -367,9 +367,15 @@ class NativeAttachmentStore(AtlasStore):
         ("fred", "FRED U.S. economic series (private native)", "fred_"),
         ("eurostat", "Eurostat (private native)", "eurostat_"),
         ("bls_jolts", "BLS JOLTS jobs and labor turnover (private native)", "bls_jolts_"),
+        ("ilostat", "ILO / ILOSTAT SDG labor indicators (private native)", "ilostat_"),
     )
     BLS_LABELS = {"JO": "Job openings", "HI": "Hires", "TS": "Total separations",
                   "QU": "Quits", "LD": "Layoffs and discharges"}
+    ILOSTAT_LABELS = {
+        "SDG_0831": "SDG 8.3.1 · Informal employment",
+        "SDG_0851": "SDG 8.5.1 · Average hourly earnings",
+        "SDG_0852": "SDG 8.5.2 · Unemployment rate",
+    }
 
     def __init__(self, path):
         self.path = Path(path).resolve()
@@ -436,19 +442,49 @@ class NativeAttachmentStore(AtlasStore):
     def series(self, fid, layer, q="", max_results=250):
         group = self._group(fid, layer)
         with closing(self.connect()) as db:
-            rows = [dict(r) for r in db.execute(
-                """SELECT series_code AS name, COUNT(*) AS rows,
-                          MIN(substr(period_text,1,4)) AS first_year,
-                          MAX(substr(period_text,1,4)) AS last_year,
-                          NULL AS units
-                   FROM native_records
-                   WHERE source_id GLOB ? AND series_code IS NOT NULL AND series_code != ''
-                   GROUP BY series_code ORDER BY rows DESC, series_code""",
-                (group["prefix"] + "*",))]
+            if fid == "ilostat":
+                if "native_ilostat_series" not in self.tables(db):
+                    raise ValueError("Missing original ILOSTAT source dimensions in private attachment")
+                rows = [dict(r) for r in db.execute(
+                    """SELECT r.series_code AS name, COUNT(*) AS rows,
+                              MIN(substr(r.period_text,1,4)) AS first_year,
+                              MAX(substr(r.period_text,1,4)) AS last_year,
+                              'source_defined_unverified' AS units,
+                              s.original_dimensions_json AS original_dimensions
+                       FROM native_records r
+                       JOIN native_ilostat_series s
+                         ON s.source_id=r.source_id AND s.series_code=r.series_code
+                       WHERE r.source_id GLOB ?
+                       GROUP BY r.source_id,r.series_code
+                       ORDER BY rows DESC, r.series_code""",
+                    (group["prefix"] + "*",))]
+            else:
+                rows = [dict(r) for r in db.execute(
+                    """SELECT series_code AS name, COUNT(*) AS rows,
+                              MIN(substr(period_text,1,4)) AS first_year,
+                              MAX(substr(period_text,1,4)) AS last_year,
+                              NULL AS units
+                       FROM native_records
+                       WHERE source_id GLOB ? AND series_code IS NOT NULL AND series_code != ''
+                       GROUP BY series_code ORDER BY rows DESC, series_code""",
+                    (group["prefix"] + "*",))]
         needle = q.strip().lower()[:80]
         out = []
         for item in rows:
-            item["title"] = self._title(fid, item["name"])
+            if fid == "ilostat":
+                original = json.loads(item.pop("original_dimensions"))
+                if not isinstance(original, dict):
+                    raise ValueError("ILOSTAT original source dimensions corrupt")
+                metric = next((label for code, label in self.ILOSTAT_LABELS.items()
+                               if item["name"].startswith(code + "_")), "ILOSTAT original source")
+                dimensions = [
+                    key + "=" + str(original[key]) for key in
+                    ("sex","classif1","classif2","classif3","source")
+                    if original.get(key)
+                ]
+                item["title"] = metric + (" · " + " · ".join(dimensions) if dimensions else "")
+            else:
+                item["title"] = self._title(fid, item["name"])
             if not needle or needle in item["name"].lower() or needle in item["title"].lower():
                 out.append(item)
                 if len(out) >= max_results:
@@ -527,6 +563,9 @@ class NativeAttachmentStore(AtlasStore):
                                   or source_detail.get("source_url") or ""),
                 "source_id": r["source_id"], "state_code": dims.get("state_code", ""),
                 "industry_code": dims.get("industry_code", ""),
+                "sex": dims.get("sex", ""), "classif1": dims.get("classif1", ""),
+                "classif2": dims.get("classif2", ""),
+                "original_source_code": dims.get("source", ""),
                 "disaggregation": json.dumps(dims, ensure_ascii=False, sort_keys=True),
             }
             items.append(item)
@@ -569,7 +608,8 @@ class NativeAttachmentStore(AtlasStore):
             raise ValueError("CSV export exceeds 10,000 rows; narrow the filters")
         fields = ("provider", "geography", "year", "period", "series", "value",
                   "raw_value", "unit", "frequency", "source_status", "source_url",
-                  "source_id", "state_code", "industry_code", "disaggregation")
+                  "source_id", "state_code", "industry_code", "sex", "classif1",
+                  "classif2", "original_source_code", "disaggregation")
         stream = io.StringIO()
         writer = csv.DictWriter(stream, fieldnames=fields)
         writer.writeheader()
