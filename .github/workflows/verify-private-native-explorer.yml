@@ -5,12 +5,14 @@ on:
     paths:
       - 'atlas_web/**'
       - 'tests/test_atlas_native_explorer.py'
+      - 'tests/test_ilostat_indicator_reference.py'
       - '.github/workflows/verify-private-native-explorer.yml'
   push:
     branches: [main]
     paths:
       - 'atlas_web/**'
       - 'tests/test_atlas_native_explorer.py'
+      - 'tests/test_ilostat_indicator_reference.py'
       - '.github/workflows/verify-private-native-explorer.yml'
   workflow_dispatch:
 
@@ -35,6 +37,7 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_atlas_web.py' -v
           python -m unittest discover -s tests -p 'test_atlas_native_explorer.py' -v
+          python -m unittest discover -s tests -p 'test_ilostat_indicator_reference.py' -v
           python -m py_compile atlas_web/server.py
           node --check atlas_web/static/app.js
 
