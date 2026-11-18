@@ -21,6 +21,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+if __package__:
+    from .ilostat_reference import source_indicator_reference
+else:
+    from ilostat_reference import source_indicator_reference
+
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
 LIMIT = 2000
@@ -476,6 +481,10 @@ class NativeAttachmentStore(AtlasStore):
         out = []
         for item in rows:
             if fid == "ilostat":
+                annotation = source_indicator_reference(item["name"])
+                if annotation:
+                    item["reported_measurement_reference"] = annotation["reported_measurement"]
+                    item["source_row_unit_verified"] = False
                 original = json.loads(item.pop("original_dimensions"))
                 if not isinstance(original, dict):
                     raise ValueError("ILOSTAT original source dimensions corrupt")
@@ -605,6 +614,7 @@ class NativeAttachmentStore(AtlasStore):
         if any(r["value"] is None for r in items):
             warnings.append("Suppressed/nonnumeric values are retained without zero filling.")
         return {"rows": items, "returned": len(items), "truncated": truncated,
+                "indicator_reference": source_indicator_reference(series) if fid == "ilostat" else None,
                 "units": units, "frequencies": freqs, "duplicate_keys": duplicate_keys,
                 "chart_warnings": blockers + warnings, "chart_blockers": blockers,
                 "layer": layer, "family": fid, "series": series,
