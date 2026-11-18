@@ -213,8 +213,25 @@ async function apply(){
   state.lastResponse=data;render();
  }catch(e){if(req===state.pending)showError(e);}
 }
+function renderIndicatorGuidance(data){
+ const host=$("indicator-guidance");
+ if(!host)return;
+ host.replaceChildren();
+ const ref=data?.indicator_reference;
+ if(!ref){host.hidden=true;return;}
+ host.hidden=false;
+ host.append(el("strong","",ref.indicator+" · ILO reported measure: "+ref.reported_measurement));
+ host.append(el("p","","Reference label only — actual source-row units, "+
+  "national definitions and vintages have not yet been reconciled. "+ref.caution+"."));
+ const link=el("a","","Official ILOSTAT indicator description");
+ link.href=ref.reference_url;
+ link.target="_blank";
+ link.rel="noopener noreferrer";
+ host.append(link);
+}
 function render(){
  const output=$("chart"),data=state.lastResponse;
+ renderIndicatorGuidance(data);
  output.replaceChildren();$("legend").replaceChildren();$("record-count").textContent="";
  if(!data?.rows?.length){
   output.append(el("div","chart-empty",data?
