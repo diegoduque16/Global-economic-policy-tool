@@ -23,8 +23,10 @@ from urllib.parse import parse_qs, urlsplit
 
 if __package__:
     from .ilostat_reference import source_indicator_reference
+    from .ilostat_dictionaries import load_code_lists
 else:
     from ilostat_reference import source_indicator_reference
+    from ilostat_dictionaries import load_code_lists
 
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
@@ -300,6 +302,19 @@ class AtlasStore:
                         "source_url":""}
             else:
                 item = {**r, "value":v, "raw_value":str(r["value"])}
+            if fid == "ilostat" and self.ilostat_dictionaries:
+                codes = {
+                    "ref_area": r["geography"],
+                    "indicator": dims.get("indicator", ""),
+                    "source": dims.get("source", ""),
+                    "sex": dims.get("sex", ""),
+                    "classif1": dims.get("classif1", ""),
+                    "classif2": dims.get("classif2", ""),
+                    "obs_status": source.get("obs_status", ""),
+                }
+                item["original_dictionary_labels"] = self.ilostat_dictionaries.labels_for(codes)
+            else:
+                item["original_dictionary_labels"] = {}
             items.append(item)
         units = sorted({r["unit"] for r in items})
         periods = sorted({r["frequency"] for r in items})
@@ -350,6 +365,8 @@ class AtlasStore:
             safe = {}
             for key in cols:
                 value = row.get(key, "")
+                if isinstance(value, dict):
+                    value = json.dumps(value, ensure_ascii=False, sort_keys=True)
                 if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
                     # Prevent spreadsheet-formula injection when exported CSV is opened.
                     value = "'" + value
@@ -382,10 +399,11 @@ class NativeAttachmentStore(AtlasStore):
         "SDG_0852": "SDG 8.5.2 · Unemployment rate",
     }
 
-    def __init__(self, path):
+    def __init__(self, path, ilostat_dictionaries=None):
         self.path = Path(path).resolve()
         if not self.path.is_file():
             raise FileNotFoundError(f"Atlas source-native attachment not found: {self.path}")
+        self.ilostat_dictionaries = ilostat_dictionaries
         self.geography_names, self.geography_types = geography_reference()
         self.groups = {}
         self.source_details = {}
@@ -490,12 +508,17 @@ class NativeAttachmentStore(AtlasStore):
                     raise ValueError("ILOSTAT original source dimensions corrupt")
                 metric = next((label for code, label in self.ILOSTAT_LABELS.items()
                                if item["name"].startswith(code + "_")), "ILOSTAT original source")
-                dimensions = [
-                    key + "=" + str(original[key]) for key in
-                    ("sex","classif1","classif2","classif3","source")
-                    if original.get(key)
-                ]
+                dimensions = []
+                for key in ("sex","classif1","classif2","classif3","source"):
+                    code = original.get(key)
+                    if not code:
+                        continue
+                    label = (self.ilostat_dictionaries.lookup(key, str(code))
+                             if self.ilostat_dictionaries else None)
+                    dimensions.append(key + "=" + str(code) +
+                                      (" (" + label + ")" if label else ""))
                 item["title"] = metric + (" · " + " · ".join(dimensions) if dimensions else "")
+                item["original_dictionary_labels_verified"] = self.ilostat_dictionaries is not None
             else:
                 item["title"] = self._title(fid, item["name"])
             searchable = (item["name"] + " " + item["title"]).lower()
@@ -517,6 +540,11 @@ class NativeAttachmentStore(AtlasStore):
                 (group["prefix"] + "*", series, series, q, "%" + q + "%"))]
         for row in rows:
             row["name"] = self.geography_names.get(row["code"], row["code"])
+            if fid == "ilostat" and self.ilostat_dictionaries:
+                official_label = self.ilostat_dictionaries.lookup("ref_area", row["code"])
+                if official_label:
+                    row["name"] = official_label
+                    row["original_ilostat_geo_label_verified"] = True
             row["geography_type"] = self.geography_types.get(row["code"], "unclassified")
         return rows
 
@@ -609,12 +637,19 @@ class NativeAttachmentStore(AtlasStore):
             if len(yearly) != len(set(yearly)):
                 blockers.append("Repeated original annual periods; inspect source dimensions.")
         warnings = ["Private original source-native data; units, vintages and providers are not harmonized."]
+        if fid == "ilostat" and not self.ilostat_dictionaries:
+            warnings.append("Official source-code labels not loaded; raw ILOSTAT source codes retained.")
+        elif fid == "ilostat":
+            warnings.append("Official ILOSTAT dictionary labels are SHA verified, but their current TOC vintage and survey comparability remain unverified.")
         if fid == "ilostat" and any(r["unit"] == "source_defined_unverified" for r in items):
             warnings.append("ILOSTAT raw source units are unverified, even for a single-country trend; do not infer comparable percentages or currencies.")
         if any(r["value"] is None for r in items):
             warnings.append("Suppressed/nonnumeric values are retained without zero filling.")
         return {"rows": items, "returned": len(items), "truncated": truncated,
                 "indicator_reference": source_indicator_reference(series) if fid == "ilostat" else None,
+                "original_code_dictionary_receipts": (
+                    self.ilostat_dictionaries.public_safe_provenance()
+                    if fid == "ilostat" and self.ilostat_dictionaries else []),
                 "units": units, "frequencies": freqs, "duplicate_keys": duplicate_keys,
                 "chart_warnings": blockers + warnings, "chart_blockers": blockers,
                 "layer": layer, "family": fid, "series": series,
@@ -631,7 +666,8 @@ class NativeAttachmentStore(AtlasStore):
         fields = ("provider", "geography", "year", "period", "series", "value",
                   "raw_value", "unit", "frequency", "source_status", "source_url",
                   "source_id", "state_code", "industry_code", "sex", "classif1",
-                  "classif2", "original_source_code", "disaggregation")
+                  "classif2", "original_source_code", "disaggregation",
+                  "original_dictionary_labels")
         stream = io.StringIO()
         writer = csv.DictWriter(stream, fieldnames=fields)
         writer.writeheader()
@@ -715,7 +751,13 @@ def main():
     ap.add_argument("--host",default="127.0.0.1",
                     help="Bind locally by default; a remote host MUST add authentication")
     ap.add_argument("--port",type=int,default=8765)
+    ap.add_argument("--ilostat-checkpoint",
+                    help="Private original ILOSTAT source checkpoint; requires --ilostat-dictionary-dir")
+    ap.add_argument("--ilostat-dictionary-dir",
+                    help="Directory containing original SHA-pinned cl_*.csv from private OneDrive")
     args=ap.parse_args()
+    if bool(args.ilostat_checkpoint) != bool(args.ilostat_dictionary_dir):
+        ap.error("Original ILOSTAT checkpoint and private dictionary directory must be supplied together")
     if args.host not in ("127.0.0.1","localhost","::1"):
         ap.error("External hosting requires an authenticated reverse proxy; local-only by default")
     db_path = Path(args.db).resolve()
@@ -726,9 +768,14 @@ def main():
     with closing(sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True)) as db:
         kinds = AtlasStore.tables(db)
     if {"observations", "source_files"}.issubset(kinds):
+        if args.ilostat_checkpoint:
+            ap.error("Original ILOSTAT dictionary labels require the source-native Atlas attachment")
         AtlasHandler.store = AtlasStore(db_path)
     elif {"native_sources", "native_records"}.issubset(kinds):
-        AtlasHandler.store = NativeAttachmentStore(db_path)
+        official_dictionaries = (load_code_lists(
+            args.ilostat_checkpoint, args.ilostat_dictionary_dir)
+            if args.ilostat_checkpoint else None)
+        AtlasHandler.store = NativeAttachmentStore(db_path, ilostat_dictionaries=official_dictionaries)
     else:
         ap.error("Unrecognized Atlas SQLite release: neither canonical nor native attachment")
     server=ThreadingHTTPServer((args.host,args.port),AtlasHandler)
