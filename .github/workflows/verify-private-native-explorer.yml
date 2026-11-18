@@ -128,10 +128,16 @@ jobs:
           )
           root=Path(os.environ["RUNNER_TEMP"])/"atlas-real-private-smoke"
           state=json.loads((root/"ilostat-state.json").read_text(encoding="utf-8"))
-          for kind in KINDS:
-              proof=state.get("dictionaries",{}).get(kind)
+          backed=state.get("dictionaries",{})
+          if not isinstance(backed,dict):
+              raise ValueError("No original ILOSTAT dictionary checkpoint")
+          available=tuple(kind for kind in KINDS if kind in backed)
+          if "cl_sex" not in available:
+              raise ValueError("ILO sex code dictionary absent: cannot certify source labels")
+          for kind in available:
+              proof=backed[kind]
               if not isinstance(proof,dict):
-                  raise ValueError("Missing original official ILOSTAT dictionary receipt")
+                  raise ValueError("Malformed original ILOSTAT dictionary receipt")
               sha=proof.get("sha256")
               if not isinstance(sha,str) or not re.fullmatch(r"[a-f0-9]{64}",sha):
                   raise ValueError("Invalid ILOSTAT dictionary source SHA")
@@ -143,9 +149,11 @@ jobs:
               if target.stat().st_size>20_000_000 or hashlib.sha256(target.read_bytes()).hexdigest()!=sha:
                   raise ValueError("Original ILOSTAT source dictionary SHA mismatch")
           verified=load_code_lists(root/"ilostat-state.json",root/"dictionaries")
-          if len(verified.public_safe_provenance())!=len(KINDS):
-              raise ValueError("Original ILOSTAT dictionary classification incomplete")
-          print("ATLAS_PRIVATE_ILOSTAT_ORIGINAL_DICTIONARIES_SHA_VERIFIED",len(KINDS))
+          if len(verified.public_safe_provenance())!=len(available):
+              raise ValueError("Original ILOSTAT dictionary receipts do not reconcile")
+          print("ATLAS_PRIVATE_ILOSTAT_ORIGINAL_DICTIONARIES_SHA_VERIFIED",len(available))
+          print("ATLAS_ILOSTAT_OPTIONAL_DICTIONARIES_NOT_ARCHIVED",
+                ",".join(verified.unavailable_dictionary_ids()))
           PY_DICTIONARIES
       - name: Smoke-test actual provider filters, BLS original periods and safe research queries
         shell: bash
@@ -234,7 +242,8 @@ jobs:
                 {"original_source_native_rows":1036234,"original_source_ids":979,
                  "provider_groups":6,"bls_monthly_chart_works":True,
                  "ilostat_annual_original_dimensions_queryable":True,
-                 "ilostat_original_dictionary_files_sha_verified":len(KINDS),
+                 "ilostat_original_dictionary_files_sha_verified":len(labels.public_safe_provenance()),
+                 "ilostat_optional_dictionary_ids_unavailable":labels.unavailable_dictionary_ids(),
                  "ilostat_original_code_label_query_verified":True,
                  "source_data_public":False})
           PY_SMOKE

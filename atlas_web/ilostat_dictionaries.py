@@ -51,6 +51,9 @@ class VerifiedILOCodeLists:
             if (label := self.lookup(field, code)) is not None
         }
 
+    def unavailable_dictionary_ids(self):
+        return [kind for kind in KINDS if kind not in self.maps]
+
     def public_safe_provenance(self):
         # Only kind + original SHA + original ILO URL; no private paths.
         return [
@@ -62,7 +65,7 @@ class VerifiedILOCodeLists:
 
 
 def load_code_lists(checkpoint_file: Path, dictionary_dir: Path,
-                    *, required: tuple[str, ...] = KINDS) -> VerifiedILOCodeLists:
+                    *, required: tuple[str, ...] | None = None) -> VerifiedILOCodeLists:
     """Fail closed for absent, tampered or malformed SHA-pinned private code lists.
 
     Code lists officially use 3 CSV fields (code, label, order), but actual
@@ -76,7 +79,13 @@ def load_code_lists(checkpoint_file: Path, dictionary_dir: Path,
     dictionary_state = state.get("dictionaries")
     if state.get("schema_version") != 1 or not isinstance(dictionary_state, dict):
         raise ValueError("Missing verified private ILOSTAT dictionary checkpoint")
-    if not set(required).issubset(KINDS) or len(set(required)) != len(required):
+    # Original ILOSTAT provider does not guarantee every optional code-list
+    # endpoint is archived. Only use names actually present in the immutable
+    # private checkpoint; explicitly requested missing lists still fail closed.
+    if required is None:
+        required = tuple(kind for kind in KINDS if kind in dictionary_state)
+    if (not required or not set(required).issubset(KINDS)
+        or len(set(required)) != len(required)):
         raise ValueError("Unknown or repeated ILOSTAT dictionary requested")
     maps, receipts = {}, {}
     for kind in required:

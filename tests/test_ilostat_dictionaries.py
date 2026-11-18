@@ -70,6 +70,17 @@ class VerifiedILOCodeListTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"failed SHA"):
             self.load()
 
+    def test_partial_archive_uses_only_verified_original_dictionaries(self):
+        self.state["dictionaries"].pop("cl_ref_area")
+        self.checkpoint.write_text(json.dumps(self.state),encoding="utf-8")
+        result=load_code_lists(self.checkpoint,self.code_dir)
+        self.assertEqual(result.lookup("sex","SEX_F"),"Female")
+        self.assertIsNone(result.lookup("ref_area","GHA"))
+        self.assertIn("cl_ref_area",result.unavailable_dictionary_ids())
+        self.assertEqual(len(result.public_safe_provenance()),4)
+        with self.assertRaisesRegex(ValueError,"Missing original"):
+            load_code_lists(self.checkpoint,self.code_dir,required=tuple(self.data))
+
     def test_missing_checkpoint_entry_and_untrusted_remote_rejected(self):
         self.state["dictionaries"].pop("cl_sex")
         self.checkpoint.write_text(json.dumps(self.state),encoding="utf-8")
