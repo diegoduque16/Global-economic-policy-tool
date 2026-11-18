@@ -64,6 +64,44 @@ class VerifiedILOCodeListTests(unittest.TestCase):
         self.assertFalse(any(item["dictionary_currency_verified"] for item in receipts))
         self.assertNotIn("onedrive:",json.dumps(receipts))
 
+    def test_original_provider_extra_metadata_columns_and_two_column_files(self):
+        # Preserve original nonlabel source columns, rather than assuming every
+        # verified official ILO dictionary has exactly 3 CSV columns.
+        def update(kind,header,rows):
+            path=self.code_dir/(kind+".csv")
+            with path.open("w",encoding="utf-8",newline="") as f:
+                writer=csv.writer(f)
+                writer.writerow(header)
+                writer.writerows(rows)
+            sha=hashlib.sha256(path.read_bytes()).hexdigest()
+            self.state["dictionaries"][kind]["sha256"]=sha
+            self.state["dictionaries"][kind]["remote"]=SOURCE_ROOT+kind+"-"+sha[:16]+".csv"
+            self.state["dictionaries"][kind]["rows"]=len(rows)
+            self.checkpoint.write_text(json.dumps(self.state),encoding="utf-8")
+        update("cl_sex",["sex","sex.sort","sex.label","sex.note"],
+               [("SEX_F","1","Female","original source"),
+                ("SEX_M","2","Male","original source")])
+        update("cl_ref_area",["ref_area","ref_area.label"],
+               [("GHA","Ghana"),("X01","World aggregate")])
+        verified=self.load()
+        self.assertEqual(verified.lookup("sex","SEX_F"),"Female")
+        self.assertEqual(verified.lookup("ref_area","GHA"),"Ghana")
+
+    def test_ambiguous_source_label_columns_fail_closed(self):
+        file=self.code_dir/"cl_sex.csv"
+        with file.open("w",encoding="utf-8",newline="") as f:
+            writer=csv.writer(f)
+            writer.writerow(["sex","sex.description","sex.category","sex.order"])
+            writer.writerows([
+                ("SEX_F","Female","sex","1"),("SEX_M","Male","sex","2"),
+            ])
+        sha=hashlib.sha256(file.read_bytes()).hexdigest()
+        self.state["dictionaries"]["cl_sex"]["sha256"]=sha
+        self.state["dictionaries"]["cl_sex"]["remote"]=SOURCE_ROOT+"cl_sex-"+sha[:16]+".csv"
+        self.checkpoint.write_text(json.dumps(self.state),encoding="utf-8")
+        with self.assertRaisesRegex(ValueError,"Ambiguous"):
+            self.load()
+
     def test_modified_original_bytes_rejected(self):
         file=self.code_dir/"cl_sex.csv"
         file.write_bytes(file.read_bytes()+b"\n")
