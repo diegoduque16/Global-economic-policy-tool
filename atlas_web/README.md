@@ -89,6 +89,21 @@ This version is a functioning local/private website; it is **not yet hosted at a
 
 The source-native ILOSTAT importer targets three already backed-up official annual SDG indicator tables: 8.3.1 (informal employment), 8.5.1 (average hourly earnings), and 8.5.2 (unemployment rate). Their 153,116 physical source rows, including blank/flagged/nonnumeric values, are **not 153,116 independent harmonized observations**. They are indexed separately in the existing private SQLite with original table IDs, source hashes, source provenance, annual periods, source status, sex and classification codes, plus full original source JSON. The queryable series IDs encode the full ILO structural dimension key and preserve exact disaggregation. No unit is guessed from a suffix; unit is marked source-defined/unverified until official unit definitions are reconciled. No private source data are uploaded to GitHub or Cloudflare. The new edition must pass SHA-replay, SQLite record preservation, and private restored-archive checksum verification before it can be counted as a completed release.
 
+### Optional, SHA-verified official ILOSTAT code labels (private originals only)
+
+The existing ILOSTAT bulk collector has already archived source-original ILO dictionaries into private OneDrive with SHA-256 receipts in its checkpoint. Restore the relevant original dictionary CSV files **privately** with the same original names `cl_indicator.csv`, `cl_ref_area.csv`, `cl_source.csv`, `cl_sex.csv`, `cl_age.csv`, `cl_classif1.csv`, `cl_classif2.csv`, and `cl_obs_status.csv`, along with the original private `state.json` checkpoint. Then start the **existing** localhost explorer with these additional optional arguments:
+
+```bash
+python atlas_web/server.py \
+  --db "/absolute/private/path/to/native_source_extension.sqlite" \
+  --ilostat-checkpoint "/absolute/private/path/to/state.json" \
+  --ilostat-dictionary-dir "/absolute/private/path/to/code-lists"
+```
+
+Every local original CSV must match the exact source SHA-256, expected record count, and private OneDrive source receipt; corrupted/duplicate/unknown code lists abort loading. Original code keys stay visible in the list, table and CSV while genuine ILO source labels are shown alongside, allowing searches such as `unemployment female 15 to 24` **only when those words actually appear in the original ILO dictionaries**. Without the optional verified dictionaries, existing numeric queries keep working with exact original codes and an explicit missing-label warning.
+
+The dictionary receipts are source-level snapshots, **not proof that the dictionaries match each individual row's current official data vintage**. Labels are never used to alter a numeric value, original unit, survey version, geographic type or source status flag. Country codes not separately ISO/officially classified remain unclassified. Reference labels are for *private read-only research exploration*; the public Cloudflare site and historical canonical warehouse are unaffected. The production smoke workflow tests exactly these private originals on the existing 1,036,234-row six-provider native SQLite edition without making any original data public.
+
 ### ILOSTAT original series research filters and comparability
 
 The local/private six-provider explorer contains 20,167 source-original ILOSTAT structural dimension combinations across the three first SDG indicator tables. **The number of combinations is not a count of unique, harmonized economic indicators.** Search ILOSTAT by multiple separate terms, such as `unemployment SEX_F AGE_Y15-24`, `earnings SEX_F`, or the exact original `SDG_0852` source code. Every term must match the indicator name, original hashed series identity, or recorded source classification. This filters to original sex, age, occupation and source definitions without translating those codes into fabricated harmonized categories.
