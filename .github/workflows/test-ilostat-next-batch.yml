@@ -1,0 +1,34 @@
+name: Validate next ILOSTAT private numeric batch (offline)
+
+on:
+  pull_request:
+    paths:
+      - 'warehouse/ilostat_next_batch.py'
+      - 'tests/test_ilostat_next_batch.py'
+      - '.github/workflows/test-ilostat-next-batch.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'warehouse/ilostat_next_batch.py'
+      - 'tests/test_ilostat_next_batch.py'
+      - '.github/workflows/test-ilostat-next-batch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-next-batch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate existing and next-batch importers using synthetic source rows
+        run: |
+          python -m unittest discover -s tests -p 'test_ilostat_next_batch.py' -v
+          python -m unittest discover -s tests -p 'test_ilostat_native_extension.py' -v
+          python -m py_compile warehouse/ilostat_next_batch.py

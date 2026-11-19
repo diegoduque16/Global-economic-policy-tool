@@ -1,0 +1,184 @@
+name: Extend existing private Atlas SQLite with verified ILOSTAT numerical batch
+
+on:
+  pull_request:
+    paths:
+      - 'warehouse/ilostat_next_batch.py'
+      - 'tests/test_ilostat_next_batch.py'
+      - '.github/workflows/atlas-ilostat-next-native-batch.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'warehouse/ilostat_next_batch.py'
+      - 'tests/test_ilostat_next_batch.py'
+      - '.github/workflows/atlas-ilostat-next-native-batch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-ilostat-next-private-sqlite
+  cancel-in-progress: false
+
+jobs:
+  offline-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate source-native append and all parent-preservation tests
+        run: |
+          python -m unittest discover -s tests -p 'test_ilostat_next_batch.py' -v
+          python -m unittest discover -s tests -p 'test_ilostat_native_extension.py' -v
+          python -m py_compile warehouse/ilostat_next_batch.py
+
+  private-original-source-append:
+    if: github.event_name != 'pull_request'
+    needs: offline-verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+      PARENT_ID: 'atlas-native-wdi-wid-fred-eurostat-bls-ilostat-20261118-44209878280'
+      PARENT_ARCHIVE_SHA256: '0f4124954303f07478b1e4c7dd23af4f4e21146cd7139b9b9fde783d65934538'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify and configure existing private OneDrive access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/atlas-next-ilostat/sources" "$RUNNER_TEMP/atlas-next-ilostat/edition"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/atlas-next-ilostat/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/atlas-next-ilostat/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/atlas-next-ilostat/rclone.conf" >> "$GITHUB_ENV"
+      - name: Restore SHA-verified parent and original private source checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/atlas-next-ilostat"
+          rclone copyto "$ONEDRIVE_TARGET/snapshots/$PARENT_ID.tar.gz" "$root/parent.tar.gz" --retries 3
+          test "$(sha256sum "$root/parent.tar.gz" | cut -d ' ' -f1)" = "$PARENT_ARCHIVE_SHA256"
+          rclone copyto "$ONEDRIVE_TARGET/atlas/ilostat-bulk-v1/checkpoint/state.json" "$root/state.json" --retries 3
+          python - <<'PY_PARENT'
+          import os,tarfile
+          from pathlib import Path,PurePosixPath
+          from warehouse.native_materialize import sha256
+          root=Path(os.environ["RUNNER_TEMP"])/"atlas-next-ilostat"
+          expected=os.environ["PARENT_ID"]+"/native_source_extension.sqlite"
+          found=0
+          with tarfile.open(root/"parent.tar.gz","r:gz") as archive:
+              for member in archive:
+                  name=PurePosixPath(member.name)
+                  if (name.is_absolute() or ".." in name.parts or member.issym()
+                      or member.islnk() or member.isdev()):
+                      raise ValueError("Unsafe original Atlas private archive member")
+                  if member.name==expected:
+                      if not member.isfile() or not 1_000_000 <= member.size <= 3_000_000_000:
+                          raise ValueError("Unexpected original native SQLite type/size")
+                      found+=1
+                      with archive.extractfile(member) as inp, (root/"parent.sqlite").open("xb") as out:
+                          import shutil
+                          shutil.copyfileobj(inp,out,length=1024*1024)
+          if found!=1:
+              raise ValueError("Missing or duplicate original source-native SQLite")
+          parent_sha=sha256(root/"parent.sqlite")
+          (root/"parent-sha.txt").write_text(parent_sha)
+          print("ATLAS_VERIFIED_EXISTING_PRIVATE_SIX_PROVIDER_PARENT")
+          PY_PARENT
+      - name: Select actual archived official ILOSTAT annual tables and restore originals
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_SELECT'
+          import json,os,re,subprocess
+          from pathlib import Path
+          from warehouse.ilostat_next_batch import select_verified_tables
+          from warehouse.ilostat_native_extension import SOURCE_BASE,SHA256
+          root=Path(os.environ["RUNNER_TEMP"])/"atlas-next-ilostat"
+          state=json.loads((root/"state.json").read_text())
+          selected=select_verified_tables(state)
+          for table in selected:
+              entry=state["downloaded"][table]
+              sha=entry.get("sha256")
+              remote=entry.get("remote")
+              if (not isinstance(sha,str) or not SHA256.fullmatch(sha)
+                  or not isinstance(remote,str)
+                  or not re.fullmatch(re.escape(SOURCE_BASE+"/indicator-data/"+table+"/"+table+"-")+r"[0-9A-Za-z]{1,20}-"+sha[:16]+r"\.csv\.gz",remote)):
+                  raise ValueError("Original private ILOSTAT remote not SHA-bound")
+              subprocess.run(["rclone","copyto",remote,
+                              str(root/"sources"/(table+".csv.gz")),"--retries","3"],check=True)
+          (root/"selection.json").write_text(json.dumps(selected))
+          print("ATLAS_NEW_ILOSTAT_ORIGINAL_TABLE_IDS_SELECTED",",".join(selected))
+          PY_SELECT
+      - name: Build source-native rows into new immutable SQLite without changing parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_APPEND'
+          import json,os
+          from pathlib import Path
+          from warehouse.ilostat_next_batch import append_next_batch
+          root=Path(os.environ["RUNNER_TEMP"])/"atlas-next-ilostat"
+          tables=json.loads((root/"selection.json").read_text())
+          report=append_next_batch(root/"parent.sqlite",
+                                   (root/"parent-sha.txt").read_text().strip(),
+                                   root/"state.json",root/"sources",tables,
+                                   root/"edition"/"native_source_extension.sqlite")
+          # Keep only counts, original table IDs and new database digest in public artifacts.
+          safe={k:report[k] for k in (
+              "table_ids","original_source_rows_added","finite_numeric_values_added",
+              "missing_source_values_retained","other_nonnumeric_values_retained",
+              "new_attachment_source_native_rows","new_attachment_source_ids",
+              "new_database_sha256","parent_sha256","public_release","not_harmonized")}
+          (root/"edition"/"integration_report.json").write_text(json.dumps(safe,indent=2))
+          print("ATLAS_NEW_ILOSTAT_PRIVATE_NUMERIC_ROWS_VERIFIED",
+                safe["original_source_rows_added"],safe["finite_numeric_values_added"])
+          PY_APPEND
+      - name: Save immutable existing Atlas attachment to private OneDrive and verify restored SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/atlas-next-ilostat"
+          edition="atlas-native-ilostat-next-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"
+          export ATLAS_EDITION="$edition"
+          python - <<'PY_ARCHIVE'
+          import os,tarfile
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"atlas-next-ilostat"
+          with tarfile.open(root/(os.environ["ATLAS_EDITION"]+".tar.gz"),"w:gz") as tar:
+              tar.add(root/"edition",arcname=os.environ["ATLAS_EDITION"])
+          PY_ARCHIVE
+          local="$root/$edition.tar.gz"
+          remote="$ONEDRIVE_TARGET/snapshots/$edition.tar.gz"
+          expected="$(sha256sum "$local" | cut -d ' ' -f1)"
+          rclone copyto "$local" "$remote" --retries 3 --low-level-retries 10
+          actual="$(rclone cat "$remote" | sha256sum | cut -d ' ' -f1)"
+          test "$actual" = "$expected"
+          echo "ATLAS_NEXT_ILOSTAT_PRIVATE_ARCHIVE_RESTORED_SHA256 $expected"
+          echo "ATLAS_NEXT_ILOSTAT_PRIVATE_ARCHIVE_ID $edition"
+      - name: Publish only metadata-only private integration receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-next-ilostat-counts-${{ github.run_id }}
+          path: ${{ runner.temp }}/atlas-next-ilostat/edition/integration_report.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Remove all transient originals and private OneDrive credentials
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/atlas-next-ilostat"
