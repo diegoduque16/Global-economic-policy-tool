@@ -144,8 +144,17 @@ def load_code_lists(checkpoint_file: Path, dictionary_dir: Path,
                 if len(row) != len(columns):
                     raise ValueError("Ragged official ILOSTAT code list: " + kind)
                 code, label = row[0], row[label_index]
-                if not code or len(code) > 256 or len(label) > 4096:
+                if len(code) > 256 or len(label) > 4096:
                     raise ValueError("Invalid original ILOSTAT dictionary code or label: " + kind)
+                # Count every SHA-verified original CSV record, including
+                # source rows whose code is blank (e.g. an unflagged status).
+                # Such rows have no valid lookup key; never invent a code or
+                # attach their labels to numeric observations.
+                total += 1
+                if total > MAX_ROWS:
+                    raise ValueError("Oversized official ILOSTAT code list")
+                if not code.strip():
+                    continue
                 if code in seen_codes:
                     raise ValueError("Duplicate official ILOSTAT dictionary code: " + kind)
                 seen_codes.add(code)
@@ -153,9 +162,6 @@ def load_code_lists(checkpoint_file: Path, dictionary_dir: Path,
                 # English label. Keep the code unknown, never invent a label.
                 if label.strip():
                     labels[code] = label.strip()
-                total += 1
-                if total > MAX_ROWS:
-                    raise ValueError("Oversized official ILOSTAT code list")
         if total != rows:
             raise ValueError("Original ILOSTAT dictionary receipt row mismatch: " + kind)
         maps[kind] = labels
