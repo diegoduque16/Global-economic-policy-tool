@@ -12,7 +12,7 @@ from scripts.ilostat_native_profile import profile_native_file
 from warehouse.native_materialize import sha256
 from warehouse.ilostat_native_extension import SOURCE_BASE
 from warehouse.ilostat_next_batch import (
-    append_next_batch, verify_selection,
+    append_next_batch, verify_selection, select_verified_tables,
 )
 
 TABLE = "EMP_TEST_SEX_AGE_RT_A"
@@ -94,6 +94,22 @@ class NextILOSTATBatchTests(unittest.TestCase):
             self.assertEqual(db.execute(
                 "SELECT obs_status FROM (SELECT json_extract(raw_row_json, '$.obs_status') AS obs_status FROM native_records) WHERE obs_status = 'U'"
             ).fetchone()[0], "U")
+
+    def test_selection_uses_actual_checkpoint_ids_and_profiled_rows(self):
+        chosen = select_verified_tables(self.state)
+        self.assertEqual(chosen, [TABLE])
+        # The initial three already-indexed SDGs cannot be selected again.
+        self.state["downloaded"]["SDG_0852_SEX_AGE_RT_A"] = dict(self.entry)
+        self.assertEqual(select_verified_tables(self.state), [TABLE])
+
+    def test_selection_excludes_unprofiled_or_nonannual_source_files(self):
+        without_profile = dict(self.entry, native_numeric_profile=None)
+        self.state["downloaded"][TABLE] = without_profile
+        with self.assertRaisesRegex(ValueError, "No eligible"):
+            select_verified_tables(self.state)
+        self.state["downloaded"][TABLE] = self.entry
+        self.state["downloaded"]["EMP_TEST_SEX_AGE_RT_M"] = dict(self.entry)
+        self.assertEqual(select_verified_tables(self.state), [TABLE])
 
     def test_rejects_reusing_existing_three_sdg_tables(self):
         with self.assertRaisesRegex(ValueError, "already indexed"):
