@@ -69,6 +69,56 @@ def verify_selection(state: dict, table_ids: list[str], source_dir: Path) -> tup
     return checked, counts
 
 
+
+def select_verified_tables(state: dict) -> list[str]:
+    """Choose bounded, actually archived annual labour tables by original IDs.
+
+    Uses the private checkpoint as the sole authority for IDs, row counts,
+    headers and source hashes; heuristic ranking never invents series labels
+    or asserts economic comparability.
+    """
+    originals = state.get("downloaded")
+    if state.get("schema_version") != 1 or not isinstance(originals, dict):
+        raise ValueError("Invalid private ILOSTAT source selection checkpoint")
+    options = []
+    for table, entry in originals.items():
+        if (not isinstance(table, str) or not VALID_ID.fullmatch(table)
+                or not table.endswith("_A") or table in EXPECTED
+                or not isinstance(entry, dict)
+                or entry.get("state") != "NATIVE_NOT_HARMONIZED"):
+            continue
+        n = entry.get("records_validated")
+        profile = entry.get("native_numeric_profile")
+        if (type(n) is not int or not 1 <= n <= 75_000
+                or not isinstance(profile, dict)
+                or profile.get("records_validated") != n
+                or type(profile.get("numeric_obs_value_rows")) is not int
+                or profile["numeric_obs_value_rows"] < 1
+                or not isinstance(entry.get("csv_header"), list)
+                or not {"ref_area", "time", "obs_value"}.issubset(entry["csv_header"])):
+            continue
+        # Prioritize original occupation/earnings/employment/labour indicators;
+        # no inferred ILO labels or unit definitions are attached.
+        names = table.split("_")
+        if "OCU" in names:
+            priority = 0
+        elif table.startswith(("EMP_", "EAR_", "UNE_", "EAP_", "HOW_")):
+            priority = 1
+        else:
+            priority = 2
+        options.append((priority, n, table))
+    chosen, total = [], 0
+    for _, n, table in sorted(options):
+        if total + n <= MAX_NEW_ROWS:
+            chosen.append(table)
+            total += n
+        if len(chosen) == MAX_TABLES:
+            break
+    if not chosen:
+        raise ValueError("No eligible source-verified annual ILOSTAT batch in private checkpoint")
+    return chosen
+
+
 def append_next_batch(parent: Path, parent_sha: str, checkpoint: Path,
                       sources: Path, tables: list[str], destination: Path) -> dict:
     """Produce an exclusive new SQLite edition and public-safe count report."""
