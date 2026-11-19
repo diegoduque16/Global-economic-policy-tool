@@ -2,8 +2,8 @@
   "schema_version": 1,
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
-  "updated_date": "2026-11-17",
-  "status_basis": "Latest verified source collection run 44207334375 completed the full 1,964/1,964 current official ILOSTAT TOC original table-ID archive with 0 lost files and 0 failed downloads, recovering 121 newly missing source originals and refreshing 29 old versions. The SHA-verified new private ILOSTAT checkpoint is ecc21f0d8c716178448b483dfa70ee27f40399d7de0356381fb0d9278e4bf72b; 511 downloaded sources are OLDER vintages than latest official TOC and require refresh. The separate private Atlas six-provider source-native SQLite edition has 1,036,234 original source rows (979 native source identities), including 153,116 ILOSTAT SDG 8.3.1/8.5.1/8.5.2 original rows (149,148 finite numeric, 3,968 blank), SHA-verified in run 44209878280. The REAL private explorer on all 6 providers was validated in run 44210751632. Source files and native numeric rows are different stages and not additive across layers. No latest-vintage-completion, cross-provider harmonization, independent series count or public Cloudflare source release is claimed. Dated snapshot, not live telemetry. Subsequent production proof: public reference indicator guidance merged in PR #59; real private six-provider 1,036,234-row source-native smoke and original dimension validations succeeded in run 44225695039; source registry/public-build tests 44225694940 passed. Earlier 511 older-vintage ILOSTAT source-file count is unchanged pending completion of prioritized main collection run 44224900228.",
+  "updated_date": "2026-11-19",
+  "status_basis": "November 19 real official ILOSTAT collector run 44512236382 verified all 1,964/1,964 official current-TOC table-ID source files with 0 older-vintage files, 0 missing IDs, 0 failed downloads and 0 loss; original private checkpoint backup was confirmed, snapshot SHA256 9f3b1d59e44d01f633d43268ed753108b1766f94c3c12fd4d757ab0a381e877a. These are original source-file/vintage results, NOT 1,964 queryable datasets or harmonized series. The independently certified six-provider source-native SQLite remains 1,036,234 original source records (979 original source identities), including only three integrated ILOSTAT SDG tables (153,116 original rows, 149,148 numeric). Private ILOSTAT code-label smoke 44228434367 failed on cl_obs_status source row(s) with invalid original code/label: a source-preserving blank-key parser regression is now proposed, not yet production-certified. No new numeric integration, public release or cross-country unit comparability claimed.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -44,14 +44,19 @@
       "label": "Verified queryable private economic attachment",
       "value": "1,036,234",
       "detail": "883,118 previously verified WDI/WID/FRED/Eurostat/BLS JOLTS source rows + 153,116 exact ILOSTAT SDG 8.3.1/8.5.1/8.5.2 original source rows, including 149,148 numeric and 3,968 blank. Immutable private SHA-restored version 0f4124954303f07478b1e4c7dd23af4f4e21146cd7139b9b9fde783d65934538. Not 1,036,234 deduplicated/harmonized statistical observations."
+    },
+    {
+      "label": "Official ILOSTAT original source tables current-vintage",
+      "value": "1,964 / 1,964",
+      "detail": "Nov 19 verified official TOC snapshot, 0 older-vintage; source files only, not numeric rows integrated into SQLite"
     }
   ],
   "workstreams": [
     {
       "name": "ILOSTAT official bulk",
-      "stage": "Complete official ILOSTAT table-ID source-file coverage: 1,964/1,964 entries in latest TOC archived with SHA-verified private checkpoint, final run 44207334375; 511 archived original tables still match older TOC vintages, so current-vintage coverage remains incomplete.",
-      "evidence": "Final original-source run 44207334375 (2026-11-18 UTC) completed successfully with latest official TOC count 1,964, 1,964 archived originals, 0 unarchived official table IDs, 0 failed downloads, and 0 source files lost. Against previous private checkpoint with 1,843 entries, it verified 121 newly distinct source tables and refreshed 29 existing table originals in the 150-file bounded run. It generated an explicit official-ID gap report showing 511 previously backed-up original tables with older TOC last-update or row-count vintages; not current-vintage complete. SHA-verified durable private checkpoint snapshot ecc21f0d8c716178448b483dfa70ee27f40399d7de0356381fb0d9278e4bf72b. Source tables are original archive files, not independent/unique numeric series. Only three selected ILOSTAT SDG original tables have yet been indexed into the separate 1,036,234-row private native SQLite.",
-      "next": "Last certified checkpoint: 1,964/1,964 table IDs archived; 511 archived files older than current official TOC. Refresh-priority PR #58 merged with all CI checks passing, and main ingestion run 44224900228 is in progress. Existing guarded collector prioritizes genuine missing source files, then GenAI and first three Atlas labour indicator originals, then remaining changed versions. Require new post-run source-count + SHA/private checkpoint evidence before updating 511 older-vintage figure.",
+      "stage": "Verified Nov 19: all 1,964/1,964 original ILOSTAT official TOC table IDs are backed up at the CURRENT source vintage, with zero older-vintage files, missing IDs, failures or losses in production source run 44512236382. This is file/vintage completeness, not a harmonized numeric research panel.",
+      "evidence": "Private safeguarded collector run 44512236382: ILOSTAT_SUMMARY 1964 saved, 0 missing, 0 outdated; ILOSTAT_CHECKPOINT_POST SHA256 9f3b1d59e44d01f633d43268ed753108b1766f94c3c12fd4d757ab0a381e877a, backed up privately true; zero lost files. https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44512236382. Previously 511 stale files in run 44207334375 are now resolved for this Nov 19 official TOC snapshot.",
+      "next": "Source-file completion achieved for the current TOC snapshot. Focus on verified source-native numeric integration using existing Atlas importer and the exact privately SHA-backed ILOSTAT files, starting with relevant labour/AI exposure series and rechecking vintages on the three already integrated SDG tables; preserve original dimensions and units. Do not invent numeric coverage for the other original tables until a private SQLite integration and checksum restore confirms it.",
       "links": [
         {
           "label": "Last completed 920-file checkpoint",
@@ -96,6 +101,10 @@
         {
           "label": "In-progress ILOSTAT prioritized vintage refresh production run (not yet certified)",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44224900228"
+        },
+        {
+          "label": "Nov 19 official ILOSTAT source originals current-vintage complete with private checkpoint proof",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44512236382"
         }
       ]
     },
@@ -307,7 +316,7 @@
       "name": "Private source-native Atlas explorer",
       "stage": "Verified against actual 1,036,234-row / 979-source six-provider private native SQLite, including searchable original ILOSTAT dimensions. Official ILO 8.3.1/8.5.1/8.5.2 measurement-reference labels and explicit unverified-row-unit safeguards are merged and real archive regression verified in main run 44225695039. Public website unchanged.",
       "evidence": "The prior real-private smoke run 44189089919 verified the 883,118-row five-provider parent. New successful main production run 44210751632 SHA-restored the exact immutable source-native private edition from run 44209878280 (SHA256 0f4124954303f07478b1e4c7dd23af4f4e21146cd7139b9b9fde783d65934538) and queried the actual source data through the existing local/read-only explorer. Independently confirmed 1,036,234 native source rows, 979 original source IDs, 6 provider groups, preserved WDI 572,179 / WID 40,908 / FRED 13,885 / Eurostat 3,436 / BLS JOLTS 252,710 / ILOSTAT original 153,116 source rows, the existing BLS monthly chart path, a real original ILOSTAT unemployment source series and nonempty sex/classif/source structural metadata, source geography classification, SQLite integrity/read-only gates, and zero public data uploads. The original ILOSTAT 20,167 dimensional combinations have not been certified as independent statistical series or harmonized data. November 17 local / Nov 18 UTC PR #59 added separately sourced ILO public measurement labels for exact SDG 8.3.1 informal employment (%) / 8.5.1 hourly earnings (local currency) / 8.5.2 unemployment (%) hashed original series. Backend leaves every source row unit at source_defined_unverified and multi-country comparisons blocked; public label includes its own NOT_ROW_VERIFIED status. Main run 44225695039 restored SHA-pinned six-provider private source data and passed offline source original labels and query tests; registry/public build 44225694940 also passed. No public original ILOSTAT data deployment.",
-      "next": "The original 1,036,234-row private SQLite was restored successfully, but actual code-list smoke 44227860586 found that the source-original cl_indicator dictionary does not have the exact 3-column CSV layout assumed by the initial loader. A pending change identifies a unique original label column across 2–12 original source fields, keeps the original first-column code, accepts original codes with no English label as unresolved and rejects ambiguous/duplicate structures; each original CSV must still match SHA-256 and checkpoint row count. Production source-level verification remains pending; all numeric rows/private release unchanged.",
+      "next": "Private code-label regression in main production smoke 44228434367 failed at original cl_obs_status source rows after the earlier cl_indicator column parser fix; original six-provider numeric SQLite remained unmodified. A narrow change treats blank original dictionary code entries as unlabelled/unmapped, counting their source rows in verified receipts, without mapping them to observations. Await PR CI and a new main-only real-private SHA-restored smoke before claiming code-label coverage. Then integrate more actual numeric series with source-original metadata.",
       "links": [
         {
           "label": "Existing private Atlas explorer backend",
@@ -364,6 +373,10 @@
         {
           "label": "Original private code-list restoration uncovered ILO original indicator dictionary column variant",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44227860586"
+        },
+        {
+          "label": "Latest main private source-label smoke fails on original cl_obs_status row",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44228434367"
         }
       ]
     },
@@ -746,12 +759,24 @@
       "title": "Read exact original ILOSTAT dictionary label columns without assuming a three-field live CSV schema",
       "description": "New main six-provider source smoke 44227860586 successfully restored the real 1,036,234-row SHA-pinned SQLite and verified available original dictionary receipts, but stopped before labels at original cl_indicator dictionary CSV, which differs from the three-column shape in the public ILO bulk guide. A narrowly scoped follow-up parser handles 2-12 columns by locating an explicit single .label/var_label/label column, falls back to second field only for 2-column files, preserves original source key/field rows, and refuses ambiguous/duplicate file keys. Blank labels remain unresolved. This does NOT infer standard country IDs, currencies or unit comparability; production private-label proof remains pending.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44227860586"
+    },
+    {
+      "date": "2026-11-19",
+      "title": "Complete current ILOSTAT original source collection; move to adding verified numeric series",
+      "description": "Latest official ILOSTAT source collector run 44512236382 completed successfully: 1,964/1,964 original table-ID files at the current official TOC vintage, with zero unarchived, failed, deferred, stale or lost files, backed up privately and verified by snapshot SHA256 9f3b1d59e44d01f633d43268ed753108b1766f94c3c12fd4d757ab0a381e877a. This resolves the previously recorded 511 outdated source originals for this official snapshot. Numeric ingestion is separate: currently only the first three selected ILOSTAT SDG tables are queryable in the certified six-provider 1,036,234-row private native database. Prioritize source-native numerical integration and verified source definitions, not another inventory or generic downloader.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44512236382"
+    },
+    {
+      "date": "2026-11-19",
+      "title": "Keep original ILOSTAT blank status-code rows unlabelled rather than fabricating mappings",
+      "description": "Main six-provider private smoke 44228434367 restored the SHA-verified private native database but failed while loading an already backed-up cl_obs_status dictionary because its original CSV contained invalid code/label fields for the stricter parser. Narrow follow-up code proposes counting truly blank original code rows toward the exact SHA/row-count receipt while excluding those rows from code-to-label lookup. Nonblank duplicate codes, altered source hashes, malformed structure and oversized fields still fail closed. Offline PR tests and a NEW real main-only private-smoke result are required before the source-label fix may be considered verified. No numeric rows or public source data changed.",
+      "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44228434367"
     }
   ],
   "next_actions": [
-    "ILOSTAT 1,964/1,964 official original source tables are SHA-archived. Last certified 511 older-vintage files at run 44207334375. PR #58 merged and main refresh run 44224900228 is still running; its outcome must be verified before changing any stale-file counts. Selected previously indexed labour SDG originals and GenAI tables are now prioritized for refresh, but no updated private SQLite numeric edition is claimed.",
+    "ILOSTAT source collection phase is complete for the Nov 19 official TOC snapshot: 1,964/1,964 originals verified CURRENT-vintage with zero missing/stale files, source integrity/backup confirmed in run 44512236382. Stop counting these files as missing. NEXT: use existing guarded private import paths to integrate additional high-value source-native numeric data from those verified originals; validate actual row counts, source unit metadata and original SHA/private SQLite backup before claiming usable coverage.",
     "BLS JOLTS completion: 252,710 original source-verified monthly numeric observations and 830 official BLS series added to same private SQLite attachment, production run 44171117929; new 883,118-record immutable archive restored with SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. No re-collection needed absent revised source vintage.",
-    "Verified on main in run 44225695039: the existing 1,036,234-source-row six-provider private Atlas explorer passes SHA-restored real database tests, preserving all 979 original source identities. PR #59 adds official ILOSTAT measurement-reference descriptions: 8.3.1 and 8.5.2 (%) and 8.5.1 local currency per hour, always separate from unverified source-row units. Next attach validated original ILOSTAT dictionary/unit/currency source metadata before international economic-panel comparisons. New work pending regression and private archive proof: SHA-verified original ILOSTAT dictionary code labels for sex, age, source, geography and classification, joined only for presentation without changing stored numeric values or verified source units.",
+    "Production private six-provider source-native SQLite remains 1,036,234 original records / 979 source IDs, with only first three ILOSTAT SDG originals numeric-integrated. Source-original ILOSTAT label loading is not yet certified on real private data: run 44228434367 fails at cl_obs_status even though synthetic tests passed. Proposed blank-code handling must pass offline tests, main-only private SHA-backed smoke, and provide a genuine original sex-label lookup before declaring that the UI labels are working.",
     "Complete specific missing U.S. BLS, Census and fiscal source datasets rather than only expanding catalog metadata, reusing existing collectors. Identify unique source IDs, archive original numeric responses privately and integrate only verified additions.",
     "Reconcile WDI official units/265 provider geography codes including aggregates, WID 60+23 country vintage boundaries, Eurostat/FRED definitions and JOLTS state/national and FRED series overlap before cross-country comparison.",
     "Publish to Cloudflare only selectively after provenance, source definition, licensing and privacy checks; a successful GitHub/private archive is not proof of public website deployment.",
