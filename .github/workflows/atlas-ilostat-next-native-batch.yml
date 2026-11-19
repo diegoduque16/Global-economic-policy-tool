@@ -42,6 +42,9 @@ jobs:
     needs: offline-verify
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    permissions:
+      contents: read
+      issues: write
     env:
       RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
       ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
@@ -178,6 +181,47 @@ jobs:
           path: ${{ runner.temp }}/atlas-next-ilostat/edition/integration_report.json
           retention-days: 90
           if-no-files-found: error
+      - name: Record certified private numerical gain on existing Atlas issue 65
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY_RECEIPT'
+          import json,os,subprocess
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"atlas-next-ilostat"
+          report=json.loads((root/"edition"/"integration_report.json").read_text())
+          gained=report["original_source_rows_added"]
+          numeric=report["finite_numeric_values_added"]
+          current=report["new_attachment_source_native_rows"]
+          if (type(gained) is not int or gained < 1 or
+              type(numeric) is not int or numeric < 1 or
+              type(current) is not int or current != 1_036_234+gained or
+              report["public_release"] is not False):
+              raise ValueError("Refusing to report unverified Atlas integration")
+          run=os.environ["GITHUB_RUN_ID"]
+          url="https://github.com/"+os.environ["GITHUB_REPOSITORY"]+"/actions/runs/"+run
+          body=(
+              "Verified **private**, source-native ILOSTAT integration on main: "+
+              str(gained)+" additional original source rows ("+str(numeric)+
+              " finite numeric values) from exact archived official table IDs: "+
+              ", ".join(report["table_ids"])+". New immutable SQLite contains "+
+              str(current)+" original source-native records and "+
+              str(report["new_attachment_source_ids"])+" original source IDs. "+
+              "The archived private snapshot was uploaded and byte-for-byte "+
+              "SHA-256 reverified; new SQLite SHA256: "+
+              report["new_database_sha256"]+". "+
+              "NOT harmonized, NOT deduplicated analytical series and NOT "+
+              "published to the public Atlas site. Production run: "+url
+          )
+          subprocess.run(
+              ["gh","api","repos/"+os.environ["GITHUB_REPOSITORY"]+
+               "/issues/65/comments","-f","body="+body],
+              check=True,capture_output=True,text=True
+          )
+          print("ATLAS_PRIVATE_INTEGRATION_ISSUE_65_RECEIPT_POSTED",run)
+          PY_RECEIPT
       - name: Remove all transient originals and private OneDrive credentials
         if: always()
         shell: bash
