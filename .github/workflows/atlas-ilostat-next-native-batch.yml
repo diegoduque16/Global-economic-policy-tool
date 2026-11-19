@@ -118,7 +118,7 @@ jobs:
               remote=entry.get("remote")
               if (not isinstance(sha,str) or not SHA256.fullmatch(sha)
                   or not isinstance(remote,str)
-                  or not re.fullmatch(re.escape(SOURCE_BASE+"/indicator-data/"+table+"/"+table+"-")+r"[0-9A-Za-z]{1,20}-"+sha[:16]+r"\\.csv\\.gz",remote)):
+                  or not re.fullmatch(re.escape(SOURCE_BASE+"/indicator-data/"+table+"/"+table+"-")+r"[0-9A-Za-z]{1,20}-"+sha[:16]+r"\.csv\.gz",remote)):
                   raise ValueError("Original private ILOSTAT remote not SHA-bound")
               subprocess.run(["rclone","copyto",remote,
                               str(root/"sources"/(table+".csv.gz")),"--retries","3"],check=True)
