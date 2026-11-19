@@ -113,7 +113,7 @@ def select_verified_tables(state: dict) -> list[str]:
                 or not isinstance(remote, str)
                 or not remote.startswith(prefix)
                 or not re.fullmatch(r"[0-9A-Za-z]{1,20}-" +
-                                    fingerprint[:16] + r"\\.csv\\.gz",
+                                    fingerprint[:16] + r"\.csv\.gz",
                                     remote[len(prefix):])):
             continue
         # Prioritize original occupation/earnings/employment/labour indicators;
