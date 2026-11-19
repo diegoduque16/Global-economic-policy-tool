@@ -170,8 +170,40 @@ jobs:
           remote="$ONEDRIVE_TARGET/snapshots/$edition.tar.gz"
           expected="$(sha256sum "$local" | cut -d ' ' -f1)"
           rclone copyto "$local" "$remote" --retries 3 --low-level-retries 10
-          actual="$(rclone cat "$remote" | sha256sum | cut -d ' ' -f1)"
+          # Restore the actual uploaded remote bytes, not only a storage receipt.
+          rclone copyto "$remote" "$root/verified-archive.tar.gz" --retries 3
+          actual="$(sha256sum "$root/verified-archive.tar.gz" | cut -d ' ' -f1)"
           test "$actual" = "$expected"
+          python - <<'PY_VERIFY_SNAPSHOT'
+          import hashlib,json,os,tarfile
+          from pathlib import Path,PurePosixPath
+          root=Path(os.environ["RUNNER_TEMP"])/"atlas-next-ilostat"
+          edition=os.environ["ATLAS_EDITION"]
+          receipt=json.loads((root/"edition"/"integration_report.json").read_text())
+          if receipt["new_attachment_source_native_rows"]<=1_036_234:
+              raise ValueError("No verified increase in Atlas original source-native records")
+          name=edition+"/native_source_extension.sqlite"
+          seen=0
+          with tarfile.open(root/"verified-archive.tar.gz","r:gz") as archive:
+              for entry in archive:
+                  p=PurePosixPath(entry.name)
+                  if p.is_absolute() or ".." in p.parts or entry.issym() or entry.islnk() or entry.isdev():
+                      raise ValueError("Unsafe restored private Atlas archive member")
+                  if entry.name!=name:
+                      continue
+                  if not entry.isfile() or not 1_000_000<=entry.size<=3_000_000_000:
+                      raise ValueError("Invalid restored private Atlas SQLite size/type")
+                  seen+=1
+                  h=hashlib.sha256()
+                  with archive.extractfile(entry) as inp:
+                      for chunk in iter(lambda:inp.read(1024*1024),b""):
+                          h.update(chunk)
+                  if h.hexdigest()!=receipt["new_database_sha256"]:
+                      raise ValueError("Restored private Atlas SQLite does not match release checksum")
+          if seen!=1:
+              raise ValueError("Missing or duplicated exact restored Atlas SQLite")
+          print("ATLAS_PRIVATE_SQLITE_RESTORED_SHA256_VERIFIED")
+          PY_VERIFY_SNAPSHOT
           echo "ATLAS_NEXT_ILOSTAT_PRIVATE_ARCHIVE_RESTORED_SHA256 $expected"
           echo "ATLAS_NEXT_ILOSTAT_PRIVATE_ARCHIVE_ID $edition"
       - name: Publish only metadata-only private integration receipt
