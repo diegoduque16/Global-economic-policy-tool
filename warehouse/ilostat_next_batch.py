@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import sqlite3
@@ -94,8 +95,26 @@ def select_verified_tables(state: dict) -> list[str]:
                 or profile.get("records_validated") != n
                 or type(profile.get("numeric_obs_value_rows")) is not int
                 or profile["numeric_obs_value_rows"] < 1
+                or any(type(profile.get(key)) is not int or profile[key] < 0
+                       for key in ("blank_obs_value_rows",
+                                   "other_nonnumeric_or_nonfinite_rows"))
+                or sum(profile[key] for key in
+                       ("numeric_obs_value_rows", "blank_obs_value_rows",
+                        "other_nonnumeric_or_nonfinite_rows")) != n
                 or not isinstance(entry.get("csv_header"), list)
-                or not {"ref_area", "time", "obs_value"}.issubset(entry["csv_header"])):
+                or not {"ref_area", "time", "obs_value"}.issubset(entry["csv_header"])
+                or len(set(entry["csv_header"])) != len(entry["csv_header"])):
+            continue
+        fingerprint = entry.get("sha256")
+        remote = entry.get("remote")
+        prefix = SOURCE_BASE + "/indicator-data/" + table + "/" + table + "-"
+        if (not isinstance(fingerprint, str)
+                or not SHA256.fullmatch(fingerprint)
+                or not isinstance(remote, str)
+                or not remote.startswith(prefix)
+                or not re.fullmatch(r"[0-9A-Za-z]{1,20}-" +
+                                    fingerprint[:16] + r"\.csv\.gz",
+                                    remote[len(prefix):])):
             continue
         # Prioritize original occupation/earnings/employment/labour indicators;
         # no inferred ILO labels or unit definitions are attached.
