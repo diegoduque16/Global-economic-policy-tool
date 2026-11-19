@@ -111,6 +111,22 @@ class NextILOSTATBatchTests(unittest.TestCase):
         self.state["downloaded"]["EMP_TEST_SEX_AGE_RT_M"] = dict(self.entry)
         self.assertEqual(select_verified_tables(self.state), [TABLE])
 
+    def test_selection_skips_sha_invalid_and_inconsistent_source_receipts(self):
+        original = dict(self.entry)
+        for bad in (
+            dict(original, sha256="0" * 64),
+            dict(original, remote="onedrive:unverified-source.csv.gz"),
+            dict(original, native_numeric_profile={
+                **original["native_numeric_profile"],
+                "numeric_obs_value_rows": 100,
+            }),
+        ):
+            self.state["downloaded"][TABLE] = bad
+            with self.assertRaisesRegex(ValueError, "No eligible"):
+                select_verified_tables(self.state)
+        self.state["downloaded"][TABLE] = original
+        self.assertEqual(select_verified_tables(self.state), [TABLE])
+
     def test_rejects_reusing_existing_three_sdg_tables(self):
         with self.assertRaisesRegex(ValueError, "already indexed"):
             verify_selection(self.state, ["SDG_0852_SEX_AGE_RT_A"], self.root)
