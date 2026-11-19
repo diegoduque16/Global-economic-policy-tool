@@ -229,8 +229,8 @@ jobs:
                   raise ValueError("ILOSTAT original structural dimensions do not match certified edition")
               if db.execute("SELECT COUNT(*) FROM native_records WHERE source_id GLOB 'ilostat_*'").fetchone()[0]!=153116:
                   raise ValueError("Original ILOSTAT source physical rows missing from private SQLite")
-          labels=store.geographies("wdi","source_native")
-          for item in labels:
+          wdi_geographies=store.geographies("wdi","source_native")
+          for item in wdi_geographies:
               if item["code"]=="AFE" and item["geography_type"]!="aggregate":
                   raise ValueError("WDI aggregate incorrectly displayed as country")
           with store.connect() as db:
