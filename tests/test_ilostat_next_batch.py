@@ -126,7 +126,7 @@ class NextILOSTATBatchTests(unittest.TestCase):
         with patch("warehouse.ilostat_next_batch.PARENT_ROWS", 1), patch(
             "warehouse.ilostat_next_batch.PARENT_SOURCES", 1
         ):
-            with self.assertRaisesRegex(ValueError, "numeric counts changed|record count|rows"):
+            with self.assertRaisesRegex(ValueError, "numeric counts changed|record count|row count|rows"):
                 append_next_batch(self.parent, sha256(self.parent), self.checkpoint,
                                   self.root, [TABLE], self.output)
         self.assertFalse(self.output.exists())
