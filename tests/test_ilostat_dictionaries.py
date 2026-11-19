@@ -117,6 +117,34 @@ class VerifiedILOCodeListTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"Ambiguous"):
             self.load()
 
+
+    def test_blank_original_status_codes_are_unmapped_but_count_toward_receipt(self):
+        # An original ILO status dictionary may describe the absence of a
+        # status using a blank source code. This is not a lookup key and must
+        # never be attached to an observation or treated as a missing row.
+        path = self.code_dir / "cl_obs_status.csv"
+        with path.open("w", encoding="utf-8", newline="") as target:
+            writer = csv.writer(target)
+            writer.writerow(["obs_status", "obs_status.label", "obs_status.sort"])
+            writer.writerows([
+                ("", "No status", "0"),
+                ("E", "Estimated", "1"),
+                (" ", "Unspecified status", "2"),
+            ])
+        sha = hashlib.sha256(path.read_bytes()).hexdigest()
+        proof = self.state["dictionaries"]["cl_obs_status"]
+        proof["sha256"] = sha
+        proof["remote"] = SOURCE_ROOT + "cl_obs_status-" + sha[:16] + ".csv"
+        proof["rows"] = 3
+        self.checkpoint.write_text(json.dumps(self.state), encoding="utf-8")
+
+        verified = self.load()
+        self.assertEqual(verified.lookup("obs_status", "E"), "Estimated")
+        self.assertIsNone(verified.lookup("obs_status", ""))
+        self.assertIsNone(verified.lookup("obs_status", " "))
+        self.assertEqual(verified.maps["cl_obs_status"], {"E": "Estimated"})
+        self.assertEqual(len(verified.public_safe_provenance()), 5)
+
     def test_modified_original_bytes_rejected(self):
         file=self.code_dir/"cl_sex.csv"
         file.write_bytes(file.read_bytes()+b"\n")
