@@ -39,7 +39,8 @@ MAX_NEW_ROWS = 250_000
 MAX_SOURCE_BYTES = 128 * 1024 * 1024
 
 
-def verify_selection(state: dict, table_ids: list[str], source_dir: Path,\n                     *, excluded_table_ids: frozenset[str] = ALREADY_INTEGRATED) -> tuple[dict, dict]:
+def verify_selection(state: dict, table_ids: list[str], source_dir: Path,
+                     *, excluded_table_ids: frozenset[str] = ALREADY_INTEGRATED) -> tuple[dict, dict]:
     """Select real archived annual sources, with no guessed IDs or row totals."""
     downloaded = state.get("downloaded")
     if state.get("schema_version") != 1 or not isinstance(downloaded, dict):
@@ -81,7 +82,8 @@ def verify_selection(state: dict, table_ids: list[str], source_dir: Path,\n     
 
 
 
-def select_verified_tables(state: dict,\n                           *, excluded_table_ids: frozenset[str] = ALREADY_INTEGRATED) -> list[str]:
+def select_verified_tables(state: dict,
+                           *, excluded_table_ids: frozenset[str] = ALREADY_INTEGRATED) -> list[str]:
     """Choose bounded, actually archived annual labour tables by original IDs.
 
     Uses the private checkpoint as the sole authority for IDs, row counts,
