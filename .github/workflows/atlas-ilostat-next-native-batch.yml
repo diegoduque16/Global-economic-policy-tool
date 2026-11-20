@@ -76,8 +76,9 @@ jobs:
           set -euo pipefail
           root="$RUNNER_TEMP/atlas-next-ilostat"
           pointer_remote="$ONEDRIVE_TARGET/snapshots/atlas-ilostat-latest-v1.json"
-          if rclone lsf "$ONEDRIVE_TARGET/snapshots" --files-only --format p |
-             grep -Fxq 'atlas-ilostat-latest-v1.json'; then
+          # Fail closed on listing/storage errors; never silently rewind to bootstrap.
+          rclone lsf "$ONEDRIVE_TARGET/snapshots" --files-only --format p > "$root/snapshots-list.txt"
+          if grep -Fx 'atlas-ilostat-latest-v1.json' "$root/snapshots-list.txt" > /dev/null; then
             rclone copyto "$pointer_remote" "$root/parent-pointer.json" --retries 3
           else
             python - <<'PY_BOOTSTRAP'
