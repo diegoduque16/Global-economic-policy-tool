@@ -12,7 +12,8 @@ from scripts.ilostat_native_profile import profile_native_file
 from warehouse.native_materialize import sha256
 from warehouse.ilostat_native_extension import SOURCE_BASE
 from warehouse.ilostat_next_batch import (
-    append_next_batch, verify_selection, select_verified_tables,
+    append_next_batch, verify_selection, select_verified_tables, ALREADY_INTEGRATED,
+    PARENT_ROWS, PARENT_SOURCES,
 )
 
 TABLE = "EMP_TEST_SEX_AGE_RT_A"
@@ -125,6 +126,23 @@ class NextILOSTATBatchTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "No eligible"):
                 select_verified_tables(self.state)
         self.state["downloaded"][TABLE] = original
+        self.assertEqual(select_verified_tables(self.state), [TABLE])
+
+    def test_sequential_parent_is_certified_successor(self):
+        self.assertEqual(PARENT_ROWS, 1_075_484)
+        self.assertEqual(PARENT_SOURCES, 982)
+        self.assertEqual(len(ALREADY_INTEGRATED), 6)
+        self.assertTrue({
+            "EMP_STEM_SEX_OCU_NB_A",
+            "HOW_TEMP_SEX_OCU_DSB_NB_A",
+            "HOW_XEES_SEX_OCU_DSB_NB_A",
+        }.issubset(ALREADY_INTEGRATED))
+
+    def test_all_six_integrated_originals_are_never_selected_again(self):
+        for table in ALREADY_INTEGRATED:
+            with self.assertRaisesRegex(ValueError, "already indexed"):
+                verify_selection(self.state, [table], self.root)
+            self.state["downloaded"][table] = dict(self.entry)
         self.assertEqual(select_verified_tables(self.state), [TABLE])
 
     def test_rejects_reusing_existing_three_sdg_tables(self):
