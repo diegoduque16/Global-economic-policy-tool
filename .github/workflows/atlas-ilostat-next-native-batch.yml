@@ -187,10 +187,12 @@ jobs:
               "table_ids","original_source_rows_added","finite_numeric_values_added",
               "missing_source_values_retained","other_nonnumeric_values_retained",
               "new_attachment_source_native_rows","new_attachment_source_ids",
-              "new_database_sha256","parent_sha256","public_release","not_harmonized")}
+              "new_database_sha256","parent_sha256","public_release","not_harmonized",
+              "queryable_new_original_tables")}
           (root/"edition"/"integration_report.json").write_text(json.dumps(safe,indent=2))
           print("ATLAS_NEW_ILOSTAT_PRIVATE_NUMERIC_ROWS_VERIFIED",
                 safe["original_source_rows_added"],safe["finite_numeric_values_added"])
+          print("ATLAS_NEW_ILOSTAT_TABLES_QUERYABLE",len(safe["queryable_new_original_tables"]))
           PY_APPEND
       - name: Save immutable existing Atlas attachment to private OneDrive and verify restored SHA
         shell: bash
