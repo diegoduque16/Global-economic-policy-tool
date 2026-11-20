@@ -129,16 +129,19 @@ class NextILOSTATBatchTests(unittest.TestCase):
         self.assertEqual(select_verified_tables(self.state), [TABLE])
 
     def test_sequential_parent_is_certified_successor(self):
-        self.assertEqual(PARENT_ROWS, 1_075_484)
-        self.assertEqual(PARENT_SOURCES, 982)
-        self.assertEqual(len(ALREADY_INTEGRATED), 6)
+        self.assertEqual(PARENT_ROWS, 1_134_051)
+        self.assertEqual(PARENT_SOURCES, 985)
+        self.assertEqual(len(ALREADY_INTEGRATED), 9)
         self.assertTrue({
             "EMP_STEM_SEX_OCU_NB_A",
             "HOW_TEMP_SEX_OCU_DSB_NB_A",
             "HOW_XEES_SEX_OCU_DSB_NB_A",
+            "EAR_GGAP_OCU_RT_A",
+            "EMP_5EMP_SEX_OCU_NB_A",
+            "EMP_TOUR_SEX_OCU_NB_A",
         }.issubset(ALREADY_INTEGRATED))
 
-    def test_all_six_integrated_originals_are_never_selected_again(self):
+    def test_all_nine_integrated_originals_are_never_selected_again(self):
         for table in ALREADY_INTEGRATED:
             with self.assertRaisesRegex(ValueError, "already indexed"):
                 verify_selection(self.state, [table], self.root)
