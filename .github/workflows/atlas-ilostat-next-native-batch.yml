@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - 'warehouse/ilostat_next_batch.py'
+      - 'warehouse/ilostat_private_chain.py'
       - 'tests/test_ilostat_next_batch.py'
+      - 'tests/test_ilostat_private_chain.py'
       - '.github/workflows/atlas-ilostat-next-native-batch.yml'
   push:
     branches: [main]
@@ -35,7 +37,8 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_ilostat_next_batch.py' -v
           python -m unittest discover -s tests -p 'test_ilostat_native_extension.py' -v
-          python -m py_compile warehouse/ilostat_next_batch.py
+          python -m unittest discover -s tests -p 'test_ilostat_private_chain.py' -v
+          python -m py_compile warehouse/ilostat_next_batch.py warehouse/ilostat_private_chain.py
 
   private-original-source-append:
     if: github.event_name != 'pull_request'
@@ -48,8 +51,6 @@ jobs:
     env:
       RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
       ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
-      PARENT_ID: 'atlas-native-ilostat-next-20261120-44652338434'
-      PARENT_ARCHIVE_SHA256: '52c66cbbc00e012e1ea3c083342e829285ebcdae0060850b595db518dbc873a6'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,6 +70,34 @@ jobs:
           printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/atlas-next-ilostat/rclone.conf"
           chmod 600 "$RUNNER_TEMP/atlas-next-ilostat/rclone.conf"
           echo "RCLONE_CONFIG=$RUNNER_TEMP/atlas-next-ilostat/rclone.conf" >> "$GITHUB_ENV"
+      - name: Resolve latest certified private Atlas edition (bootstrap once)
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/atlas-next-ilostat"
+          pointer_remote="$ONEDRIVE_TARGET/snapshots/atlas-ilostat-latest-v1.json"
+          if rclone lsf "$ONEDRIVE_TARGET/snapshots" --files-only --format p |
+             grep -Fxq 'atlas-ilostat-latest-v1.json'; then
+            rclone copyto "$pointer_remote" "$root/parent-pointer.json" --retries 3
+          else
+            python - <<'PY_BOOTSTRAP'
+          import json,os
+          from pathlib import Path
+          from warehouse.ilostat_private_chain import BOOTSTRAP
+          root=Path(os.environ["RUNNER_TEMP"])/"atlas-next-ilostat"
+          (root/"parent-pointer.json").write_text(json.dumps(BOOTSTRAP))
+          PY_BOOTSTRAP
+          fi
+          python - <<'PY_PARENT_POINTER'
+          import os
+          from pathlib import Path
+          from warehouse.ilostat_private_chain import load_pointer
+          p=load_pointer(Path(os.environ["RUNNER_TEMP"])/"atlas-next-ilostat"/"parent-pointer.json")
+          with open(os.environ["GITHUB_ENV"],"a",encoding="utf-8") as out:
+              out.write("PARENT_ID="+p["edition_id"]+"\n")
+              out.write("PARENT_ARCHIVE_SHA256="+p["archive_sha256"]+"\n")
+          print("ATLAS_CERTIFIED_PARENT_POINTER",p["edition_id"],p["native_records"])
+          PY_PARENT_POINTER
       - name: Restore SHA-verified parent and original private source checkpoint
         shell: bash
         run: |
@@ -101,7 +130,10 @@ jobs:
               raise ValueError("Missing or duplicate original source-native SQLite")
           parent_sha=sha256(root/"parent.sqlite")
           (root/"parent-sha.txt").write_text(parent_sha)
-          print("ATLAS_VERIFIED_1134051_SOURCE_NATIVE_PARENT")
+          from warehouse.ilostat_private_chain import load_pointer,verify_parent_db
+          pointer=load_pointer(root/"parent-pointer.json")
+          verified=verify_parent_db(root/"parent.sqlite",pointer)
+          print("ATLAS_VERIFIED_PRIVATE_PARENT",pointer["native_records"],len(verified))
           PY_PARENT
       - name: Select actual archived official ILOSTAT annual tables and restore originals
         shell: bash
@@ -111,10 +143,13 @@ jobs:
           import json,os,re,subprocess
           from pathlib import Path
           from warehouse.ilostat_next_batch import select_verified_tables
+          from warehouse.ilostat_private_chain import load_pointer,verify_parent_db
           from warehouse.ilostat_native_extension import SOURCE_BASE,SHA256
           root=Path(os.environ["RUNNER_TEMP"])/"atlas-next-ilostat"
           state=json.loads((root/"state.json").read_text())
-          selected=select_verified_tables(state)
+          pointer=load_pointer(root/"parent-pointer.json")
+          excluded=verify_parent_db(root/"parent.sqlite",pointer)
+          selected=select_verified_tables(state,excluded_table_ids=excluded)
           for table in selected:
               entry=state["downloaded"][table]
               sha=entry.get("sha256")
@@ -136,12 +171,16 @@ jobs:
           import json,os
           from pathlib import Path
           from warehouse.ilostat_next_batch import append_next_batch
+          from warehouse.ilostat_private_chain import load_pointer
           root=Path(os.environ["RUNNER_TEMP"])/"atlas-next-ilostat"
           tables=json.loads((root/"selection.json").read_text())
+          pointer=load_pointer(root/"parent-pointer.json")
           report=append_next_batch(root/"parent.sqlite",
                                    (root/"parent-sha.txt").read_text().strip(),
                                    root/"state.json",root/"sources",tables,
-                                   root/"edition"/"native_source_extension.sqlite")
+                                   root/"edition"/"native_source_extension.sqlite",
+                                   expected_parent_rows=pointer["native_records"],
+                                   expected_parent_sources=pointer["native_sources"])
           # Keep only counts, original table IDs and new database digest in public artifacts.
           safe={k:report[k] for k in (
               "table_ids","original_source_rows_added","finite_numeric_values_added",
@@ -180,7 +219,9 @@ jobs:
           root=Path(os.environ["RUNNER_TEMP"])/"atlas-next-ilostat"
           edition=os.environ["ATLAS_EDITION"]
           receipt=json.loads((root/"edition"/"integration_report.json").read_text())
-          if receipt["new_attachment_source_native_rows"]<=1_134_051:
+          from warehouse.ilostat_private_chain import load_pointer
+          parent=load_pointer(root/"parent-pointer.json")
+          if receipt["new_attachment_source_native_rows"]<=parent["native_records"]:
               raise ValueError("No verified increase in Atlas original source-native records")
           name=edition+"/native_source_extension.sqlite"
           seen=0
@@ -204,8 +245,34 @@ jobs:
               raise ValueError("Missing or duplicated exact restored Atlas SQLite")
           print("ATLAS_PRIVATE_SQLITE_RESTORED_SHA256_VERIFIED")
           PY_VERIFY_SNAPSHOT
+          printf "%s" "$edition" > "$root/new-edition-id.txt"
+          printf "%s" "$expected" > "$root/new-archive-sha.txt"
           echo "ATLAS_NEXT_ILOSTAT_PRIVATE_ARCHIVE_RESTORED_SHA256 $expected"
           echo "ATLAS_NEXT_ILOSTAT_PRIVATE_ARCHIVE_ID $edition"
+      - name: Commit verified private latest-edition pointer (after backup restore)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_UPDATE_POINTER'
+          import json,os
+          from pathlib import Path
+          from warehouse.ilostat_private_chain import load_pointer,successor_pointer
+          root=Path(os.environ["RUNNER_TEMP"])/"atlas-next-ilostat"
+          parent=load_pointer(root/"parent-pointer.json")
+          report=json.loads((root/"edition"/"integration_report.json").read_text())
+          # The archive id is written by the prior step to this exact file.
+          edition=(root/"new-edition-id.txt").read_text().strip()
+          sha=(root/"new-archive-sha.txt").read_text().strip()
+          pointer=successor_pointer(
+              parent,edition_id=edition,archive_sha256=sha,
+              native_records=report["new_attachment_source_native_rows"],
+              native_sources=report["new_attachment_source_ids"])
+          (root/"next-pointer.json").write_text(json.dumps(pointer,sort_keys=True,indent=2)+"\n")
+          PY_UPDATE_POINTER
+          rclone copyto "$RUNNER_TEMP/atlas-next-ilostat/next-pointer.json"             "$ONEDRIVE_TARGET/snapshots/atlas-ilostat-latest-v1.json" --retries 3
+          rclone copyto "$ONEDRIVE_TARGET/snapshots/atlas-ilostat-latest-v1.json"             "$RUNNER_TEMP/atlas-next-ilostat/confirmed-pointer.json" --retries 3
+          cmp "$RUNNER_TEMP/atlas-next-ilostat/next-pointer.json"             "$RUNNER_TEMP/atlas-next-ilostat/confirmed-pointer.json"
+          echo ATLAS_LATEST_PRIVATE_EDITION_POINTER_COMMITTED
       - name: Publish only metadata-only private integration receipt
         uses: actions/upload-artifact@v4
         with:
@@ -226,10 +293,12 @@ jobs:
           report=json.loads((root/"edition"/"integration_report.json").read_text())
           gained=report["original_source_rows_added"]
           numeric=report["finite_numeric_values_added"]
+          from warehouse.ilostat_private_chain import load_pointer
+          parent=load_pointer(root/"parent-pointer.json")
           current=report["new_attachment_source_native_rows"]
           if (type(gained) is not int or gained < 1 or
               type(numeric) is not int or numeric < 1 or
-              type(current) is not int or current != 1_134_051+gained or
+              type(current) is not int or current != parent["native_records"]+gained or
               report["public_release"] is not False):
               raise ValueError("Refusing to report unverified Atlas integration")
           run=os.environ["GITHUB_RUN_ID"]
