@@ -39,7 +39,7 @@ MAX_NEW_ROWS = 250_000
 MAX_SOURCE_BYTES = 128 * 1024 * 1024
 
 
-def verify_selection(state: dict, table_ids: list[str], source_dir: Path) -> tuple[dict, dict]:
+def verify_selection(state: dict, table_ids: list[str], source_dir: Path,\n                     *, excluded_table_ids: frozenset[str] = ALREADY_INTEGRATED) -> tuple[dict, dict]:
     """Select real archived annual sources, with no guessed IDs or row totals."""
     downloaded = state.get("downloaded")
     if state.get("schema_version") != 1 or not isinstance(downloaded, dict):
@@ -49,7 +49,7 @@ def verify_selection(state: dict, table_ids: list[str], source_dir: Path) -> tup
     checked, counts = {}, {}
     for table in table_ids:
         if (not isinstance(table, str) or not VALID_ID.fullmatch(table)
-                or not table.endswith("_A") or table in ALREADY_INTEGRATED):
+                or not table.endswith("_A") or table in excluded_table_ids):
             raise ValueError("Unapproved, nonannual or already indexed ILOSTAT table")
         entry = downloaded.get(table)
         if not isinstance(entry, dict) or entry.get("state") != "NATIVE_NOT_HARMONIZED":
@@ -81,7 +81,7 @@ def verify_selection(state: dict, table_ids: list[str], source_dir: Path) -> tup
 
 
 
-def select_verified_tables(state: dict) -> list[str]:
+def select_verified_tables(state: dict,\n                           *, excluded_table_ids: frozenset[str] = ALREADY_INTEGRATED) -> list[str]:
     """Choose bounded, actually archived annual labour tables by original IDs.
 
     Uses the private checkpoint as the sole authority for IDs, row counts,
@@ -94,7 +94,7 @@ def select_verified_tables(state: dict) -> list[str]:
     options = []
     for table, entry in originals.items():
         if (not isinstance(table, str) or not VALID_ID.fullmatch(table)
-                or not table.endswith("_A") or table in ALREADY_INTEGRATED
+                or not table.endswith("_A") or table in excluded_table_ids
                 or not isinstance(entry, dict)
                 or entry.get("state") != "NATIVE_NOT_HARMONIZED"):
             continue
@@ -149,7 +149,9 @@ def select_verified_tables(state: dict) -> list[str]:
 
 
 def append_next_batch(parent: Path, parent_sha: str, checkpoint: Path,
-                      sources: Path, tables: list[str], destination: Path) -> dict:
+                      sources: Path, tables: list[str], destination: Path,
+                      *, expected_parent_rows: int | None = None,
+                      expected_parent_sources: int | None = None) -> dict:
     """Produce an exclusive new SQLite edition and public-safe count report."""
     parent = Path(parent)
     destination = Path(destination)
@@ -160,12 +162,24 @@ def append_next_batch(parent: Path, parent_sha: str, checkpoint: Path,
     if destination.exists() or destination.resolve() == parent.resolve():
         raise FileExistsError("Never overwrite parent or existing private Atlas edition")
     state = json.loads(Path(checkpoint).read_text(encoding="utf-8"))
-    checked, counts = verify_selection(state, tables, Path(sources))
+    expected_parent_rows = PARENT_ROWS if expected_parent_rows is None else expected_parent_rows
+    expected_parent_sources = PARENT_SOURCES if expected_parent_sources is None else expected_parent_sources
+    if (type(expected_parent_rows) is not int or expected_parent_rows < 1 or
+        type(expected_parent_sources) is not int or expected_parent_sources < 1):
+        raise ValueError("Invalid certified parent source counts")
+    with sqlite3.connect(f"file:{parent.resolve()}?mode=ro", uri=True) as db:
+        indexed = db.execute("SELECT source_id FROM native_sources").fetchall()
+    previous = frozenset(
+        match.group(1) for (source_id,) in indexed
+        if (match := re.fullmatch(r"ilostat_(.+)_([a-f0-9]{12})", source_id))
+    )
+    checked, counts = verify_selection(
+        state, tables, Path(sources), excluded_table_ids=previous | ALREADY_INTEGRATED)
     with sqlite3.connect(f"file:{parent.resolve()}?mode=ro", uri=True) as db:
         rows = db.execute("SELECT COUNT(*) FROM native_records").fetchone()[0]
         identities = db.execute("SELECT COUNT(*) FROM native_sources").fetchone()[0]
         existing = {row[0] for row in db.execute("SELECT source_id FROM native_sources")}
-        if rows != PARENT_ROWS or identities != PARENT_SOURCES:
+        if rows != expected_parent_rows or identities != expected_parent_sources:
             raise ValueError("Parent is not the certified six-provider Atlas edition")
         for table, entry in checked.items():
             new_source_id = "ilostat_" + table + "_" + entry["sha256"][:12]
@@ -177,18 +191,20 @@ def append_next_batch(parent: Path, parent_sha: str, checkpoint: Path,
         staged = Path(temp) / "native_source_extension.sqlite"
         shutil.copy2(parent, staged)
         report = append_originals(
-            staged, checked, sources, parent_rows=PARENT_ROWS,
-            parent_sources=PARENT_SOURCES, expected=counts,
+            staged, checked, sources, parent_rows=expected_parent_rows,
+            parent_sources=expected_parent_sources, expected=counts,
         )
         if (report["original_source_rows_added"] != sum(counts.values())
-                or report["new_attachment_source_native_rows"] != PARENT_ROWS + sum(counts.values())
-                or report["new_attachment_source_ids"] != PARENT_SOURCES + len(counts)):
+                or report["new_attachment_source_native_rows"] != expected_parent_rows + sum(counts.values())
+                or report["new_attachment_source_ids"] != expected_parent_sources + len(counts)):
             raise ValueError("Private Atlas appended row totals did not reconcile")
         with sqlite3.connect(staged) as db:
             if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise ValueError("New Atlas SQLite integrity failed")
         report.update({
             "parent_sha256": parent_sha,
+            "parent_original_rows": expected_parent_rows,
+            "parent_original_sources": expected_parent_sources,
             "new_database_sha256": sha256(staged),
             "table_ids": sorted(tables),
             "not_harmonized": True,
