@@ -22,8 +22,15 @@ from warehouse.ilostat_native_extension import (
 )
 from warehouse.native_materialize import sha256
 
-PARENT_ROWS = 1_036_234
-PARENT_SOURCES = 979
+PARENT_ROWS = 1_075_484
+PARENT_SOURCES = 982
+# Original source table IDs included in the exact SHA-pinned 1,075,484-row
+# private parent. These must never be selected for ingestion a second time.
+ALREADY_INTEGRATED = frozenset(EXPECTED) | frozenset({
+    "EMP_STEM_SEX_OCU_NB_A",
+    "HOW_TEMP_SEX_OCU_DSB_NB_A",
+    "HOW_XEES_SEX_OCU_DSB_NB_A",
+})
 MAX_TABLES = 3
 MAX_NEW_ROWS = 250_000
 MAX_SOURCE_BYTES = 128 * 1024 * 1024
@@ -39,7 +46,7 @@ def verify_selection(state: dict, table_ids: list[str], source_dir: Path) -> tup
     checked, counts = {}, {}
     for table in table_ids:
         if (not isinstance(table, str) or not VALID_ID.fullmatch(table)
-                or not table.endswith("_A") or table in EXPECTED):
+                or not table.endswith("_A") or table in ALREADY_INTEGRATED):
             raise ValueError("Unapproved, nonannual or already indexed ILOSTAT table")
         entry = downloaded.get(table)
         if not isinstance(entry, dict) or entry.get("state") != "NATIVE_NOT_HARMONIZED":
@@ -84,7 +91,7 @@ def select_verified_tables(state: dict) -> list[str]:
     options = []
     for table, entry in originals.items():
         if (not isinstance(table, str) or not VALID_ID.fullmatch(table)
-                or not table.endswith("_A") or table in EXPECTED
+                or not table.endswith("_A") or table in ALREADY_INTEGRATED
                 or not isinstance(entry, dict)
                 or entry.get("state") != "NATIVE_NOT_HARMONIZED"):
             continue
