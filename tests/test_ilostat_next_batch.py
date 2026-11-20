@@ -87,6 +87,14 @@ class NextILOSTATBatchTests(unittest.TestCase):
         self.assertEqual(report["finite_numeric_values_added"], 1)
         self.assertEqual(report["missing_source_values_retained"], 1)
         self.assertEqual(report["new_attachment_source_native_rows"], 3)
+        self.assertEqual(
+            report["queryable_new_original_tables"][TABLE]["original_source_rows"], 2)
+        self.assertEqual(
+            report["queryable_new_original_tables"][TABLE]["observed_source_geo_codes"], 1)
+        self.assertEqual(
+            report["queryable_new_original_tables"][TABLE]["observed_years"], 2)
+        self.assertEqual(
+            report["queryable_new_original_tables"][TABLE]["original_dimension_keys_not_harmonized_series"], 2)
         self.assertFalse(report["public_release"])
         self.assertEqual(sha256(self.parent), before)
         with sqlite3.connect(self.output) as db:
