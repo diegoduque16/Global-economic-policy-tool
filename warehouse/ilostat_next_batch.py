@@ -200,10 +200,42 @@ def append_next_batch(parent: Path, parent_sha: str, checkpoint: Path,
                 or report["new_attachment_source_native_rows"] != expected_parent_rows + sum(counts.values())
                 or report["new_attachment_source_ids"] != expected_parent_sources + len(counts)):
             raise ValueError("Private Atlas appended row totals did not reconcile")
+        # Verify each NEW original table is genuinely queryable by the existing
+        # research explorer, not merely present in a manifest or source catalog.
+        # Exact original source codes / SHA and raw dimension JSON are retained.
+        searchable = {}
         with sqlite3.connect(staged) as db:
             if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise ValueError("New Atlas SQLite integrity failed")
+            for table, entry in checked.items():
+                source_id = "ilostat_" + table + "_" + entry["sha256"][:12]
+                original = db.execute(
+                    "SELECT raw_sha256, original_records, indexed_records "
+                    "FROM native_sources WHERE source_id = ?", (source_id,)
+                ).fetchone()
+                if original != (entry["sha256"], counts[table], counts[table]):
+                    raise ValueError("New ILOSTAT source receipt not discoverable: " + table)
+                physical, geos, years, populated = db.execute(
+                    "SELECT COUNT(*), COUNT(DISTINCT geo_code), "
+                    "COUNT(DISTINCT year_text), "
+                    "SUM(CASE WHEN json_valid(raw_row_json) THEN 1 ELSE 0 END) "
+                    "FROM native_records WHERE source_id = ?", (source_id,)
+                ).fetchone()
+                series, series_rows = db.execute(
+                    "SELECT COUNT(*), COALESCE(SUM(original_rows), 0) "
+                    "FROM native_ilostat_series WHERE source_id = ?", (source_id,)
+                ).fetchone()
+                if (physical != counts[table] or populated != physical
+                    or not geos or not years or not series or series_rows != physical):
+                    raise ValueError("New ILOSTAT original source cannot be queried: " + table)
+                searchable[table] = {
+                    "original_source_rows": physical,
+                    "observed_source_geo_codes": geos,
+                    "observed_years": years,
+                    "original_dimension_keys_not_harmonized_series": series,
+                }
         report.update({
+            "queryable_new_original_tables": searchable,
             "parent_sha256": parent_sha,
             "parent_original_rows": expected_parent_rows,
             "parent_original_sources": expected_parent_sources,
