@@ -3,7 +3,7 @@
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
   "updated_date": "2026-11-19",
-  "status_basis": "November 19 real production ILOSTAT next-batch run 44640329974 succeeded: 39,250 actual source-native rows (36,800 finite numeric), exactly three new original table IDs EMP_STEM_SEX_OCU_NB_A, HOW_TEMP_SEX_OCU_DSB_NB_A, HOW_XEES_SEX_OCU_DSB_NB_A, appended to the verified six-provider parent. The NEW private source-native SQLite has 1,075,484 original physical rows, 982 original source IDs, 192,366 ILOSTAT source rows (185,948 finite numeric across the original three SDGs plus this batch). SHA256 of new SQLite b5c944234b1d2abcf64cac636a1de85e2b1a771c74ef5d582e72569fef377660; private uploaded archive atlas-native-ilostat-next-20261119-44640329974 SHA256 3317e15de963c094233c53eda48651089685bb5b3ea5f9caa1e86ed7449a4b78, verified by remote SHA round-trip. Original ILOSTAT full archival table collection remains 1964/1964 at November 19 vintage in run 44512236382. These are NOT harmonized, deduplicated statistical observations, not a published website edition, and not a claim that all 1964 files are queryable.",
+  "status_basis": "November 20 production ILOSTAT sequential batch run 44652338434 successfully appended 58,567 verified original source-native rows (55,830 finite numeric) from EAR_GGAP_OCU_RT_A, EMP_5EMP_SEX_OCU_NB_A, EMP_TOUR_SEX_OCU_NB_A to the existing 1,075,484-row certified private attachment. Latest private version now contains 1,134,051 source-native physical rows and 985 original source IDs, including 250,933 ILOSTAT original rows and 241,778 finite numeric ILOSTAT values across nine original tables. Private archive atlas-native-ilostat-next-20261120-44652338434, SHA256 52c66cbbc00e012e1ea3c083342e829285ebcdae0060850b595db518dbc873a6, restored from OneDrive with exact archive SHA and new SQLite SHA b5c944234b1d2abcf64cac636a1de85e2b1a771c74ef5d582e72569fef377660 previously PLUS new SQLite SHA 977a74421c107f8099d3e827575b5021ef87748c422bb5d59c53cc7e1322c64a. This is source-native physical row integration, not harmonization, unique research series, or public publication. Original 1,964/1,964 ILOSTAT table files are separately archived at Nov 19 vintage.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -42,8 +42,8 @@
     },
     {
       "label": "Verified queryable private economic attachment",
-      "value": "1,075,484",
-      "detail": "883,118 retained WDI/WID/FRED/Eurostat/BLS source-native rows + 192,366 ILOSTAT source-native rows from 6 original ILOSTAT tables, including 185,948 finite numeric ILOSTAT values; 982 original source IDs. Latest immutable private SQLite SHA256 b5c944234b1d2abcf64cac636a1de85e2b1a771c74ef5d582e72569fef377660 from production run 44640329974. Not harmonized or public."
+      "value": "1,134,051",
+      "detail": "883,118 retained other-provider rows + 250,933 ILOSTAT original source-native rows from nine tables (241,778 finite numeric ILOSTAT values), total 985 source IDs. Exact private SQLite SHA256 977a74421c107f8099d3e827575b5021ef87748c422bb5d59c53cc7e1322c64a, privately backed with archive SHA256 52c66cbbc00e012e1ea3c083342e829285ebcdae0060850b595db518dbc873a6 from successful run 44652338434. Not a public, deduplicated, or harmonized dataset."
     },
     {
       "label": "Official ILOSTAT original source tables current-vintage",
@@ -54,9 +54,9 @@
   "workstreams": [
     {
       "name": "ILOSTAT official bulk",
-      "stage": "1964/1964 original official table files archived at Nov 19 current source TOC vintage; separately, first additional employment/occupation-hours numerical batch successfully integrated to existing private six-provider SQLite, +39,250 original rows (+36,800 finite values) across three exact tables, for new private 1,075,484 original rows / 982 source IDs.",
-      "evidence": "Private safeguarded collector run 44512236382: ILOSTAT_SUMMARY 1964 saved, 0 missing, 0 outdated; ILOSTAT_CHECKPOINT_POST SHA256 9f3b1d59e44d01f633d43268ed753108b1766f94c3c12fd4d757ab0a381e877a, backed up privately true; zero lost files. https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44512236382. Previously 511 stale files in run 44207334375 are now resolved for this Nov 19 official TOC snapshot. New production run 44640329974: source-native original table IDs EMP_STEM_SEX_OCU_NB_A, HOW_TEMP_SEX_OCU_DSB_NB_A and HOW_XEES_SEX_OCU_DSB_NB_A; +39,250 original rows, +36,800 numeric; immutable private uploaded archive atlas-native-ilostat-next-20261119-44640329974 SHA256 3317e15de963c094233c53eda48651089685bb5b3ea5f9caa1e86ed7449a4b78, new SQLite SHA256 b5c944234b1d2abcf64cac636a1de85e2b1a771c74ef5d582e72569fef377660, upload backed and SHA reverified. https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44640329974",
-      "next": "Use the latest immutable 1,075,484-row private edition as parent for next bounded source-native ILOSTAT numeric batch; never fall back to the old 1,036,234-row parent or double-count the three newly indexed table IDs. Continue original unit and dimension/occupation validation, then expand only concrete remaining missing data. Existing website release remains separately gated.",
+      "stage": "1964/1964 original ILOSTAT source table files current as of Nov 19. Nine tables now integrated to private source-native Atlas SQLite, including successful Nov 20 sequential +58,567 physical rows (+55,830 finite numeric) from three gender pay gap/employment original ILOSTAT tables; latest database 1,134,051 original source-native rows / 985 source IDs.",
+      "evidence": "Private safeguarded collector run 44512236382: ILOSTAT_SUMMARY 1964 saved, 0 missing, 0 outdated; ILOSTAT_CHECKPOINT_POST SHA256 9f3b1d59e44d01f633d43268ed753108b1766f94c3c12fd4d757ab0a381e877a, backed up privately true; zero lost files. https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44512236382. Previously 511 stale files in run 44207334375 are now resolved for this Nov 19 official TOC snapshot. New production run 44640329974: source-native original table IDs EMP_STEM_SEX_OCU_NB_A, HOW_TEMP_SEX_OCU_DSB_NB_A and HOW_XEES_SEX_OCU_DSB_NB_A; +39,250 original rows, +36,800 numeric; immutable private uploaded archive atlas-native-ilostat-next-20261119-44640329974 SHA256 3317e15de963c094233c53eda48651089685bb5b3ea5f9caa1e86ed7449a4b78, new SQLite SHA256 b5c944234b1d2abcf64cac636a1de85e2b1a771c74ef5d582e72569fef377660, upload backed and SHA reverified. https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44640329974 Next successful private production sequential integration run 44652338434 restored original 1,075,484-row edition, added original EAR_GGAP_OCU_RT_A, EMP_5EMP_SEX_OCU_NB_A, EMP_TOUR_SEX_OCU_NB_A table IDs, 58,567 physical rows/55,830 finite numeric, and verified private original backup atlas-native-ilostat-next-20261120-44652338434 SHA256 52c66cbbc00e012e1ea3c083342e829285ebcdae0060850b595db518dbc873a6 plus integrated SQLite SHA256 977a74421c107f8099d3e827575b5021ef87748c422bb5d59c53cc7e1322c64a. https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44652338434",
+      "next": "Continue bounded actual ILOSTAT numeric integration only from immutable 1,134,051-record / 985-source-ID parent, excluding all nine already-indexed original ILOSTAT table IDs. Maintain exact original table SHA and source units; only count successful new SHA-restored private integrations. Do not copy private data into GitHub or website.",
       "links": [
         {
           "label": "Last completed 920-file checkpoint",
@@ -109,6 +109,10 @@
         {
           "label": "Nov 19 certified additional source-native ILOSTAT numerical integration (+39,250 original rows)",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44640329974"
+        },
+        {
+          "label": "Verified sequential second ILOSTAT numeric batch (+58,567 source-native rows)",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44652338434"
         }
       ]
     },
@@ -788,7 +792,7 @@
     }
   ],
   "next_actions": [
-    "Next ILOSTAT numeric integration: production run 44640329974 is now complete (+39,250 physical original rows, 36,800 finite numeric) and SHA-backed privately; update the next-batch importer to use the NEW 1,075,484-row / 982-identity parent, exclude all six integrated table IDs and verify the next restored snapshot before claiming additional data.",
+    "Next ILOSTAT numeric integration: the second verified sequential private run 44652338434 added 58,567 original source-native rows (55,830 finite numeric) to produce a 1,134,051-row / 985-source-ID immutable database. Use this new exact private parent and exclude all nine integrated ILOSTAT IDs; do not mistakenly add repeated snapshot counts.",
     "BLS JOLTS completion: 252,710 original source-verified monthly numeric observations and 830 official BLS series added to same private SQLite attachment, production run 44171117929; new 883,118-record immutable archive restored with SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. No re-collection needed absent revised source vintage.",
     "COMPLETED original-label private explorer verification: main production run 44577495812 restored immutable SHA-backed 1,036,234-row, 979-original-source, six-provider SQLite plus six verified original ILOSTAT code dictionaries; confirmed original sex label lookup, BLS monthly plotting and read-only/private-source safety. Only cl_classif1/cl_classif2 are absent from archived source dictionaries and remain unresolved. NEXT is new SHA-backed NUMERIC original table integration (particularly employment and GenAI exposure), not revisiting the now-passing label restoration.",
     "Complete specific missing U.S. BLS, Census and fiscal source datasets rather than only expanding catalog metadata, reusing existing collectors. Identify unique source IDs, archive original numeric responses privately and integrate only verified additions.",
