@@ -22,14 +22,17 @@ from warehouse.ilostat_native_extension import (
 )
 from warehouse.native_materialize import sha256
 
-PARENT_ROWS = 1_075_484
-PARENT_SOURCES = 982
-# Original source table IDs included in the exact SHA-pinned 1,075,484-row
+PARENT_ROWS = 1_134_051
+PARENT_SOURCES = 985
+# Original source table IDs included in the exact SHA-pinned 1,134,051-row
 # private parent. These must never be selected for ingestion a second time.
 ALREADY_INTEGRATED = frozenset(EXPECTED) | frozenset({
     "EMP_STEM_SEX_OCU_NB_A",
     "HOW_TEMP_SEX_OCU_DSB_NB_A",
     "HOW_XEES_SEX_OCU_DSB_NB_A",
+    "EAR_GGAP_OCU_RT_A",
+    "EMP_5EMP_SEX_OCU_NB_A",
+    "EMP_TOUR_SEX_OCU_NB_A",
 })
 MAX_TABLES = 3
 MAX_NEW_ROWS = 250_000
