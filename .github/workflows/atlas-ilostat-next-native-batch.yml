@@ -48,8 +48,8 @@ jobs:
     env:
       RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
       ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
-      PARENT_ID: 'atlas-native-wdi-wid-fred-eurostat-bls-ilostat-20261118-44209878280'
-      PARENT_ARCHIVE_SHA256: '0f4124954303f07478b1e4c7dd23af4f4e21146cd7139b9b9fde783d65934538'
+      PARENT_ID: 'atlas-native-ilostat-next-20261119-44640329974'
+      PARENT_ARCHIVE_SHA256: '3317e15de963c094233c53eda48651089685bb5b3ea5f9caa1e86ed7449a4b78'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -101,7 +101,7 @@ jobs:
               raise ValueError("Missing or duplicate original source-native SQLite")
           parent_sha=sha256(root/"parent.sqlite")
           (root/"parent-sha.txt").write_text(parent_sha)
-          print("ATLAS_VERIFIED_EXISTING_PRIVATE_SIX_PROVIDER_PARENT")
+          print("ATLAS_VERIFIED_1075484_SOURCE_NATIVE_PARENT")
           PY_PARENT
       - name: Select actual archived official ILOSTAT annual tables and restore originals
         shell: bash
@@ -180,7 +180,7 @@ jobs:
           root=Path(os.environ["RUNNER_TEMP"])/"atlas-next-ilostat"
           edition=os.environ["ATLAS_EDITION"]
           receipt=json.loads((root/"edition"/"integration_report.json").read_text())
-          if receipt["new_attachment_source_native_rows"]<=1_036_234:
+          if receipt["new_attachment_source_native_rows"]<=1_075_484:
               raise ValueError("No verified increase in Atlas original source-native records")
           name=edition+"/native_source_extension.sqlite"
           seen=0
@@ -229,7 +229,7 @@ jobs:
           current=report["new_attachment_source_native_rows"]
           if (type(gained) is not int or gained < 1 or
               type(numeric) is not int or numeric < 1 or
-              type(current) is not int or current != 1_036_234+gained or
+              type(current) is not int or current != 1_075_484+gained or
               report["public_release"] is not False):
               raise ValueError("Refusing to report unverified Atlas integration")
           run=os.environ["GITHUB_RUN_ID"]
