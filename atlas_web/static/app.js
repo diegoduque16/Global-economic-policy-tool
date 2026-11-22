@@ -454,6 +454,13 @@ function attach(){
  $("quick-country").addEventListener("change",()=>{
   const code=$("quick-country").value;
   if(!code)return;
+  if(state.overview?.public_edition){
+   state.publicCountry=code;
+   state.selected=new Set([code]);
+   renderCountryPicker();
+   void loadSeries($("quick-indicator-search").value.trim());
+   return;
+  }
   state.selected=new Set([code]);
   renderGeographies();renderCountryPicker();void apply();
  });
@@ -474,7 +481,15 @@ async function init(){
  try{
   [state.overview,state.families]=await Promise.all([api("/api/overview"),api("/api/families")]);
   populateOverview();fillFamilies();drawCatalog();mode("explore");
-  if(state.overview?.public_edition){$("year-end").value="2025";$("quick-year-end").value="2025";}
+  if(state.overview?.public_edition){
+   const family=currentFamily();
+   state.publicCountries=await api("/api/countries",{family:family.id,layer:family.layer});
+   const initial=state.publicCountries.find(x=>x.code==="USA")||
+    state.publicCountries.find(x=>x.geography_type==="country_or_territory")||
+    state.publicCountries[0];
+   if(initial){state.publicCountry=initial.code;state.selected=new Set([initial.code]);}
+   $("year-end").value="2025";$("quick-year-end").value="2025";
+  }
   await loadFamily();
  }catch(e){showError(e);$("source-caption").textContent="Could not access the selected Atlas snapshot.";}
 }
