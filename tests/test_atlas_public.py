@@ -185,6 +185,12 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertTrue(index["annual_source_defined_not_harmonized"])
             self.assertGreater(index["chartable_geographies"],100)
             self.assertIn('<option value="ilostat">International Labour Organization',html)
+            self.assertIn("International Labour Organization — ILOSTAT",html)
+            self.assertIn("Download original ILOSTAT data and citation file",html)
+            guide=(output/"sources"/"index.html").read_text()
+            self.assertIn("Download ILOSTAT annual source records with citations",guide)
+            self.assertIn("Atlas charts + download + original portal",guide)
+
             total=0
             kinds=set()
             for geo in index["geographies"]:

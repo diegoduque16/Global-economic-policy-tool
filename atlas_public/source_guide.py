@@ -82,6 +82,18 @@ def build(destination: Path) -> None:
             not archive.is_file() or
             hashlib.sha256(archive.read_bytes()).hexdigest() != bls_public.get("csv_zip_sha256")):
             raise ValueError("Unverified BLS public release in Atlas data directory")
+    ilo_manifest_path = destination.parent / "data" / "ilostat" / "ilostat_sdg_manifest.json"
+    ilo_public = None
+    if ilo_manifest_path.is_file():
+        ilo_public = json.loads(ilo_manifest_path.read_text(encoding="utf-8"))
+        archive = ilo_manifest_path.parent / "ilostat_sdg_labour_source_native.csv.zip"
+        if (ilo_public.get("release_type") != "public_ilostat_sdg_annual_source_native"
+            or ilo_public.get("source_native_records") != 153116
+            or ilo_public.get("finite_numeric_records") != 149148
+            or ilo_public.get("original_table_count") != 3
+            or not archive.is_file()
+            or hashlib.sha256(archive.read_bytes()).hexdigest() != ilo_public.get("file_sha256")):
+            raise ValueError("Unverified public ILOSTAT release in Atlas source directory")
     for record in PROVIDERS:
         bls_download = (
             '<p><a href="/data/bls/bls_jolts_source_native.csv.zip" download>'
@@ -89,24 +101,43 @@ def build(destination: Path) -> None:
             '<a href="/data/bls/bls_jolts_manifest.json">Source manifest and checksums</a></p>'
             if record["name"] == "U.S. Bureau of Labor Statistics" and bls_public else ""
         )
+        is_ilo_public = record["name"] == "International Labour Organization — ILOSTAT" and ilo_public
+        ilo_download = (
+            '<p><a href="/data/ilostat/ilostat_sdg_labour_source_native.csv.zip" download>'
+            'Download ILOSTAT annual source records with citations</a> · '
+            '<a href="/data/ilostat/ilostat_sdg_manifest.json">Verified source manifest</a></p>'
+            if is_ilo_public else ""
+        )
         is_bls_public = record["name"] == "U.S. Bureau of Labor Statistics" and bls_public
-        access = "Atlas charts + download + original portal" if is_bls_public else record["access"]
-        description = ("The source-native JOLTS values can be charted or downloaded on Atlas "
-                       "with original series keys and a citation file. Other BLS collections "
-                       "may remain unpublished." if is_bls_public else record["description"])
+        access = ("Atlas charts + download + original portal"
+                  if is_bls_public or is_ilo_public else record["access"])
+        description = (
+            "Official annual ILOSTAT SDG labour source-native observations are "
+            "chartable in Atlas and downloadable with exact original classifications, "
+            "missingness and CC BY 4.0 citation instructions. Other ILOSTAT source "
+            "tables still require publication validation."
+            if is_ilo_public else
+            "The source-native JOLTS values can be charted or downloaded on Atlas "
+            "with original series keys and a citation file. Other BLS collections "
+            "may remain unpublished." if is_bls_public else record["description"]
+        )
         cards.append(
             '<article class="source-card"><h2>' + escape(record["name"]) + '</h2>'
             '<p class="availability">' + escape(access) + '</p>'
             '<p>' + escape(description) + '</p>'
             '<p><strong>Reuse terms:</strong> ' + escape(record["license"]) + '</p>'
             '<p><strong>How to cite:</strong> ' + escape(record["citation"]) + '</p>'
-            + bls_download +
+            + bls_download + ilo_download +
             '<p class="links"><a href="' + escape(record["source"], quote=True) +
             '" rel="noopener noreferrer" target="_blank">Explore official dataset</a> · '
             '<a href="' + escape(record["terms"], quote=True) +
             '" rel="noopener noreferrer" target="_blank">License / terms</a></p></article>'
         )
     hosted_note = (
+        "Atlas charts World Bank annual values, BLS monthly jobs statistics, "
+        "and ILOSTAT annual SDG labour indicators; each source retains separate "
+        "definitions, provenance and attribution. "
+        if ilo_public else
         "The main Atlas explorer charts verified World Bank annual observations "
         "and U.S. BLS JOLTS monthly observations. The BLS research ZIP includes "
         "original-source citations; other providers remain on their own portals."

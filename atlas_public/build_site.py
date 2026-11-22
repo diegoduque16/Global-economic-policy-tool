@@ -212,45 +212,53 @@ def build(data=None, output=None, *, include_research=True):
                 bls_manifest.get("source_native_records") != 252710 or
                 bls_manifest.get("series_count") != 830):
             raise ValueError("Unexpected BLS public release manifest")
-    # Make the public/private availability boundary explicit and navigable.
-    # No unpublished datasets or private links/assets are copied into Pages.
+    # Publish a truthful source selector alongside release-specific citations.
+    # This section is derived solely from verified, actually-built public data.
+    cards = [
+        '<article class="source-access-card"><strong>World Bank — economic indicators</strong>'
+        '<span class="source-availability public">Charts available</span>'
+        '<p>32 indicators · 300,240 annual observations. Select a country and indicator above.</p></article>'
+    ]
+    if bls_chart_release:
+        cards.append(
+            '<article class="source-access-card"><strong>U.S. Bureau of Labor Statistics — JOLTS</strong>'
+            '<span class="source-availability public">Charts available</span>'
+            '<p>830 original monthly series · 252,710 numeric observations.</p>'
+            '<a href="/sources/">BLS download now available · Explore BLS source and citations</a>'
+            '</article>'
+        )
+    if ilostat_chart_release:
+        cards.append(
+            '<article class="source-access-card"><strong>International Labour Organization — ILOSTAT</strong>'
+            '<span class="source-availability public">Charts available</span>'
+            '<p>Informal employment, average hourly earnings and unemployment rates; '
+            '149,148 verified annual numeric observations across source-defined breakdowns.</p>'
+            '<a href="/data/ilostat/ilostat_sdg_labour_source_native.csv.zip" download>'
+            'Download original ILOSTAT data and citation file</a> · '
+            '<a href="/sources/">ILOSTAT reuse and source citations</a>'
+            '</article>'
+        )
+    cards.append(
+        '<article class="source-access-card"><strong>Other Atlas provider collections</strong>'
+        '<span class="source-availability private">Private research database</span>'
+        '<p>FRED, Eurostat, WID and additional datasets are not yet validated '
+        'for public charting; access original provider datasets or use the local explorer.</p>'
+        '<a href="/sources/">Find official sources and citation instructions</a> · '
+        '<a href="https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/atlas_web/README.md" '
+        'target="_blank" rel="noopener noreferrer">How to access the private explorer</a>'
+        '</article>'
+    )
     source_access = (
         '<section class="source-access" id="data-access" aria-label="Where to find Atlas data">'
         '<div class="source-access-heading"><span>DATA AVAILABILITY</span>'
-        '<h2>What can I explore?</h2>'
-        '<p>Chart verified World Bank and BLS JOLTS indicators. Other collections '
-        'remain in the private research database pending source-by-source public release.</p></div>'
-        '<div class="source-access-grid">'
-        '<article class="source-access-card"><strong>World Bank indicators</strong>'
-        '<span class="source-availability public">Explore here</span>'
-        '<p>32 published indicators · 300,240 observations. Choose a country '
-        'and indicator above to see the data.</p></article>'
-        '<article class="source-access-card"><strong>ILOSTAT, US labour statistics, '
-        'FRED, Eurostat and inequality data</strong>'
-        '<span class="source-availability private">Private research database</span>'
-        '<p>Source-native research records have been collected, but these provider '
-        'collections are not currently available through this public website.</p>'
-        '<a href="/sources/">Explore original datasets and citation instructions</a> · '
-        '<a href="https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/atlas_web/README.md" '
-        'target="_blank" rel="noopener noreferrer">How to access the private explorer</a>'
-        '</article></div>'
-        '<p class="source-access-note">Private source records are not yet harmonized '
-        'or approved for public release. Atlas does not merge them automatically.</p>'
-        '</section>'
+        '<h2>Choose a verified data source</h2>'
+        '<p>Chart source-native observations directly. Only approved datasets '
+        'are selectable, with provider attribution and definitions preserved.</p></div>'
+        '<div class="source-access-grid">' + "".join(cards) + '</div>'
+        '<p class="source-access-note">Original series are not automatically '
+        'harmonized. Missing values remain missing; publication does not establish '
+        'cross-provider statistical comparability.</p></section>'
     )
-    if bls_download_available:
-        source_access = source_access.replace(
-            "Private research database</span>", "BLS download now available</span>"
-        ).replace(
-            "Source-native research records have been collected, but these provider "
-            "collections are not currently available through this public website.",
-            "Verified BLS JOLTS original records are now downloadable from Atlas. "
-            "Other source-native research datasets are not yet published here."
-        ).replace(
-            'How to access the private explorer</a>',
-            'How to access the private explorer</a> · '
-            '<a href="/sources/">Explore BLS source and citations</a>'
-        )
     html = html.replace(marker, source_access + "\\n        " + marker)
     project_banner = (
         '<section class="project-link-banner" aria-label="Atlas current direction">'
