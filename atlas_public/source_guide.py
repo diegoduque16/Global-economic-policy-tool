@@ -90,8 +90,8 @@ def build(destination: Path) -> None:
             if record["name"] == "U.S. Bureau of Labor Statistics" and bls_public else ""
         )
         is_bls_public = record["name"] == "U.S. Bureau of Labor Statistics" and bls_public
-        access = "Atlas public JOLTS download + original portal" if is_bls_public else record["access"]
-        description = ("The source-native JOLTS values have a verified public Atlas download "
+        access = "Atlas charts + download + original portal" if is_bls_public else record["access"]
+        description = ("The source-native JOLTS values can be charted or downloaded on Atlas "
                        "with original series keys and a citation file. Other BLS collections "
                        "may remain unpublished." if is_bls_public else record["description"])
         cards.append(
@@ -107,9 +107,9 @@ def build(destination: Path) -> None:
             '" rel="noopener noreferrer" target="_blank">License / terms</a></p></article>'
         )
     hosted_note = (
-        "The main explorer hosts the approved WDI release. A separate verified "
-        "BLS JOLTS research ZIP is also hosted by Atlas; other providers remain "
-        "available through their original portals."
+        "The main Atlas explorer charts verified World Bank annual observations "
+        "and U.S. BLS JOLTS monthly observations. The BLS research ZIP includes "
+        "original-source citations; other providers remain on their own portals."
         if bls_public else
         "The main Atlas explorer currently hosts only the approved World Bank WDI "
         "release. Other providers below are linked to their original public portals."
