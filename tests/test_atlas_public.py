@@ -74,6 +74,18 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertIn("ATLAS_PUBLIC_DOWNLOAD",client)
             self.assertIn("public_geographies",client)
             self.assertIn("function renderCountryPicker()",client)
+            # Source series IDs remain DOM option values for querying only;
+            # they must not be exposed as human-visible menu labels.
+            self.assertIn('label:publicView()?(x.title||"Indicator label unavailable")',client)
+            self.assertIn('publicView()?(geo.name||"Unnamed geographic area")',client)
+            self.assertIn('publicView()?indicatorLabel(r.series):r.series',client)
+            self.assertIn('publicView()?"Verified original value":r.source_status',client)
+            self.assertIn('publicView()?"":" ("+r.geography+")"',client)
+            self.assertIn('indicatorLabel(state.lastResponse.series)',client)
+            self.assertIn('Search by topic or indicator name',html)
+            self.assertIn('Search by country or region name',html)
+            self.assertNotIn('Search by series name or code',html)
+            self.assertNotIn('Search country name or code',html)
             self.assertIn('api("/api/countries"',client)
             self.assertIn('state.publicCountry',client)
             adapter=(output/"public_adapter.js").read_text()
