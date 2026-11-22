@@ -252,9 +252,42 @@ function renderIndicatorGuidance(data){
  link.rel="noopener noreferrer";
  host.append(link);
 }
+function renderPublicCitation(){
+ if(!publicView())return;
+ const panel=$("public-citation-panel")||el("section","public-citation-panel");
+ panel.id="public-citation-panel";
+ const series=$("series").value;
+ const info=state.seriesResults.find(x=>x.name===series);
+ panel.replaceChildren();
+ if(!info?.title){panel.hidden=true;return;}
+ panel.hidden=false;
+ const originalUrl="https://data.worldbank.org/indicator/"+encodeURIComponent(series);
+ const citation='The World Bank. World Development Indicators, "'+info.title+
+  '." '+originalUrl+'. Source data archived by World Economic Atlas on November 9, 2026.';
+ panel.append(el("strong","","Data source and citation"));
+ panel.append(el("p","",citation));
+ const original=el("a","","View original World Bank indicator");
+ original.href=originalUrl;original.target="_blank";original.rel="noopener noreferrer";
+ const guide=el("a","","How to cite other Atlas datasets");
+ guide.href="/sources/";
+ const copy=el("button","copy-source-citation","Copy citation");
+ copy.type="button";
+ copy.addEventListener("click",async()=>{
+  try{
+   await navigator.clipboard.writeText(citation);
+   copy.textContent="Citation copied";
+  }catch{
+   copy.textContent="Select and copy the citation above";
+  }
+ });
+ const actions=el("div","citation-actions");
+ actions.append(copy,original,guide);panel.append(actions);
+ $("chart").parentElement.append(panel);
+}
 function render(){
  const output=$("chart"),data=state.lastResponse;
  renderIndicatorGuidance(data);
+ renderPublicCitation();
  output.replaceChildren();$("legend").replaceChildren();$("record-count").textContent="";
  if(!data?.rows?.length){
   output.append(el("div","chart-empty",data?
