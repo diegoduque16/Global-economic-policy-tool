@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Read-only, source-native Atlas SQLite explorer (no harmonization or publication).
+
+Examples:
+  python -m warehouse.native_query --db /private/native_source_extension.sqlite sources --limit 25
+  python -m warehouse.native_query --db /private/native_source_extension.sqlite records --source-id ilostat_EMP_EXAMPLE_abcdef123456 --geo UG --year 2023 --limit 20
+All source/geography/series codes are originals, not inferred comparable indicators.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+import sqlite3
+
+
+def connect_read_only(path: Path) -> sqlite3.Connection:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Expected an existing private SQLite file (not a symlink)")
+    db = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
+    db.execute("PRAGMA query_only=ON")
+    db.execute("PRAGMA trusted_schema=OFF")
+    return db
+
+
+def browse(db: sqlite3.Connection, *, command: str, limit: int = 20,
+           source_id: str | None = None, geo: str | None = None,
+           year: str | None = None, series: str | None = None,
+           include_raw: bool = False) -> dict:
+    if type(limit) is not int or limit < 1 or limit > 500:
+        raise ValueError("Limit must be between 1 and 500")
+    if command == "sources":
+        if any(value is not None for value in (source_id, geo, year, series)) or include_raw:
+            raise ValueError("Record filters are only supported by the records command")
+        rows = db.execute(
+            "SELECT source_id,source_name,original_records,indexed_records,raw_sha256 "
+            "FROM native_sources ORDER BY source_id LIMIT ?", (limit,)
+        ).fetchall()
+        return {"mode": "original_sources", "source_native_not_harmonized": True,
+                "rows": [dict(zip(("source_id","source_name","original_records",
+                                  "indexed_records","source_sha256"), row)) for row in rows]}
+    if command != "records":
+        raise ValueError("Expected sources or records command")
+    if not isinstance(source_id, str) or not source_id.strip() or len(source_id) > 256:
+        raise ValueError("Exact --source-id is mandatory for private record queries")
+    for name, value in (("geo", geo), ("year", year), ("series", series)):
+        if value is not None and (not isinstance(value, str) or not value or len(value) > 128):
+            raise ValueError("Invalid original " + name + " filter")
+    source = db.execute(
+        "SELECT raw_sha256, original_records,indexed_records FROM native_sources WHERE source_id=?",
+        (source_id,)
+    ).fetchone()
+    if source is None:
+        raise ValueError("Unknown original source ID: " + source_id)
+    filters = ["source_id = ?"]
+    values: list = [source_id]
+    for col, value in (("geo_code", geo), ("year_text", year), ("series_code", series)):
+        if value is not None:
+            filters.append(col + " = ?")
+            values.append(value)
+    columns = ["source_id","ordinal","year_text","period_text","geo_code",
+               "series_code","industry_code","value_text"]
+    if include_raw:
+        columns.append("raw_row_json")
+    sql = ("SELECT " + ",".join(columns) + " FROM native_records WHERE " +
+           " AND ".join(filters) + " ORDER BY ordinal LIMIT ?")
+    values.append(limit)
+    rows = []
+    for row in db.execute(sql, values):
+        entry = dict(zip(columns, row))
+        if include_raw:
+            entry["raw_row"] = json.loads(entry.pop("raw_row_json"))
+        rows.append(entry)
+    return {
+        "mode": "original_records",
+        "source_native_not_harmonized": True,
+        "not_a_public_release": True,
+        "source_id": source_id,
+        "source_sha256": source[0],
+        "source_original_rows": source[1],
+        "source_indexed_rows": source[2],
+        "filters": {"geo_code": geo, "year_text": year, "series_code": series},
+        "limit": limit,
+        "rows": rows,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--db", type=Path, required=True, help="Locally restored private Atlas SQLite")
+    commands = parser.add_subparsers(dest="command", required=True)
+    source_cmd = commands.add_parser("sources", help="List original source IDs and provenance")
+    source_cmd.add_argument("--limit", type=int, default=20)
+    record_cmd = commands.add_parser("records", help="Inspect exact original rows")
+    record_cmd.add_argument("--source-id", required=True)
+    record_cmd.add_argument("--geo", help="Exact original geo_code, not an inferred country")
+    record_cmd.add_argument("--year", help="Exact original year_text")
+    record_cmd.add_argument("--series", help="Exact original series_code")
+    record_cmd.add_argument("--limit", type=int, default=20)
+    record_cmd.add_argument("--include-raw", action="store_true",
+                            help="Include original raw-row JSON (PRIVATE; do not publish)")
+    args = parser.parse_args()
+    with connect_read_only(args.db) as db:
+        result = browse(db, command=args.command, limit=args.limit,
+                        source_id=getattr(args, "source_id", None),
+                        geo=getattr(args, "geo", None),
+                        year=getattr(args, "year", None),
+                        series=getattr(args, "series", None),
+                        include_raw=getattr(args, "include_raw", False))
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
