@@ -88,12 +88,22 @@ function fillFamilies(){
 async function loadFamily(){
  const f=currentFamily();
  state.geographies=[];state.selected.clear();state.seriesResults=[];state.lastResponse=null;
+ if(publicView() && f){
+  const source=$("quick-source");
+  if(source)source.value=f.id;
+  state.publicCountries=await api("/api/countries",{family:f.id,layer:f.layer});
+  const pick=state.publicCountries.find(c=>c.code===state.publicCountry)||
+   state.publicCountries.find(c=>c.code==="USA")||state.publicCountries[0];
+  state.publicCountry=pick?.code||"";
+  if(pick)state.selected=new Set([pick.code]);
+ }
  $("search-indicator").value="";$("quick-indicator-search").value="";
  const ilo=f?.id==="ilostat";
  $("search-indicator").placeholder=ilo?
   "Example: unemployment SEX_F AGE_Y15-24":"Search by series name or code";
  $("quick-indicator-search").placeholder=ilo?
-  "Example: earnings SEX_F OCU":"Try GDP, population, inflation…";
+  "Example: earnings SEX_F OCU":f?.id==="bls"?
+  "Try job openings, hires, quits or layoffs…":"Try GDP, population, inflation…";
  $("geo-search").value="";$("quick-country-search").value="";
  $("source-caption").textContent=ilo?
   "Search indicator + exact ILOSTAT sex/age/classification codes. Original units remain unverified; cross-country charts are restricted.":
@@ -228,7 +238,10 @@ async function apply(){
  const indicator=state.seriesResults.find(x=>x.name===series);
  $("plot-title").textContent=indicator?.title||(publicView()?"Indicator label unavailable":series);
  $("plot-subtitle").textContent=[...state.selected].map(geoName).join(" · ")+"  |  "+start+"–"+end+"  |  "+pretty(f.name);
- $("plot-layer").textContent=f.layer==="source_native"?"Source-native data · Not harmonized":"Canonical source observations · Native units";
+ $("plot-layer").textContent=f.id==="bls"?
+  "Monthly U.S. labour statistics · Original BLS values":
+  f.layer==="source_native"?"Source-native data · Not harmonized":
+  "Canonical source observations · Native units";
  try{
   const data=await api("/api/rows",{family:f.id,layer:f.layer,series,
    geos:[...state.selected].join(","),start,end,limit:2000});
@@ -261,12 +274,18 @@ function renderPublicCitation(){
  panel.replaceChildren();
  if(!info?.title){panel.hidden=true;return;}
  panel.hidden=false;
- const originalUrl="https://data.worldbank.org/indicator/"+encodeURIComponent(series);
- const citation='The World Bank. World Development Indicators, "'+info.title+
+ const isBLS=currentFamily()?.id==="bls";
+ const originalUrl=isBLS?"https://www.bls.gov/jlt/":
+  "https://data.worldbank.org/indicator/"+encodeURIComponent(series);
+ const citation=isBLS?
+  'U.S. Bureau of Labor Statistics. Job Openings and Labor Turnover Survey (JOLTS), "'+
+  info.title+'", monthly original source observations. '+originalUrl+
+  '. World Economic Atlas source-native edition, November 2026.':
+  'The World Bank. World Development Indicators, "'+info.title+
   '." '+originalUrl+'. Source data archived by World Economic Atlas on November 9, 2026.';
  panel.append(el("strong","","Data source and citation"));
  panel.append(el("p","",citation));
- const original=el("a","","View original World Bank indicator");
+ const original=el("a","",isBLS?"View official BLS source":"View original World Bank indicator");
  original.href=originalUrl;original.target="_blank";original.rel="noopener noreferrer";
  const guide=el("a","","How to cite other Atlas datasets");
  guide.href="/sources/";
@@ -482,6 +501,13 @@ function attach(){
  });
  $("open-source-catalog").addEventListener("click",()=>mode("catalog"));
  $("family").addEventListener("change",loadFamily);
+ const publicSource=$("quick-source");
+ if(publicSource)publicSource.addEventListener("change",()=>{
+  const id=publicSource.value;
+  if(!state.families.some(f=>f.id===id))return;
+  $("family").value=id;
+  void loadFamily();
+ });
  $("series").addEventListener("change",()=>{
   $("quick-indicator-search").value="";
   $("quick-indicator").value=$("series").value;
@@ -533,12 +559,17 @@ async function init(){
   [state.overview,state.families]=await Promise.all([api("/api/overview"),api("/api/families")]);
   populateOverview();fillFamilies();drawCatalog();mode("explore");
   if(state.overview?.public_edition){
-   const family=currentFamily();
-   state.publicCountries=await api("/api/countries",{family:family.id,layer:family.layer});
-   const initial=state.publicCountries.find(x=>x.code==="USA")||
-    state.publicCountries.find(x=>x.geography_type==="country_or_territory")||
-    state.publicCountries[0];
-   if(initial){state.publicCountry=initial.code;state.selected=new Set([initial.code]);}
+   const source=$("quick-source");
+   if(source){
+    source.replaceChildren();
+    for(const family of state.families){
+     const label=family.id==="wdi"?"World Bank — global economic indicators":
+      family.id==="bls"?"U.S. Bureau of Labor Statistics — jobs and labour turnover":
+      family.name;
+     source.add(new Option(label,family.id));
+    }
+    source.value="wdi";
+   }
    $("year-end").value="2025";$("quick-year-end").value="2025";
   }
   await loadFamily();
