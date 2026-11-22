@@ -177,9 +177,10 @@ function renderCountryPicker(){
   picker.add(new Option("Current: "+selectedGeo.name+
    (publicView()?"":" ("+current+")"),current));
  const countries=document.createElement("optgroup"),regions=document.createElement("optgroup");
- countries.label="Countries and territories";regions.label="Aggregates and unclassified source codes";
+ countries.label="Countries and territories";regions.label=publicView()?"Regions and groups":"Aggregates and unclassified source codes";
  for(const geo of sorted){
-  const item=new Option((geo.name||geo.code)+" ("+geo.code+")",geo.code);
+  const item=new Option(publicView()?(geo.name||"Unnamed geographic area"):
+   (geo.name||geo.code)+" ("+geo.code+")",geo.code);
   (geo.geography_type==="country_or_territory"?countries:regions).append(item);
  }
  if(countries.children.length)picker.append(countries);
@@ -288,7 +289,9 @@ function renderTable(host,rows){
   const tr=el("tr");
   const vals=[geoName(r.geography)+(publicView()?"":" ("+r.geography+")"),
     r.period,publicView()?indicatorLabel(r.series):r.series,
-   r.value==null?"Not numeric":short(r.value),r.unit,r.provider,r.source_status,
+   r.value==null?"Not numeric":short(r.value),
+   publicView()?"Source-defined":r.unit,r.provider,
+   publicView()?"Verified original value":r.source_status,
    ...(dimensions?[r.state_code||"—",r.industry_code||"—"]:[]),
    ...(ilostatDimensions?[r.sex||"—",r.classif1||"—",r.classif2||"—",
      r.original_source_code||"—"]:[]),
