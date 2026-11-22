@@ -113,7 +113,7 @@ jobs:
           verify_parent_db(root/"parent.sqlite",p)
           print("ATLAS_PUBLIC_ILOSTAT_PRIVATE_ORIGINAL_SQLITE_VERIFIED")
           PY_RESTORE
-      - name: Export strictly public-domain ILOSTAT annual SDG data and citations only
+      - name: Export strictly open-licensed ILOSTAT annual SDG data and citations only
         shell: bash
         run: |
           set -euo pipefail
@@ -124,7 +124,7 @@ jobs:
           import hashlib,json,zipfile
           from pathlib import Path
           root=Path("atlas_public/data/ilostat")
-          m=json.loads((root/"ilostat_sdg_labour_manifest.json").read_text())
+          m=json.loads((root/"ilostat_sdg_manifest.json").read_text())
           assert m["original_table_count"]==3 and m["source_native_records"]==153116
           assert m["finite_numeric_records"]==149148
           assert m["source_native_not_harmonized"] is True
@@ -144,7 +144,7 @@ jobs:
             echo "ILOSTAT public source-native release already matches verified parent."
             exit 0
           fi
-          git commit -m "Publish verified public-domain ILOSTAT annual SDG original numeric source edition [skip ci]"
+          git commit -m "Publish verified open-licensed ILOSTAT annual SDG original numeric source edition [skip ci]"
           git pull --rebase origin main
           git push origin HEAD:main
       - name: Remove private source bytes and connection secrets
