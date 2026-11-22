@@ -131,6 +131,12 @@ def build(data=None, output=None, *, include_research=True):
         "Indexed native sources": "Public WDI indicators",
         "Stored in the same SQLite": "Published annual source series",
         "Source-native": "Verified WDI",
+        "Search by series name or code": "Search by topic or indicator name",
+        "Search country name or code": "Search by country or region name",
+        "Choose up to eight geographic codes": "Choose up to eight countries or regions",
+        "Choose a source, series, and geography to start.": "Choose a country and an indicator to begin.",
+        "Select a series to display observations.": "Choose an indicator to display the data.",
+        "Your world, in data.": "Explore your country in data.",
         "Atlas Economic Data · Read-only viewer · Underlying sources and vintages should be checked before interpreting results.":
             "World Economic Atlas · Source: World Bank World Development Indicators · CC BY 4.0 (subject to indicator-specific conditions). See /data/LICENSE-ATTRIBUTION.txt. Prepared from a verified 2026-11-09 Atlas source snapshot; not harmonized across providers.",
     }
