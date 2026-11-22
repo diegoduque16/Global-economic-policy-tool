@@ -46,6 +46,15 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertEqual(len(availability["by_geography"]["USA"]),32)
             self.assertEqual(availability["by_geography"]["USA"]["TEST0"],[1,2020,2020])
             self.assertIn("World Economic Atlas",html)
+            self.assertIn('id="data-access"',html)
+            self.assertIn('Compare countries &amp; advanced options',html)
+            self.assertIn('Private research database',html)
+            self.assertIn('How to access the private explorer',html)
+            css=(output/"style.css").read_text()
+            self.assertIn('.side .sidebar-filters{display:none}',css)
+            self.assertIn('.side.show-filters .sidebar-filters{display:block}',css)
+            self.assertNotIn('onedrive:Diego/',html)
+
             for filename in ("app.js", "public_adapter.js", "style.css"):
                 digest=hashlib.sha256((output/filename).read_bytes()).hexdigest()[:16]
                 path="/"+filename+"?v="+digest
