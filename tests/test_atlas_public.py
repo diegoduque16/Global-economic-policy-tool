@@ -17,7 +17,9 @@ class PublicWebsiteTests(unittest.TestCase):
                          "topic":"test","first_year":2020,"last_year":2020}
                         for i in range(32)]
             for item in indicators:
-                (series/(item["code"]+".json")).write_text("{}")
+                (series/(item["code"]+".json")).write_text(json.dumps({
+                    "code":item["code"],"rows":[["USA",2020,float(1)]]
+                }))
             manifest={
                 "schema_version":1,"public_edition":True,
                 "source_run_id":42581151428,
@@ -25,6 +27,7 @@ class PublicWebsiteTests(unittest.TestCase):
                            "aggregate_codes":44,"country_or_territory_codes":217,
                            "source_separated_numeric_checks_passed":True},
                 "series":indicators,
+                "geographies":{"USA":{"kind":"country_or_territory","name":"United States"}},
             }
             (data/"catalog.json").write_text(json.dumps(manifest))
             (data/"LICENSE-ATTRIBUTION.txt").write_text("World Bank WDI attribution")
@@ -33,10 +36,14 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertTrue(result["public_edition"])
             self.assertEqual(result["public_records"],300240)
             for name in ("index.html","app.js","style.css","public_adapter.js",
-                         "_headers","data/catalog.json","data/LICENSE-ATTRIBUTION.txt",
+                         "_headers","data/catalog.json","data/availability.json","data/LICENSE-ATTRIBUTION.txt",
                          "project/index.html","project/brief.json","project/project.css"):
                 self.assertTrue((output/name).is_file(),name)
             html=(output/"index.html").read_text()
+            availability=json.loads((output/"data/availability.json").read_text())
+            self.assertTrue(availability["public_edition"])
+            self.assertEqual(len(availability["by_geography"]["USA"]),32)
+            self.assertEqual(availability["by_geography"]["USA"]["TEST0"],[1,2020,2020])
             self.assertIn("World Economic Atlas",html)
             self.assertIn('href="/project/"',html)
             self.assertIn("Project brief &amp; decisions",html)
@@ -67,6 +74,11 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertIn("ATLAS_PUBLIC_DOWNLOAD",client)
             self.assertIn("public_geographies",client)
             self.assertIn("function renderCountryPicker()",client)
+            self.assertIn('api("/api/countries"',client)
+            self.assertIn('state.publicCountry',client)
+            adapter=(output/"public_adapter.js").read_text()
+            self.assertIn('"/api/countries"',adapter)
+            self.assertIn('"/data/availability.json"',adapter)
             self.assertIn('$("quick-indicator").addEventListener',client)
             self.assertIn('$("quick-country").addEventListener',client)
             self.assertFalse(list(output.rglob("warehouse.sqlite")))
