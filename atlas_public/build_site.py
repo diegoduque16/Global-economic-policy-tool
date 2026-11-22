@@ -158,6 +158,32 @@ def build(data=None, output=None, *, include_research=True):
     if marker not in html:
         raise ValueError("Public attribution placement not found")
     html = html.replace(marker, attribution + "\n\n        " + marker)
+    # Make the public/private availability boundary explicit and navigable.
+    # No unpublished datasets or private links/assets are copied into Pages.
+    source_access = (
+        '<section class="source-access" id="data-access" aria-label="Where to find Atlas data">'
+        '<div class="source-access-heading"><span>DATA AVAILABILITY</span>'
+        '<h2>What can I explore?</h2>'
+        '<p>Start with the verified public World Bank indicators. Other collections '
+        'are integrated into the private Atlas research database, not this public website.</p></div>'
+        '<div class="source-access-grid">'
+        '<article class="source-access-card"><strong>World Bank indicators</strong>'
+        '<span class="source-availability public">Explore here</span>'
+        '<p>32 published indicators · 300,240 observations. Choose a country '
+        'and indicator above to see the data.</p></article>'
+        '<article class="source-access-card"><strong>ILOSTAT, US labour statistics, '
+        'FRED, Eurostat and inequality data</strong>'
+        '<span class="source-availability private">Private research database</span>'
+        '<p>Source-native research records have been collected, but these provider '
+        'collections are not currently available through this public website.</p>'
+        '<a href="https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/atlas_web/README.md" '
+        'target="_blank" rel="noopener noreferrer">How to access the private explorer</a>'
+        '</article></div>'
+        '<p class="source-access-note">Private source records are not yet harmonized '
+        'or approved for public release. Atlas does not merge them automatically.</p>'
+        '</section>'
+    )
+    html = html.replace(marker, source_access + "\\n        " + marker)
     project_banner = (
         '<section class="project-link-banner" aria-label="Atlas current direction">'
         '<div><span>PROJECT DIRECTION</span><strong>Where Atlas stands</strong>'
@@ -211,6 +237,13 @@ def build(data=None, output=None, *, include_research=True):
         raise ValueError("Atlas overview card format changed")
     client = client.replace(original_stats, revised_stats)
     (output / "app.js").write_text(client, encoding="utf-8")
+    # Public visitors get one primary country/indicator form. Comparison
+    # controls are available on demand rather than duplicated on screen.
+    html = html.replace(
+        'Advanced filters and comparisons ▾',
+        'Compare countries &amp; advanced options ▾'
+    )
+    (output / "index.html").write_text(html, encoding="utf-8")
     css = (output / "style.css").read_text(encoding="utf-8")
     css += (
         "\n.public-attribution{display:flex;flex-wrap:wrap;gap:7px 14px;"
@@ -249,6 +282,35 @@ def build(data=None, output=None, *, include_research=True):
         ".project-link-banner a:hover{background:#dce9ff}"
         "@media(max-width:720px){.project-link-banner{flex-direction:column;align-items:stretch}"
         ".project-link-banner a{white-space:normal;text-align:center}}\n"
+    )
+    css += (
+        "\\n/* Simplified public navigation: the country-first explorer is primary. */"
+        ".side .mobile-toggle{display:block;width:100%;margin:0 0 14px;"
+        "border:1px solid #426184;background:#243d60;color:#eff6ff;"
+        "border-radius:9px;padding:12px 10px;font-size:12px;font-weight:750}"
+        ".side .sidebar-filters{display:none}"
+        ".side.show-filters .sidebar-filters{display:block}"
+        ".source-access{order:5;background:#fff;border:1px solid #dce6f5;"
+        "border-radius:14px;padding:22px 25px;margin:0 0 24px}"
+        ".source-access-heading span{color:#356abd;font-size:10px;"
+        "letter-spacing:1px;font-weight:800}"
+        ".source-access h2{font-size:20px;margin:7px 0}"
+        ".source-access-heading p,.source-access-note{color:#60758f;"
+        "font-size:12px;line-height:1.65}"
+        ".source-access-grid{display:grid;grid-template-columns:1fr 1fr;"
+        "gap:14px;margin:18px 0}"
+        ".source-access-card{padding:18px;border:1px solid #e0e8f3;"
+        "background:#f8fbff;border-radius:12px}"
+        ".source-access-card strong{display:block;font-size:14px;margin-bottom:8px}"
+        ".source-access-card p{color:#586d86;font-size:12px;line-height:1.6}"
+        ".source-access-card a{display:inline-block;font-size:12px;font-weight:700;"
+        "color:#245ba2;text-decoration:underline}"
+        ".source-availability{display:inline-block;font-size:10px;font-weight:750;"
+        "padding:4px 8px;border-radius:20px}"
+        ".source-availability.public{color:#226b50;background:#e9f8f0}"
+        ".source-availability.private{color:#5b6473;background:#e9edf3}"
+        "@media(max-width:720px){.source-access-grid{grid-template-columns:1fr}"
+        ".source-access{padding:18px}}\\n"
     )
     (output / "style.css").write_text(css, encoding="utf-8")
     # Fingerprint exact rendered public UI assets after *all* modifications.
