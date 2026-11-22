@@ -1,0 +1,32 @@
+name: Atlas private native explorer tests
+
+on:
+  pull_request:
+    paths:
+      - 'warehouse/native_query.py'
+      - 'tests/test_native_query.py'
+      - '.github/workflows/atlas-native-query-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'warehouse/native_query.py'
+      - 'tests/test_native_query.py'
+      - '.github/workflows/atlas-native-query-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test-native-explorer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test read-only source-native browsing on synthetic SQLite only
+        run: |
+          python -m unittest discover -s tests -p 'test_native_query.py' -v
+          python -m py_compile warehouse/native_query.py

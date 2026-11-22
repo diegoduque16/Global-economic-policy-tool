@@ -1,5 +1,9 @@
 """Synthetic tests for the private read-only Atlas native query interface."""
 import json
+import csv
+import io
+from contextlib import redirect_stdout
+from unittest.mock import patch
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -41,6 +45,30 @@ class NativeQueryTests(unittest.TestCase):
         self.assertNotIn("raw_row",result["rows"][0])
         self.assertEqual(raw["rows"][0]["raw_row"]["ref_area"],"UG")
 
+    def test_original_facets_and_conditional_counts(self):
+        with connect_read_only(self.path) as db:
+            facets=browse(db,command="facets",source_id="ilostat_TEST_abcdef123456")
+            filtered=browse(db,command="facets",source_id="ilostat_TEST_abcdef123456",geo="UG")
+        self.assertEqual(facets["facets"]["geographies"],
+                         [{"code":"KE","rows":1},{"code":"UG","rows":1}])
+        self.assertEqual(facets["facets"]["years"],
+                         [{"code":"2023","rows":1},{"code":"2024","rows":1}])
+        self.assertEqual(filtered["facets"]["years"], [{"code":"2023","rows":1}])
+        self.assertTrue(facets["source_native_not_harmonized"])
+
+    def test_csv_export_cli_no_raw_fields_by_default(self):
+        from warehouse.native_query import main
+        stdout=io.StringIO()
+        with patch("sys.argv", ["native_query","--db",str(self.path),
+                                "records","--source-id","ilostat_TEST_abcdef123456",
+                                "--geo","UG","--format","csv"]), redirect_stdout(stdout):
+            main()
+        rows=list(csv.DictReader(io.StringIO(stdout.getvalue())))
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]["geo_code"],"UG")
+        self.assertEqual(rows[0]["value_text"],"10")
+        self.assertNotIn("raw_row",rows[0])
+
     def test_reject_missing_source_and_unbounded_requests(self):
         with connect_read_only(self.path) as db:
             with self.assertRaises(ValueError):
@@ -51,6 +79,8 @@ class NativeQueryTests(unittest.TestCase):
                 browse(db,command="sources",limit=501)
             with self.assertRaises(ValueError):
                 browse(db,command="sources",geo="UG")
+            with self.assertRaises(ValueError):
+                browse(db,command="facets",source_id="ilostat_TEST_abcdef123456",include_raw=True)
             with self.assertRaises(sqlite3.OperationalError):
                 db.execute("DELETE FROM native_records")
         with sqlite3.connect(self.path) as db:
