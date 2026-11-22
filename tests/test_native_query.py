@@ -59,11 +59,11 @@ class NativeQueryTests(unittest.TestCase):
     def test_source_catalog_search_pagination_and_literal_prefix(self):
         with sqlite3.connect(self.path) as db:
             db.execute("INSERT INTO native_sources VALUES (?,?,?,?,?,?,?,?,?)",
-                ("ilostat_EXTRA_abc123abc123", "Employment estimate", 1, 1,
-                 "b"*64, "original", "SOURCE_NATIVE_UNHARMONIZED", 0, '[]'))
+                ("ilostat_EXTRA_abc123abc123", "b"*64, 1, 1,
+                 "original", "Employment estimate", "SOURCE_NATIVE_UNHARMONIZED", 0, '[]'))
             db.execute("INSERT INTO native_sources VALUES (?,?,?,?,?,?,?,?,?)",
-                ("wdi_GDP", "Gross Domestic Product", 1, 1,
-                 "c"*64, "original", "SOURCE_NATIVE_UNHARMONIZED", 0, '[]'))
+                ("wdi_GDP", "c"*64, 1, 1,
+                 "original", "Gross Domestic Product", "SOURCE_NATIVE_UNHARMONIZED", 0, '[]'))
         with connect_read_only(self.path) as db:
             first = browse(db, command="sources", source_prefix="ilostat_", limit=1)
             second = browse(db, command="sources", source_prefix="ilostat_", limit=1, offset=1)
