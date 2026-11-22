@@ -89,10 +89,15 @@ def build(destination: Path) -> None:
             '<a href="/data/bls/bls_jolts_manifest.json">Source manifest and checksums</a></p>'
             if record["name"] == "U.S. Bureau of Labor Statistics" and bls_public else ""
         )
+        is_bls_public = record["name"] == "U.S. Bureau of Labor Statistics" and bls_public
+        access = "Atlas public JOLTS download + original portal" if is_bls_public else record["access"]
+        description = ("The source-native JOLTS values have a verified public Atlas download "
+                       "with original series keys and a citation file. Other BLS collections "
+                       "may remain unpublished." if is_bls_public else record["description"])
         cards.append(
             '<article class="source-card"><h2>' + escape(record["name"]) + '</h2>'
-            '<p class="availability">' + escape(record["access"]) + '</p>'
-            '<p>' + escape(record["description"]) + '</p>'
+            '<p class="availability">' + escape(access) + '</p>'
+            '<p>' + escape(description) + '</p>'
             '<p><strong>Reuse terms:</strong> ' + escape(record["license"]) + '</p>'
             '<p><strong>How to cite:</strong> ' + escape(record["citation"]) + '</p>'
             + bls_download +
@@ -101,6 +106,14 @@ def build(destination: Path) -> None:
             '<a href="' + escape(record["terms"], quote=True) +
             '" rel="noopener noreferrer" target="_blank">License / terms</a></p></article>'
         )
+    hosted_note = (
+        "The main explorer hosts the approved WDI release. A separate verified "
+        "BLS JOLTS research ZIP is also hosted by Atlas; other providers remain "
+        "available through their original portals."
+        if bls_public else
+        "The main Atlas explorer currently hosts only the approved World Bank WDI "
+        "release. Other providers below are linked to their original public portals."
+    )
     html = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Find and cite economic data | World Economic Atlas</title>
@@ -124,11 +137,9 @@ nav{margin-bottom:34px;font-size:14px}h1{font-size:clamp(28px,4vw,42px);letter-s
 <p class="lead">Explore official economic datasets and cite the exact source used.
 Atlas keeps original series identifiers, observation dates, geographical definitions,
 source vintages and missing values for reproducibility.</p>
-<div class="notice"><strong>What is hosted here?</strong> The main Atlas explorer currently hosts
-only the approved World Bank WDI release. Other providers below are linked to their
-original public data portals. Their source-native Atlas archives are not yet published
-or cross-provider harmonized. A source being publicly readable does not necessarily
-grant permission for bulk rehosting.</div>
+<div class="notice"><strong>What is hosted here?</strong> """ + escape(hosted_note) + """
+Source-native records are not automatically comparable across sources. A source being
+publicly readable does not necessarily grant permission for bulk rehosting.</div>
 <section class="grid" aria-label="Official economic data providers">""" + "".join(cards) + """</section>
 <section class="tip"><h2>What to include when citing Atlas data</h2>
 <p>For a specific indicator, record its <strong>original producer, dataset or table title,
