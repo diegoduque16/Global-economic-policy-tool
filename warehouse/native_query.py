@@ -2,7 +2,7 @@
 """Read-only, source-native Atlas SQLite explorer (no harmonization or publication).
 
 Examples:
-  python -m warehouse.native_query --db /private/native_source_extension.sqlite sources --limit 25
+  python -m warehouse.native_query --db /private/native_source_extension.sqlite sources --match employment --limit 25 --offset 0
   python -m warehouse.native_query --db /private/native_source_extension.sqlite facets --source-id ilostat_EMP_EXAMPLE_abcdef123456
   python -m warehouse.native_query --db /private/native_source_extension.sqlite records --source-id ilostat_EMP_EXAMPLE_abcdef123456 --geo UG --year 2023 --limit 20
 All source/geography/series codes are originals, not inferred comparable indicators.
@@ -29,19 +29,43 @@ def connect_read_only(path: Path) -> sqlite3.Connection:
 def browse(db: sqlite3.Connection, *, command: str, limit: int = 20,
            source_id: str | None = None, geo: str | None = None,
            year: str | None = None, series: str | None = None,
-           include_raw: bool = False) -> dict:
+           include_raw: bool = False, match: str | None = None,
+           source_prefix: str | None = None, offset: int = 0) -> dict:
     if type(limit) is not int or limit < 1 or limit > 500:
         raise ValueError("Limit must be between 1 and 500")
     if command == "sources":
         if any(value is not None for value in (source_id, geo, year, series)) or include_raw:
-            raise ValueError("Record filters are only supported by the records command")
+            raise ValueError("Record filters cannot be used in source catalog")
+        if type(offset) is not int or not 0 <= offset <= 100_000:
+            raise ValueError("Source catalog offset must be between 0 and 100000")
+        for value in (match, source_prefix):
+            if value is not None and (not isinstance(value, str) or
+                                      not value.strip() or len(value) > 128):
+                raise ValueError("Invalid source catalog search")
+        terms, params = [], []
+        if match is not None:
+            terms.append("(instr(lower(source_id), lower(?)) > 0 OR "
+                         "instr(lower(source_name), lower(?)) > 0)")
+            params.extend((match.strip(), match.strip()))
+        if source_prefix is not None:
+            terms.append("substr(source_id, 1, length(?)) = ?")
+            params.extend((source_prefix, source_prefix))
+        where = " WHERE " + " AND ".join(terms) if terms else ""
+        total = db.execute("SELECT COUNT(*) FROM native_sources" + where, params).fetchone()[0]
         rows = db.execute(
             "SELECT source_id,source_name,original_records,indexed_records,raw_sha256 "
-            "FROM native_sources ORDER BY source_id LIMIT ?", (limit,)
+            "FROM native_sources" + where + " ORDER BY source_id LIMIT ? OFFSET ?",
+            [*params, limit, offset]
         ).fetchall()
         return {"mode": "original_sources", "source_native_not_harmonized": True,
+                "not_a_public_release": True,
+                "query": {"match": match, "source_prefix": source_prefix},
+                "total_matching_sources": total, "offset": offset, "limit": limit,
+                "has_more": offset + len(rows) < total,
                 "rows": [dict(zip(("source_id","source_name","original_records",
                                   "indexed_records","source_sha256"), row)) for row in rows]}
+    if any(value is not None for value in (match, source_prefix)) or offset:
+        raise ValueError("Catalog search and offset only work with sources")
     if command not in ("records", "facets"):
         raise ValueError("Expected sources, facets or records command")
     if not isinstance(source_id, str) or not source_id.strip() or len(source_id) > 256:
@@ -117,6 +141,10 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     source_cmd = commands.add_parser("sources", help="List original source IDs and provenance")
     source_cmd.add_argument("--limit", type=int, default=20)
+    source_cmd.add_argument("--offset", type=int, default=0,
+                            help="Page through source IDs in stable alphabetical order")
+    source_cmd.add_argument("--match", help="Case-insensitive literal substring in source ID or name")
+    source_cmd.add_argument("--source-prefix", help="Exact original source ID prefix (no wildcard matching)")
     facet_cmd = commands.add_parser("facets", help="Discover available original geography, year and series codes")
     facet_cmd.add_argument("--source-id", required=True)
     facet_cmd.add_argument("--geo")
@@ -140,7 +168,10 @@ def main() -> None:
                         geo=getattr(args, "geo", None),
                         year=getattr(args, "year", None),
                         series=getattr(args, "series", None),
-                        include_raw=getattr(args, "include_raw", False))
+                        include_raw=getattr(args, "include_raw", False),
+                        match=getattr(args, "match", None),
+                        source_prefix=getattr(args, "source_prefix", None),
+                        offset=getattr(args, "offset", 0))
     if getattr(args, "format", "json") == "csv":
         # Protect accidental publication: stdout is a *local* stream, and
         # rows remain bounded. Quoting prevents CSV column shift.

@@ -56,6 +56,35 @@ class NativeQueryTests(unittest.TestCase):
         self.assertEqual(filtered["facets"]["years"], [{"code":"2023","rows":1}])
         self.assertTrue(facets["source_native_not_harmonized"])
 
+    def test_source_catalog_search_pagination_and_literal_prefix(self):
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO native_sources VALUES (?,?,?,?,?,?,?,?,?)",
+                ("ilostat_EXTRA_abc123abc123", "b"*64, 1, 1,
+                 "original", "Employment estimate", "SOURCE_NATIVE_UNHARMONIZED", 0, '[]'))
+            db.execute("INSERT INTO native_sources VALUES (?,?,?,?,?,?,?,?,?)",
+                ("wdi_GDP", "c"*64, 1, 1,
+                 "original", "Gross Domestic Product", "SOURCE_NATIVE_UNHARMONIZED", 0, '[]'))
+        with connect_read_only(self.path) as db:
+            first = browse(db, command="sources", source_prefix="ilostat_", limit=1)
+            second = browse(db, command="sources", source_prefix="ilostat_", limit=1, offset=1)
+            by_name = browse(db, command="sources", match="employment")
+            by_code = browse(db, command="sources", match="GDP")
+            literal_wildcard = browse(db, command="sources", match="%")
+            with self.assertRaises(ValueError):
+                browse(db, command="sources", offset=-1)
+            with self.assertRaises(ValueError):
+                browse(db, command="sources", match=" ")
+            with self.assertRaises(ValueError):
+                browse(db, command="records", source_id="ilostat_TEST_abcdef123456",
+                       match="employment")
+        self.assertEqual(first["total_matching_sources"], 2)
+        self.assertTrue(first["has_more"])
+        self.assertFalse(second["has_more"])
+        self.assertNotEqual(first["rows"][0]["source_id"], second["rows"][0]["source_id"])
+        self.assertEqual(by_name["rows"][0]["source_id"], "ilostat_EXTRA_abc123abc123")
+        self.assertEqual(by_code["rows"][0]["source_id"], "wdi_GDP")
+        self.assertEqual(literal_wildcard["total_matching_sources"], 0)
+
     def test_csv_export_cli_no_raw_fields_by_default(self):
         from warehouse.native_query import main
         stdout=io.StringIO()
