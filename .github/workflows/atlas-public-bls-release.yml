@@ -1,6 +1,13 @@
 name: Publish verified public-domain Atlas BLS JOLTS source-native download
 
 on:
+  pull_request:
+    paths:
+      - 'warehouse/export_public_bls.py'
+      - 'tests/test_public_bls_release.py'
+      - 'atlas_public/source_guide.py'
+      - 'atlas_public/build_site.py'
+      - '.github/workflows/atlas-public-bls-release.yml'
   push:
     branches: [main]
     paths:
