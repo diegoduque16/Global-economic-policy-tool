@@ -86,6 +86,9 @@ def build(data: Path, output: Path) -> dict | None:
     if count != RELEASE_COUNT or len(grouped) != SOURCE_COUNT:
         raise ValueError("BLS chart rows do not match verified public release")
     catalog = []
+    industries = sorted({sid.removeprefix("bls_jolts_").split("_")[0][3:9]
+                         for sid in source_details})
+    industry_number = {key:pos+1 for pos,key in enumerate(industries)}
     for i, (sid, detail) in enumerate(sorted(source_details.items())):
         observations = sorted(grouped[sid])
         if len(observations) != detail["original_rows"] or len({
@@ -93,8 +96,19 @@ def build(data: Path, output: Path) -> dict | None:
         }) != len(observations):
             raise ValueError("BLS chart has missing or duplicated original months")
         # Preserve official descriptive names whenever the receipt provides them.
-        source_name = detail.get("source_name", "").strip()
-        label = source_name if source_name and source_name != sid else "BLS JOLTS series"
+        original_code = sid.removeprefix("bls_jolts_").split("_")[0]
+        if len(original_code) < 21 or original_code[18:20] not in MEASURES or original_code[-1] not in ("L","R"):
+            raise ValueError("Unexpected original JOLTS series dimensions")
+        measure = MEASURES[original_code[18:20]]
+        unit_type = "rate (%)" if original_code[-1]=="R" else (
+            "level (thousands of positions)" if original_code[18:20]=="JO"
+            else "level (thousands of workers)")
+        industry = original_code[3:9]
+        # Industry group labels must come from verified original BLS metadata.
+        # Never invent an industry name or expose opaque codes in the UI.
+        industry_label = ("Total US nonfarm" if industry=="000000"
+                          else "Original industry group "+str(industry_number[industry]))
+        label = measure + " — " + unit_type + " · " + industry_label
         filename = f"{i:04d}.json"
         (target / filename).write_text(json.dumps({
             "source_id":sid,"source_name":label,"rows":observations
