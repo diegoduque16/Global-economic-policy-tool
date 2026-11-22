@@ -171,6 +171,15 @@ def build(data=None, output=None, *, include_research=True):
         '>Source and license</a>.</span>',
         '>World Bank terms</a> · <a href="/sources/">How to cite and find other datasets</a>.</span>'
     )
+    # BLS public download is shown only once a previously verified release
+    # manifest and ZIP have been added to the published source directory.
+    bls_download_available = (output / "data" / "bls" / "bls_jolts_manifest.json").is_file()
+    if bls_download_available:
+        bls_manifest = json.loads((output / "data" / "bls" / "bls_jolts_manifest.json").read_text())
+        if (bls_manifest.get("release_type") != "public_bls_source_native_only" or
+                bls_manifest.get("source_native_records") != 252710 or
+                bls_manifest.get("series_count") != 830):
+            raise ValueError("Unexpected BLS public release manifest")
     # Make the public/private availability boundary explicit and navigable.
     # No unpublished datasets or private links/assets are copied into Pages.
     source_access = (
@@ -197,6 +206,17 @@ def build(data=None, output=None, *, include_research=True):
         'or approved for public release. Atlas does not merge them automatically.</p>'
         '</section>'
     )
+    if bls_download_available:
+        source_access = source_access.replace(
+            "Source-native research records have been collected, but these provider "
+            "collections are not currently available through this public website.",
+            "Verified BLS JOLTS original records are now downloadable from Atlas. "
+            "Other source-native research datasets are not yet published here."
+        ).replace(
+            'How to access the private explorer</a>',
+            'How to access the private explorer</a> · '
+            '<a href="/sources/">Download open BLS data with citation</a>'
+        )
     html = html.replace(marker, source_access + "\\n        " + marker)
     project_banner = (
         '<section class="project-link-banner" aria-label="Atlas current direction">'
