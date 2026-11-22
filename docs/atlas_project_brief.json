@@ -3,7 +3,7 @@
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
   "updated_date": "2026-11-21",
-  "status_basis": "Private original source-native query smoke passed against the real SHA-restored Atlas database in the successful main production ILOSTAT run 44986267530, which appended 2,682 original source rows (2,678 finite numeric) from EAR_THRA_SEX_NB_A, EMP_TNIF_SEX_NB_A, EMP_TNIF_SEX_RT_A. Latest verified private source-native SQLite: 1,654,527 physical original rows / 1,000 original source IDs, six provider groups; private database SHA256 39fcb2ab81b3c47012f5a225ebb88d91e81c16ca179d7e527e7e09dbf72c2891. This is private and not harmonized or public. PR #79 added searchable literal source-name/ID matching, original-source prefix filtering and stable pagination; both pull request CI workflows passed and change merged. No public site deployment is implied.",
+  "status_basis": "Private original source-native query smoke passed against the real SHA-restored Atlas database in the successful main production ILOSTAT run 44986267530, which appended 2,682 original source rows (2,678 finite numeric) from EAR_THRA_SEX_NB_A, EMP_TNIF_SEX_NB_A, EMP_TNIF_SEX_RT_A. Latest verified private source-native SQLite: 1,654,527 physical original rows / 1,000 original source IDs, six provider groups; private database SHA256 39fcb2ab81b3c47012f5a225ebb88d91e81c16ca179d7e527e7e09dbf72c2891. This is private and not harmonized or public. PR #79 added searchable literal source-name/ID matching, original-source prefix filtering and stable pagination; both pull request CI workflows passed and change merged. No public site deployment is implied. PR #80 merged after passing real approved WDI 300,240-row release build and JavaScript checks: generated per-geography available-indicator counts/years, country-first public dashboard filtering. No new source records, private dataset publication or independent Cloudflare production verification.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -829,14 +829,13 @@
   ],
   "last_completed_improvement": {
     "date": "2026-11-21",
-    "title": "Searchable, paginated private Atlas source catalog",
-    "pull_request": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/79",
-    "notes": "Merged to main SHA 74746fc2d59163b44cb433b6826d0d80b1718448 after successful isolated native explorer and ILOSTAT offline CI. warehouse/native_query.py sources supports --match literal case-insensitive ID/name substring, --source-prefix literal prefix, --offset stable alphabetical paging, --limit bounded page, with total/has_more. No published website changes or private data exposure. Real private query/facets smoke separately passed in prior successful ingestion run 44986267530.",
+    "title": "Country-first public WDI Atlas explorer, availability-aware indicators",
+    "pull_request": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/80",
+    "notes": "Merged main SHA 5c06bc131c2dbdb475e614ac7f96f28868999b32 after successful public WDI build tests and Atlas local explorer tests. Public Cloudflare build generates /data/availability.json only from approved public WDI series (300,240 published numeric observations, 32 indicators, 261 geographic areas), then /api/countries and country-scoped /api/series narrow the existing quick country/indicator explorer to original data actually available. No extra source rows, no private OneDrive or SQLite publication; Cloudflare live deployment has not been verified.",
     "usage": [
-      "python -m warehouse.native_query --db /private/native_source_extension.sqlite sources --match employment --limit 25 --offset 0",
-      "python -m warehouse.native_query --db /private/native_source_extension.sqlite sources --source-prefix ilostat_ --limit 25 --offset 25",
-      "python -m warehouse.native_query --db /private/native_source_extension.sqlite facets --source-id EXACT_SOURCE_ID --limit 40",
-      "python -m warehouse.native_query --db /private/native_source_extension.sqlite records --source-id EXACT_SOURCE_ID --geo UG --year 2023 --limit 20 --format csv"
+      "Visit https://worldeconatlas.com after Cloudflare Pages deploys the updated main build",
+      "Choose a country; available indicator dropdown reflects numeric observations for that geography",
+      "Search indicators, choose years, compare on the chart or export existing public WDI CSV"
     ]
   }
 }
