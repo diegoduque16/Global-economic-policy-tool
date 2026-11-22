@@ -48,6 +48,7 @@ class ILOSTATReleaseTests(unittest.TestCase):
     def perform(self):
         fake={table:(table,2) for table in TABLES}
         with patch("warehouse.export_public_ilostat_sdg.TABLES",fake),\
+             patch("warehouse.export_public_ilostat_sdg.TOTAL",6),\
              patch("warehouse.export_public_ilostat_sdg.EXPECTED_FINITE",3),\
              patch("warehouse.export_public_ilostat_sdg.load_pointer",
                    return_value={"edition_id":"test-edition","archive_sha256":"a"*64}),\
