@@ -3,7 +3,13 @@
 const $=id=>document.getElementById(id);
 const COLORS=["#3271df","#e38b43","#16a899","#8f64cf","#d4557b","#5c9c43","#7c879a","#c09343"];
 const state={families:[],overview:null,seriesResults:[],geographies:[],selected:new Set(),lastResponse:null,chartType:"line",pending:0,geoPending:0,publicCountries:[],publicCountry:""};
-const geoName=code=>state.geographies.find(g=>g.code===code)?.name||code;
+const geoName=code=>state.geographies.find(g=>g.code===code)?.name||
+ state.publicCountries.find(g=>g.code===code)?.name||code;
+const publicView=()=>Boolean(state.overview?.public_edition);
+const indicatorLabel=code=>{
+ const item=state.seriesResults.find(s=>s.name===code);
+ return item?.title||(!publicView()?code:"Indicator label unavailable");
+};
 const fmt=n=>Number(n||0).toLocaleString("en-US");
 const short=n=>Number(n).toLocaleString("en-US",{maximumFractionDigits:4});
 const pretty=s=>String(s||"").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase());
@@ -108,10 +114,12 @@ async function loadSeries(query=""){
   if(req!==state.pending)return;
   state.seriesResults=results.filter(x=>x.name);
   selectOptions($("series"),state.seriesResults.map(x=>({
-   value:x.name,label:(x.title?x.title+" · ":"")+x.name+" ("+fmt(x.rows)+" rows)"
+   value:x.name,label:publicView()?(x.title||"Indicator label unavailable"):
+    (x.title?x.title+" · ":"")+x.name+" ("+fmt(x.rows)+" rows)"
   })),"No matching indicators");
   selectOptions($("quick-indicator"),state.seriesResults.map(x=>({
-   value:x.name,label:(x.title||x.name)+(x.title?" · "+x.name:"")
+   value:x.name,label:publicView()?(x.title||"Indicator label unavailable"):
+    (x.title||x.name)+(x.title?" · "+x.name:"")
   })),"No matching indicators");
   const choices=[...$("series").options].filter(x=>x.value);
   const preferred=choices.find(x=>x.value===previous)||
@@ -119,7 +127,9 @@ async function loadSeries(query=""){
   if(preferred){$("series").value=preferred.value;$("quick-indicator").value=preferred.value;}
   const selected=state.seriesResults.find(x=>x.name===$("series").value);
   $("quick-indicator-hint").textContent=selected?
-   "Series: "+selected.name+" · "+fmt(selected.rows)+(state.overview?.public_edition?" observations for this country":" verified observations"):
+   publicView()?(fmt(selected.rows)+" observations available for this country · "+
+     selected.first_year+"–"+selected.last_year):
+     "Series: "+selected.name+" · "+fmt(selected.rows)+" verified observations":
    "No indicators match your search. Try a broader term.";
   if(!state.seriesResults.length){
    $("quick-indicator-hint").textContent="No indicators match for this country. Try another term or country.";
@@ -164,7 +174,8 @@ function renderCountryPicker(){
   String(a.name||a.code).localeCompare(String(b.name||b.code)));
  picker.replaceChildren(new Option("Select a country or region…",""));
  if(selectedGeo&&!sorted.some(x=>x.code===current)&&search)
-  picker.add(new Option("Current: "+selectedGeo.name+" ("+current+")",current));
+  picker.add(new Option("Current: "+selectedGeo.name+
+   (publicView()?"":" ("+current+")"),current));
  const countries=document.createElement("optgroup"),regions=document.createElement("optgroup");
  countries.label="Countries and territories";regions.label="Aggregates and unclassified source codes";
  for(const geo of sorted){
@@ -199,7 +210,9 @@ function renderGeographies(){
    if(input.checked)state.selected.add(geo.code);else state.selected.delete(geo.code);
    renderGeographies();renderCountryPicker();void apply();
   });
-  label.append(input,el("b","",geo.code),el("span","",(geo.name!==geo.code?geo.name+" · ":"")+fmt(geo.rows)+" rows"));
+  label.append(input,el("b","",publicView()?(geo.name||"Unnamed area"):geo.code),
+   el("span","",publicView()?fmt(geo.rows)+" observations":
+    (geo.name!==geo.code?geo.name+" · ":"")+fmt(geo.rows)+" rows"));
   container.append(label);
  }
 }
@@ -212,7 +225,7 @@ async function apply(){
  const req=++state.pending;
  $("chart").replaceChildren(el("div","chart-empty","Loading source observations…"));
  const indicator=state.seriesResults.find(x=>x.name===series);
- $("plot-title").textContent=indicator?.title||series;
+ $("plot-title").textContent=indicator?.title||(publicView()?"Indicator label unavailable":series);
  $("plot-subtitle").textContent=[...state.selected].map(geoName).join(" · ")+"  |  "+start+"–"+end+"  |  "+pretty(f.name);
  $("plot-layer").textContent=f.layer==="source_native"?"Source-native data · Not harmonized":"Canonical source observations · Native units";
  try{
@@ -273,7 +286,8 @@ function renderTable(host,rows){
  const body=el("tbody");
  for(const r of rows){
   const tr=el("tr");
-  const vals=[geoName(r.geography)+" ("+r.geography+")",r.period,r.series,
+  const vals=[geoName(r.geography)+(publicView()?"":" ("+r.geography+")"),
+    r.period,publicView()?indicatorLabel(r.series):r.series,
    r.value==null?"Not numeric":short(r.value),r.unit,r.provider,r.source_status,
    ...(dimensions?[r.state_code||"—",r.industry_code||"—"]:[]),
    ...(ilostatDimensions?[r.sex||"—",r.classif1||"—",r.classif2||"—",
@@ -334,7 +348,8 @@ function renderSvg(host,rows,type){
   left+(slotIndex.get(String(point.period))||0)/Math.max(1,slots.length-1)*iw:
   left+(point.year-minYear)/yearRange*iw;
  const posY=v=>top+ih-(v-minValue)/(maxValue-minValue)*ih;
- const root=svg("svg",{viewBox:"0 0 "+width+" "+height,role:"img","aria-label":type+" chart of "+state.lastResponse.series,class:"chart-svg"});
+ const root=svg("svg",{viewBox:"0 0 "+width+" "+height,role:"img",
+   "aria-label":type+" chart of "+indicatorLabel(state.lastResponse.series),class:"chart-svg"});
  root.append(svg("rect",{x:left,y:top,width:iw,height:ih,class:"plot-bg"}));
  if(type!=="heatmap"){
   for(let i=0;i<=5;i++){
