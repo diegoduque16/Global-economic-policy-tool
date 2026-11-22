@@ -1,4 +1,5 @@
 """Tests that the public Pages release includes only approved data assets."""
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -45,6 +46,14 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertEqual(len(availability["by_geography"]["USA"]),32)
             self.assertEqual(availability["by_geography"]["USA"]["TEST0"],[1,2020,2020])
             self.assertIn("World Economic Atlas",html)
+            for filename in ("app.js", "public_adapter.js", "style.css"):
+                digest=hashlib.sha256((output/filename).read_bytes()).hexdigest()[:16]
+                path="/"+filename+"?v="+digest
+                self.assertIn(path,html)
+                self.assertNotIn('src="/'+filename+'"',html)
+                self.assertNotIn('href="/'+filename+'"',html)
+            # Every UI source change must produce a different asset reference.
+            self.assertIn('/app.js?v=',html)
             self.assertIn('href="/project/"',html)
             self.assertIn("Project brief &amp; decisions",html)
             public_brief = json.loads((output/"project/brief.json").read_text())
