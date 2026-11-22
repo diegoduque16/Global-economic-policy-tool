@@ -1,0 +1,153 @@
+name: Publish verified public-domain Atlas BLS JOLTS source-native download
+
+on:
+  pull_request:
+    paths:
+      - 'warehouse/export_public_bls.py'
+      - 'tests/test_public_bls_release.py'
+      - 'atlas_public/source_guide.py'
+      - 'atlas_public/build_site.py'
+      - '.github/workflows/atlas-public-bls-release.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'warehouse/export_public_bls.py'
+      - 'tests/test_public_bls_release.py'
+      - '.github/workflows/atlas-public-bls-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-public-bls-source-release
+  cancel-in-progress: false
+
+jobs:
+  offline-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify isolated BLS source filtering and citation
+        run: |
+          python -m unittest discover -s tests -p 'test_public_bls_release.py' -v
+          python -m py_compile warehouse/export_public_bls.py
+
+  publish-public-jolts:
+    if: github.event_name != 'pull_request'
+    needs: offline-verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Configure private read-only source archive access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          mkdir -p "$RUNNER_TEMP/atlas-public-bls"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/atlas-public-bls/rclone.conf"
+          chmod 600 "$RUNNER_TEMP/atlas-public-bls/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/atlas-public-bls/rclone.conf" >> "$GITHUB_ENV"
+      - name: Fetch and validate exact latest private Atlas pointer
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/atlas-public-bls"
+          rclone copyto "$ONEDRIVE_TARGET/snapshots/atlas-ilostat-latest-v1.json" "$root/pointer.json" --retries 3
+          python - <<'PY_POINTER'
+          import os
+          from pathlib import Path
+          from warehouse.ilostat_private_chain import load_pointer
+          root=Path(os.environ["RUNNER_TEMP"])/"atlas-public-bls"
+          p=load_pointer(root/"pointer.json")
+          with open(os.environ["GITHUB_ENV"],"a",encoding="utf-8") as output:
+              output.write("ATLAS_PARENT_ID="+p["edition_id"]+"\n")
+              output.write("ATLAS_PARENT_ARCHIVE_SHA256="+p["archive_sha256"]+"\n")
+          print("ATLAS_PUBLIC_BLS_VERIFIED_PARENT_POINTER_ROWS",p["native_records"])
+          PY_POINTER
+      - name: Restore SHA-verified private SQLite without extracting unrelated source material
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/atlas-public-bls"
+          rclone copyto "$ONEDRIVE_TARGET/snapshots/$ATLAS_PARENT_ID.tar.gz" "$root/source.tar.gz" --retries 3
+          test "$(sha256sum "$root/source.tar.gz" | cut -d ' ' -f1)" = "$ATLAS_PARENT_ARCHIVE_SHA256"
+          python - <<'PY_RESTORE'
+          import os,shutil,tarfile
+          from pathlib import Path,PurePosixPath
+          from warehouse.ilostat_private_chain import load_pointer,verify_parent_db
+          root=Path(os.environ["RUNNER_TEMP"])/"atlas-public-bls"
+          p=load_pointer(root/"pointer.json")
+          expected=p["edition_id"]+"/native_source_extension.sqlite"
+          found=0
+          with tarfile.open(root/"source.tar.gz","r:gz") as archive:
+              for member in archive:
+                  name=PurePosixPath(member.name)
+                  if name.is_absolute() or ".." in name.parts or member.issym() or member.islnk() or member.isdev():
+                      raise ValueError("Unsafe private Atlas archive entry")
+                  if member.name == expected:
+                      if not member.isfile() or not 1_000_000 <= member.size <= 3_000_000_000:
+                          raise ValueError("Unexpected Atlas private SQLite size or type")
+                      found += 1
+                      with archive.extractfile(member) as src, (root/"parent.sqlite").open("xb") as dst:
+                          shutil.copyfileobj(src,dst,length=1024*1024)
+          if found != 1:
+              raise ValueError("Missing or duplicated private Atlas SQLite")
+          verify_parent_db(root/"parent.sqlite",p)
+          print("ATLAS_PUBLIC_BLS_PRIVATE_ORIGINAL_SQLITE_VERIFIED")
+          PY_RESTORE
+      - name: Export strictly public-domain BLS JOLTS data and citations only
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/atlas-public-bls"
+          python -m warehouse.export_public_bls --db "$root/parent.sqlite" \
+            --pointer "$root/pointer.json" --out atlas_public/data/bls
+          python - <<'PY_CHECK'
+          import hashlib,json,zipfile
+          from pathlib import Path
+          root=Path("atlas_public/data/bls")
+          m=json.loads((root/"bls_jolts_manifest.json").read_text())
+          assert m["series_count"]==830 and m["source_native_records"]==252710
+          assert m["not_harmonized"] is True
+          with zipfile.ZipFile(root/m["csv_zip"]) as z:
+              assert set(z.namelist())=={"bls_jolts_source_native.csv","CITATION_AND_USAGE.txt","ORIGINAL_SOURCE_CATALOG.json"}
+          assert hashlib.sha256((root/m["csv_zip"]).read_bytes()).hexdigest()==m["csv_zip_sha256"]
+          print("ATLAS_PUBLIC_BLS_SOURCE_NATIVE_RELEASE_APPROVED",m["series_count"],m["source_native_records"])
+          PY_CHECK
+      - name: Commit public BLS-only release; never copy source database or credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Atlas Verified Public Data Publisher"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add atlas_public/data/bls
+          if git diff --cached --quiet; then
+            echo "BLS public source-native release already matches verified parent."
+            exit 0
+          fi
+          git commit -m "Publish verified public-domain BLS JOLTS original numeric source edition [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
+      - name: Remove private source bytes and connection secrets
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/atlas-public-bls"

@@ -6,6 +6,8 @@ that their private stored Atlas records are already publicly hosted.
 from __future__ import annotations
 
 from html import escape
+import hashlib
+import json
 from pathlib import Path
 
 PROVIDERS = (
@@ -69,18 +71,49 @@ PROVIDERS = (
 def build(destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     cards = []
+    bls_manifest_path = destination.parent / "data" / "bls" / "bls_jolts_manifest.json"
+    bls_public = None
+    if bls_manifest_path.is_file():
+        bls_public = json.loads(bls_manifest_path.read_text(encoding="utf-8"))
+        archive = bls_manifest_path.parent / "bls_jolts_source_native.csv.zip"
+        if (bls_public.get("release_type") != "public_bls_source_native_only" or
+            bls_public.get("source_native_records") != 252710 or
+            bls_public.get("series_count") != 830 or
+            not archive.is_file() or
+            hashlib.sha256(archive.read_bytes()).hexdigest() != bls_public.get("csv_zip_sha256")):
+            raise ValueError("Unverified BLS public release in Atlas data directory")
     for record in PROVIDERS:
+        bls_download = (
+            '<p><a href="/data/bls/bls_jolts_source_native.csv.zip" download>'
+            'Download verified Atlas BLS JOLTS research CSV (ZIP)</a> · '
+            '<a href="/data/bls/bls_jolts_manifest.json">Source manifest and checksums</a></p>'
+            if record["name"] == "U.S. Bureau of Labor Statistics" and bls_public else ""
+        )
+        is_bls_public = record["name"] == "U.S. Bureau of Labor Statistics" and bls_public
+        access = "Atlas public JOLTS download + original portal" if is_bls_public else record["access"]
+        description = ("The source-native JOLTS values have a verified public Atlas download "
+                       "with original series keys and a citation file. Other BLS collections "
+                       "may remain unpublished." if is_bls_public else record["description"])
         cards.append(
             '<article class="source-card"><h2>' + escape(record["name"]) + '</h2>'
-            '<p class="availability">' + escape(record["access"]) + '</p>'
-            '<p>' + escape(record["description"]) + '</p>'
+            '<p class="availability">' + escape(access) + '</p>'
+            '<p>' + escape(description) + '</p>'
             '<p><strong>Reuse terms:</strong> ' + escape(record["license"]) + '</p>'
             '<p><strong>How to cite:</strong> ' + escape(record["citation"]) + '</p>'
+            + bls_download +
             '<p class="links"><a href="' + escape(record["source"], quote=True) +
             '" rel="noopener noreferrer" target="_blank">Explore official dataset</a> · '
             '<a href="' + escape(record["terms"], quote=True) +
             '" rel="noopener noreferrer" target="_blank">License / terms</a></p></article>'
         )
+    hosted_note = (
+        "The main explorer hosts the approved WDI release. A separate verified "
+        "BLS JOLTS research ZIP is also hosted by Atlas; other providers remain "
+        "available through their original portals."
+        if bls_public else
+        "The main Atlas explorer currently hosts only the approved World Bank WDI "
+        "release. Other providers below are linked to their original public portals."
+    )
     html = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Find and cite economic data | World Economic Atlas</title>
@@ -104,11 +137,9 @@ nav{margin-bottom:34px;font-size:14px}h1{font-size:clamp(28px,4vw,42px);letter-s
 <p class="lead">Explore official economic datasets and cite the exact source used.
 Atlas keeps original series identifiers, observation dates, geographical definitions,
 source vintages and missing values for reproducibility.</p>
-<div class="notice"><strong>What is hosted here?</strong> The main Atlas explorer currently hosts
-only the approved World Bank WDI release. Other providers below are linked to their
-original public data portals. Their source-native Atlas archives are not yet published
-or cross-provider harmonized. A source being publicly readable does not necessarily
-grant permission for bulk rehosting.</div>
+<div class="notice"><strong>What is hosted here?</strong> """ + escape(hosted_note) + """
+Source-native records are not automatically comparable across sources. A source being
+publicly readable does not necessarily grant permission for bulk rehosting.</div>
 <section class="grid" aria-label="Official economic data providers">""" + "".join(cards) + """</section>
 <section class="tip"><h2>What to include when citing Atlas data</h2>
 <p>For a specific indicator, record its <strong>original producer, dataset or table title,
