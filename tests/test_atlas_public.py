@@ -142,7 +142,7 @@ class PublicWebsiteTests(unittest.TestCase):
             html=(site/"index.html").read_text()
             guide=(site/"sources"/"index.html").read_text()
             self.assertIn("BLS download now available",html)
-            self.assertIn("Download open BLS data with citation",html)
+            self.assertIn("Explore BLS source and citations",html)
             self.assertIn("Download verified Atlas BLS JOLTS research CSV",guide)
             self.assertIn("Source manifest and checksums",guide)
 
