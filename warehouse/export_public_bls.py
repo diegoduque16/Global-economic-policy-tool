@@ -26,7 +26,7 @@ PUBLIC_LICENSE_URL = "https://www.bls.gov/bls/linksite.htm"
 PROVIDER_URL = "https://www.bls.gov/jlt/"
 SHA_RE = re.compile(r"[0-9a-f]{64}\Z")
 SOURCE_RE = re.compile(r"bls_jolts_[A-Za-z0-9_.-]+\Z")
-HEADER = ("source_id", "year", "period", "geography_code", "series_code",
+HEADER = ("source_id", "original_month_key", "period", "geography_code", "series_code",
           "industry_code", "original_value_text")
 CITE = (
     "Original producer: U.S. Bureau of Labor Statistics (BLS).\n"
@@ -98,8 +98,10 @@ def export(db_path: Path, pointer_path: Path, output: Path) -> dict:
                         sid, year, period, geo, series, industry, original_value = row
                         if not SOURCE_RE.fullmatch(sid):
                             raise ValueError("Unexpected source in BLS-only extract")
-                        if year is not None and (not re.fullmatch(r"[0-9]{4}", year)):
-                            raise ValueError("Unexpected BLS annual key")
+                        if (not isinstance(year, str) or
+                                not re.fullmatch(r"20[0-9]{2}-(0[1-9]|1[0-2])", year) or
+                                period != year):
+                            raise ValueError("Unexpected original BLS monthly period key")
                         if period and len(period) > 20:
                             raise ValueError("Unexpected original period value")
                         # Refuse possible CSV formula injection from provider strings

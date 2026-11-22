@@ -30,8 +30,8 @@ class BLSPublicReleaseTests(unittest.TestCase):
                 ("worldbank_wdi", "b"*64, 1, 1, "original", "Private excluded source",
                  "SOURCE_NATIVE_UNHARMONIZED", 0, "[]"))
             conn.executemany("INSERT INTO native_records VALUES (?,?,?,?,?,?,?,?,?)", [
-                ("bls_jolts_JTU000000000000000",1,"2024","2024-01","US","JTU000000000000000","", "42",json.dumps({"private_raw":"NOT_FOR_PUBLIC_RELEASE"})),
-                ("bls_jolts_JTU000000000000000",2,"2024","2024-02","US","JTU000000000000000","", "43",json.dumps({"private_raw":"NOT_FOR_PUBLIC_RELEASE"})),
+                ("bls_jolts_JTU000000000000000",1,"2024-01","2024-01","US","JTU000000000000000","", "42",json.dumps({"private_raw":"NOT_FOR_PUBLIC_RELEASE"})),
+                ("bls_jolts_JTU000000000000000",2,"2024-02","2024-02","US","JTU000000000000000","", "43",json.dumps({"private_raw":"NOT_FOR_PUBLIC_RELEASE"})),
                 ("worldbank_wdi",1,"2024","2024","UG","WDI","", "999",json.dumps({"private_raw":"NOT_FOR_PUBLIC_RELEASE"}))
             ])
         self.pointer_data={"edition_id":"atlas-native-ilostat-next-20261122-44986267530",
@@ -56,6 +56,7 @@ class BLSPublicReleaseTests(unittest.TestCase):
             self.assertNotIn("999",csv_text)
             self.assertNotIn("NOT_FOR_PUBLIC_RELEASE",csv_text)
             self.assertEqual(rows[0]["original_value_text"],"42")
+            self.assertEqual(rows[0]["original_month_key"],"2024-01")
             cite=archive.read("CITATION_AND_USAGE.txt").decode()
             self.assertIn("Bureau of Labor Statistics",cite)
             self.assertIn("https://www.bls.gov/jlt/",cite)
