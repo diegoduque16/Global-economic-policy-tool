@@ -7,12 +7,17 @@ on:
       - 'warehouse/ilostat_private_chain.py'
       - 'tests/test_ilostat_next_batch.py'
       - 'tests/test_ilostat_private_chain.py'
+      - 'warehouse/native_query.py'
+      - 'warehouse/native_query_smoke.py'
+      - 'tests/test_native_query_smoke.py'
       - '.github/workflows/atlas-ilostat-next-native-batch.yml'
   push:
     branches: [main]
     paths:
       - 'warehouse/ilostat_next_batch.py'
       - 'tests/test_ilostat_next_batch.py'
+      - 'warehouse/native_query_smoke.py'
+      - 'tests/test_native_query_smoke.py'
       - '.github/workflows/atlas-ilostat-next-native-batch.yml'
   workflow_dispatch:
 
@@ -38,7 +43,9 @@ jobs:
           python -m unittest discover -s tests -p 'test_ilostat_next_batch.py' -v
           python -m unittest discover -s tests -p 'test_ilostat_native_extension.py' -v
           python -m unittest discover -s tests -p 'test_ilostat_private_chain.py' -v
-          python -m py_compile warehouse/ilostat_next_batch.py warehouse/ilostat_private_chain.py
+          python -m unittest discover -s tests -p 'test_native_query.py' -v
+          python -m unittest discover -s tests -p 'test_native_query_smoke.py' -v
+          python -m py_compile warehouse/ilostat_next_batch.py warehouse/ilostat_private_chain.py warehouse/native_query.py warehouse/native_query_smoke.py
 
   private-original-source-append:
     if: github.event_name != 'pull_request'
@@ -136,6 +143,13 @@ jobs:
           verified=verify_parent_db(root/"parent.sqlite",pointer)
           print("ATLAS_VERIFIED_PRIVATE_PARENT",pointer["native_records"],len(verified))
           PY_PARENT
+      - name: Verify restored private Atlas original-source query and facet usability
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m warehouse.native_query_smoke \
+            --db "$RUNNER_TEMP/atlas-next-ilostat/parent.sqlite" \
+            --pointer "$RUNNER_TEMP/atlas-next-ilostat/parent-pointer.json"
       - name: Select actual archived official ILOSTAT annual tables and restore originals
         shell: bash
         run: |
