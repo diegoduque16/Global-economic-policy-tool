@@ -17,11 +17,13 @@ if __package__:
     from .project_brief import build as build_project_brief
     from .source_guide import build as build_source_guide
     from .build_bls_charts import build as build_bls_charts
+    from .build_ilostat_charts import build as build_ilostat_charts
 else:
     from research_export import build_research_exports
     from project_brief import build as build_project_brief
     from source_guide import build as build_source_guide
     from build_bls_charts import build as build_bls_charts
+    from build_ilostat_charts import build as build_ilostat_charts
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
@@ -93,6 +95,7 @@ def build(data=None, output=None, *, include_research=True):
     # Published BLS JOLTS values have their own immutable public provenance.
     # Only this previously-released ZIP is converted into individual chart JSON.
     bls_chart_release = build_bls_charts(data, output)
+    ilostat_chart_release = build_ilostat_charts(data, output)
     # Source coverage is derived only from the already released WDI data.
     availability = build_public_availability(data, catalog)
     (output / "data" / "availability.json").write_text(
@@ -184,6 +187,8 @@ def build(data=None, output=None, *, include_research=True):
         '<option value="wdi">World Bank — economic indicators</option>'
         + ('<option value="bls">U.S. Bureau of Labor Statistics — JOLTS</option>'
            if bls_chart_release else '') +
+        ('<option value="ilostat">International Labour Organization — ILOSTAT</option>'
+           if ilostat_chart_release else '') +
         '</select>'
         '<small>Select a source to see its actual countries and indicators.</small>'
         '</div>'
