@@ -16,10 +16,12 @@ if __package__:
     from .research_export import build_research_exports
     from .project_brief import build as build_project_brief
     from .source_guide import build as build_source_guide
+    from .build_bls_charts import build as build_bls_charts
 else:
     from research_export import build_research_exports
     from project_brief import build as build_project_brief
     from source_guide import build as build_source_guide
+    from build_bls_charts import build as build_bls_charts
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
@@ -88,6 +90,9 @@ def build(data=None, output=None, *, include_research=True):
     for name in ("index.html", "style.css", "app.js"):
         shutil.copy2(BASE_SITE / name, output / name)
     shutil.copytree(data, output / "data")
+    # Published BLS JOLTS values have their own immutable public provenance.
+    # Only this previously-released ZIP is converted into individual chart JSON.
+    build_bls_charts(data, output)
     # Source coverage is derived only from the already released WDI data.
     availability = build_public_availability(data, catalog)
     (output / "data" / "availability.json").write_text(
