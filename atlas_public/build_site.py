@@ -176,6 +176,27 @@ def build(data=None, output=None, *, include_research=True):
         '>Source and license</a>.</span>',
         '>World Bank terms</a> · <a href="/sources/">How to cite and find other datasets</a>.</span>'
     )
+    # Source choice belongs at the start of the charting flow.
+    selector = (
+        '<div class="quick-field quick-source-field">'
+        '<label for="quick-source"><span class="quick-step">1</span> Choose a data source</label>'
+        '<select id="quick-source" aria-label="Choose data source">'
+        '<option value="wdi">World Bank — economic indicators</option>'
+        '<option value="bls">U.S. Bureau of Labor Statistics — JOLTS</option>'
+        '</select>'
+        '<small>Select a source to see its actual countries and indicators.</small>'
+        '</div>'
+    )
+    quick_anchor = '<div class="quick-fields">'
+    if html.count(quick_anchor)!=1:
+        raise ValueError("Public source selector placement missing")
+    html = html.replace(quick_anchor, quick_anchor + selector)
+    html = html.replace('<span class="quick-step">1</span> Choose a country',
+                        '<span class="quick-step">2</span> Choose a country')
+    html = html.replace('<span class="quick-step">2</span> Choose an indicator',
+                        '<span class="quick-step">3</span> Choose an indicator')
+    html = html.replace('<span class="quick-step">3</span> Select years',
+                        '<span class="quick-step">4</span> Select years')
     # BLS public download is shown only once a previously verified release
     # manifest and ZIP have been added to the published source directory.
     bls_download_available = (output / "data" / "bls" / "bls_jolts_manifest.json").is_file()
@@ -363,6 +384,13 @@ def build(data=None, output=None, *, include_research=True):
         ".copy-source-citation{font-size:11px;font-weight:750;padding:9px 13px;"
         "border:1px solid #bed2ed;border-radius:8px;color:#245db1;background:#fff}"
         ".copy-source-citation:hover{background:#e7effb}\\n"
+    )
+    css += (
+        "\\n.quick-source-field{grid-column:1/-1;max-width:580px;"
+        "background:#f2f7ff;border:1px solid #d8e7fa;border-radius:12px;"
+        "padding:14px 16px}"
+        ".quick-source-field select{width:100%;font-weight:750}"
+        "@media(max-width:800px){.quick-source-field{max-width:none}}\\n"
     )
     (output / "style.css").write_text(css, encoding="utf-8")
     # Fingerprint exact rendered public UI assets after *all* modifications.
