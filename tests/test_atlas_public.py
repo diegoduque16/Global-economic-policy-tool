@@ -77,7 +77,7 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertIn('id="quick-indicator-search"',html)
             self.assertIn('id="quick-year-start"',html)
             self.assertIn('id="quick-year-end"',html)
-            self.assertIn('src="/public_adapter.js"',html)
+            self.assertIn('src="/public_adapter.js?v=',html)
             self.assertIn("World Bank",html)
             client=(output/"app.js").read_text()
             self.assertIn("ATLAS_PUBLIC_DOWNLOAD",client)
