@@ -170,6 +170,45 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertIn('publicSource.addEventListener("change"',app)
             self.assertIn('isBLS?',app)
 
+    def test_real_ilostat_sdg_source_chart_files(self):
+        root=Path(__file__).resolve().parents[1]/"atlas_public"/"data"
+        if not (root/"ilostat"/"ilostat_sdg_manifest.json").is_file():
+            self.skipTest("Published original ILOSTAT source release not in checkout")
+        with tempfile.TemporaryDirectory() as temp:
+            output=Path(temp)/"site"
+            build(data=root,output=output,include_research=False)
+            html=(output/"index.html").read_text(encoding="utf-8")
+            index=json.loads((output/"data"/"ilostat"/"charts"/"catalog.json").read_text())
+            self.assertEqual(index["source_native_records"],153116)
+            self.assertEqual(index["finite_numeric_records"],149148)
+            self.assertEqual(index["original_table_count"],3)
+            self.assertTrue(index["annual_source_defined_not_harmonized"])
+            self.assertGreater(index["chartable_geographies"],100)
+            self.assertIn('<option value="ilostat">International Labour Organization',html)
+            total=0
+            kinds=set()
+            for geo in index["geographies"]:
+                content=json.loads((output/"data"/"ilostat"/"charts"/geo["file"]).read_text())
+                self.assertEqual(content["code"],geo["code"])
+                self.assertEqual(len(content["series"]),geo["series_count"])
+                self.assertEqual(sum(len(x["rows"]) for x in content["series"]),
+                                 geo["numeric_records"])
+                for item in content["series"]:
+                    self.assertTrue(item["title"].startswith((
+                        "Informal employment", "Average hourly earnings","Unemployment rate"
+                    )))
+                    self.assertNotIn("SDG_0",item["title"])
+                    self.assertEqual(item["rows"],sorted(item["rows"]))
+                    kinds.add(item["table_id"])
+                total+=geo["numeric_records"]
+            self.assertEqual(total,149148)
+            self.assertEqual(len(kinds),3)
+            adapter=(output/"public_adapter.js").read_text()
+            self.assertIn("async function ilostatQuery(path,params)",adapter)
+            self.assertIn('data.finite_numeric_records!==149148',adapter)
+            client=(output/"app.js").read_text()
+            self.assertIn('isILO=currentFamily()?.id==="ilostat"',client)
+
     def test_reject_missing_or_changed_source_release(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
