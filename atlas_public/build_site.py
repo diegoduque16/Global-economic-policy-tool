@@ -23,6 +23,41 @@ REPO = HERE.parent
 BASE_SITE = REPO / "atlas_web" / "static"
 
 
+
+def build_public_availability(data: Path, catalog: dict) -> dict:
+    """Derived country/indicator coverage from only the approved public WDI rows."""
+    from collections import defaultdict
+    import math
+
+    geos = catalog.get("geographies") or {}
+    coverage = defaultdict(dict)
+    for indicator in catalog["series"]:
+        code = indicator["code"]
+        raw = json.loads((data / "series" / (code + ".json")).read_text(encoding="utf-8"))
+        if raw.get("code") != code or not isinstance(raw.get("rows"), list):
+            raise ValueError("Public availability file does not match approved series: " + code)
+        if len(raw["rows"]) != indicator["rows"]:
+            raise ValueError("Public availability row count mismatch: " + code)
+        grouped = defaultdict(list)
+        for point in raw["rows"]:
+            if (not isinstance(point, list) or len(point) != 3 or
+                    point[0] not in geos or type(point[1]) is not int or
+                    not isinstance(point[2], (int, float)) or isinstance(point[2], bool) or
+                    not math.isfinite(point[2])):
+                raise ValueError("Invalid verified WDI row in availability index: " + code)
+            grouped[point[0]].append(point[1])
+        for geography, years in grouped.items():
+            coverage[geography][code] = [len(years), min(years), max(years)]
+    return {
+        "schema_version": 1,
+        "public_edition": True,
+        "source_run_id": catalog["source_run_id"],
+        "availability_semantics": "original WDI numeric source-row counts and observed year bounds; not harmonized",
+        "by_geography": {geo: dict(sorted(items.items()))
+                         for geo, items in sorted(coverage.items())}
+    }
+
+
 def build(data=None, output=None, *, include_research=True):
     data = Path(data or HERE / "data")
     output = Path(output or HERE / "dist")
@@ -50,6 +85,12 @@ def build(data=None, output=None, *, include_research=True):
     for name in ("index.html", "style.css", "app.js"):
         shutil.copy2(BASE_SITE / name, output / name)
     shutil.copytree(data, output / "data")
+    # Source coverage is derived only from the already released WDI data.
+    availability = build_public_availability(data, catalog)
+    (output / "data" / "availability.json").write_text(
+        json.dumps(availability, ensure_ascii=False, separators=(",", ":")) + "\n",
+        encoding="utf-8")
+
     shutil.copy2(HERE / "public_adapter.js", output / "public_adapter.js")
     # One public-safe source under version control produces both the project page
     # and its machine-readable context. Never publish private raw assets here.

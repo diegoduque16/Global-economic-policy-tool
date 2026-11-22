@@ -5,6 +5,10 @@ on:
     paths:
       - 'warehouse/native_query.py'
       - 'tests/test_native_query.py'
+      - 'atlas_public/build_site.py'
+      - 'atlas_public/public_adapter.js'
+      - 'atlas_web/static/app.js'
+      - 'tests/test_atlas_public.py'
       - '.github/workflows/atlas-native-query-tests.yml'
   push:
     branches: [main]
@@ -30,3 +34,22 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_native_query.py' -v
           python -m py_compile warehouse/native_query.py
+      - name: Validate approved public WDI country-first browser against released source files
+        run: |
+          python -m unittest discover -s tests -p 'test_atlas_public.py' -v
+          python - <<'PY'
+          from atlas_public.build_site import build
+          from pathlib import Path
+          import json
+          r=build(include_research=False)
+          data=Path(r["output"])/"data"
+          index=json.loads((data/"availability.json").read_text())
+          manifest=json.loads((data/"catalog.json").read_text())
+          assert index["source_run_id"] == manifest["source_run_id"]
+          assert len(index["by_geography"]) == 261
+          assert sum(row[0] for listing in index["by_geography"].values()
+                     for row in listing.values()) == 300240
+          print("ATLAS_PUBLIC_COUNTRY_FIRST_COVERAGE_VALIDATED")
+          PY
+          node --check atlas_public/dist/app.js
+          node --check atlas_public/dist/public_adapter.js

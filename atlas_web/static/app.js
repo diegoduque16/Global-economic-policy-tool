@@ -2,7 +2,7 @@
 // Atlas browser client. Real values come exclusively from /api/rows, not demo arrays.
 const $=id=>document.getElementById(id);
 const COLORS=["#3271df","#e38b43","#16a899","#8f64cf","#d4557b","#5c9c43","#7c879a","#c09343"];
-const state={families:[],overview:null,seriesResults:[],geographies:[],selected:new Set(),lastResponse:null,chartType:"line",pending:0,geoPending:0};
+const state={families:[],overview:null,seriesResults:[],geographies:[],selected:new Set(),lastResponse:null,chartType:"line",pending:0,geoPending:0,publicCountries:[],publicCountry:""};
 const geoName=code=>state.geographies.find(g=>g.code===code)?.name||code;
 const fmt=n=>Number(n||0).toLocaleString("en-US");
 const short=n=>Number(n).toLocaleString("en-US",{maximumFractionDigits:4});
@@ -103,7 +103,8 @@ async function loadSeries(query=""){
  $("series").replaceChildren(new Option("Searching available indicators…",""));
  $("quick-indicator").replaceChildren(new Option("Searching indicators…",""));
  try{
-  const results=await api("/api/series",{family:f.id,layer:f.layer,q:query});
+  const results=await api("/api/series",{family:f.id,layer:f.layer,q:query,
+   geo:state.overview?.public_edition?state.publicCountry:undefined});
   if(req!==state.pending)return;
   state.seriesResults=results.filter(x=>x.name);
   selectOptions($("series"),state.seriesResults.map(x=>({
@@ -118,8 +119,12 @@ async function loadSeries(query=""){
   if(preferred){$("series").value=preferred.value;$("quick-indicator").value=preferred.value;}
   const selected=state.seriesResults.find(x=>x.name===$("series").value);
   $("quick-indicator-hint").textContent=selected?
-   "Series: "+selected.name+" · "+fmt(selected.rows)+" verified observations":
+   "Series: "+selected.name+" · "+fmt(selected.rows)+(state.overview?.public_edition?" observations for this country":" verified observations"):
    "No indicators match your search. Try a broader term.";
+  if(!state.seriesResults.length){
+   $("quick-indicator-hint").textContent="No indicators match for this country. Try another term or country.";
+   state.lastResponse=null;render();return;
+  }
   await loadGeographies();
  }catch(e){if(req===state.pending)showError(e);}
 }
@@ -136,7 +141,10 @@ async function loadGeographies(){
   if(req!==state.geoPending)return;
   state.geographies=geos;
   state.selected=new Set([...previous].filter(code=>geos.some(x=>x.code===code)));
-  if(!state.selected.size){
+  if(state.overview?.public_edition && state.publicCountry &&
+     geos.some(x=>x.code===state.publicCountry)){
+   state.selected=new Set([state.publicCountry]);
+  }else if(!state.selected.size){
    const first=geos.find(x=>x.code==="USA")||
     geos.find(x=>x.geography_type==="country_or_territory")||geos[0];
    if(first)state.selected.add(first.code);
@@ -146,9 +154,10 @@ async function loadGeographies(){
 }
 function renderCountryPicker(){
  const picker=$("quick-country"),search=$("quick-country-search").value.trim().toLowerCase();
- const current=[...state.selected][0]||"";
- const selectedGeo=state.geographies.find(x=>x.code===current);
- const filtered=state.geographies.filter(x=>
+ const current=state.overview?.public_edition?state.publicCountry:([ ...state.selected][0]||"");
+ const allGeographies=state.overview?.public_edition?state.publicCountries:state.geographies;
+ const selectedGeo=allGeographies.find(x=>x.code===current);
+ const filtered=allGeographies.filter(x=>
   x.code.toLowerCase().includes(search)||String(x.name||"").toLowerCase().includes(search));
  const sorted=filtered.sort((a,b)=>
   Number(a.geography_type!=="country_or_territory")-Number(b.geography_type!=="country_or_territory")||
@@ -445,6 +454,13 @@ function attach(){
  $("quick-country").addEventListener("change",()=>{
   const code=$("quick-country").value;
   if(!code)return;
+  if(state.overview?.public_edition){
+   state.publicCountry=code;
+   state.selected=new Set([code]);
+   renderCountryPicker();
+   void loadSeries($("quick-indicator-search").value.trim());
+   return;
+  }
   state.selected=new Set([code]);
   renderGeographies();renderCountryPicker();void apply();
  });
@@ -465,7 +481,15 @@ async function init(){
  try{
   [state.overview,state.families]=await Promise.all([api("/api/overview"),api("/api/families")]);
   populateOverview();fillFamilies();drawCatalog();mode("explore");
-  if(state.overview?.public_edition){$("year-end").value="2025";$("quick-year-end").value="2025";}
+  if(state.overview?.public_edition){
+   const family=currentFamily();
+   state.publicCountries=await api("/api/countries",{family:family.id,layer:family.layer});
+   const initial=state.publicCountries.find(x=>x.code==="USA")||
+    state.publicCountries.find(x=>x.geography_type==="country_or_territory")||
+    state.publicCountries[0];
+   if(initial){state.publicCountry=initial.code;state.selected=new Set([initial.code]);}
+   $("year-end").value="2025";$("quick-year-end").value="2025";
+  }
   await loadFamily();
  }catch(e){showError(e);$("source-caption").textContent="Could not access the selected Atlas snapshot.";}
 }

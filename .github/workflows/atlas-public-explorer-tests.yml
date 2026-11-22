@@ -1,0 +1,54 @@
+name: Validate public Atlas country-first data explorer
+on:
+  pull_request:
+    paths:
+      - 'atlas_public/build_site.py'
+      - 'atlas_public/public_adapter.js'
+      - 'atlas_web/static/app.js'
+      - 'tests/test_atlas_public.py'
+      - '.github/workflows/atlas-public-explorer-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'atlas_public/build_site.py'
+      - 'atlas_public/public_adapter.js'
+      - 'atlas_web/static/app.js'
+      - 'tests/test_atlas_public.py'
+      - '.github/workflows/atlas-public-explorer-tests.yml'
+permissions:
+  contents: read
+jobs:
+  verified-public-explorer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate published WDI release and country/indicator availability
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_atlas_public.py' -v
+          python - <<'PY_CHECK'
+          import json
+          from atlas_public.build_site import build
+          from pathlib import Path
+          built=build(include_research=False)
+          root=Path(built["output"])
+          catalog=json.loads((root/"data/catalog.json").read_text())
+          availability=json.loads((root/"data/availability.json").read_text())
+          assert availability["public_edition"] is True
+          assert availability["source_run_id"] == catalog["source_run_id"]
+          assert len(availability["by_geography"]) == 261
+          assert sum(record[0] for regions in availability["by_geography"].values()
+                     for record in regions.values()) == 300240
+          assert {code for regions in availability["by_geography"].values()
+                  for code in regions} == {s["code"] for s in catalog["series"]}
+          assert not list(root.rglob("warehouse.sqlite"))
+          print("ATLAS_PUBLIC_COUNTRY_INDICATOR_AVAILABILITY_VERIFIED")
+          PY_CHECK
+          node --check atlas_public/dist/app.js
+          node --check atlas_public/dist/public_adapter.js
