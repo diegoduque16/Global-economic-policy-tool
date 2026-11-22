@@ -7,6 +7,7 @@ families are placed in the public assets. This is not a live private data API.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -250,6 +251,23 @@ def build(data=None, output=None, *, include_research=True):
         ".project-link-banner a{white-space:normal;text-align:center}}\n"
     )
     (output / "style.css").write_text(css, encoding="utf-8")
+    # Fingerprint exact rendered public UI assets after *all* modifications.
+    # Query-string versioning protects browsers/CDNs from serving a previous
+    # script after Pages deploys the latest GitHub main build.
+    html = (output / "index.html").read_text(encoding="utf-8")
+    assets = {
+        "/style.css": output / "style.css",
+        "/public_adapter.js": output / "public_adapter.js",
+        "/app.js": output / "app.js",
+    }
+    for route, local_file in assets.items():
+        fingerprint = hashlib.sha256(local_file.read_bytes()).hexdigest()[:16]
+        old = 'href="' + route + '"' if route.endswith(".css") else 'src="' + route + '"'
+        new = old[:-1] + "?v=" + fingerprint + '"'
+        if html.count(old) != 1:
+            raise ValueError("Expected exactly one public UI asset reference: " + route)
+        html = html.replace(old, new)
+    (output / "index.html").write_text(html, encoding="utf-8")
     (output / "_headers").write_text(
         "/*\n"
         "  X-Content-Type-Options: nosniff\n"
