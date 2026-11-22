@@ -125,20 +125,20 @@ def build(data=None, output=None, *, include_research=True):
         "GLOBAL ECONOMIC INTELLIGENCE · DATA FOUNDATION": "WORLD ECONOMIC ATLAS · PUBLIC DATA EDITION",
         "Explore the economic landscape": "Explore the world economy",
         "Visualize real observations from Atlas’s consolidated data warehouse. Browse indicators, compare geographies, explore time periods, and inspect underlying records.":
-            "Explore 300,240 verified World Bank observations from Atlas’s source archive. Other consolidated providers will follow once verified for public distribution.",
+            "Explore verified World Bank annual data and U.S. Bureau of Labor Statistics monthly JOLTS charts. Choose a source, country and indicator to start.",
         "Private workspace": "Public data edition",
         "Queries your local Atlas SQLite snapshot. No database upload.":
-            "Only licensed public WDI values are published. The private Atlas warehouse stays private.",
+            "Verified public World Bank and BLS JOLTS source data are chartable. Other providers remain under validation.",
         "CURRENT SNAPSHOT": "SOURCE RELEASE",
         "Immutable source versions": "WDI archived November 9, 2026",
         "Source-separated observations": "Verified WDI observations",
         "In the canonical observation table": "Public source edition · not harmonized",
         "Source families": "Published source families",
-        "Preserved native definitions": "World Bank WDI (selected)",
+        "Preserved native definitions": "World Bank WDI + BLS JOLTS",
         "Additional native records": "Geographic areas",
         "Separate layer; may overlap": "Countries, territories and aggregates",
         "Indexed native sources": "Public WDI indicators",
-        "Stored in the same SQLite": "Published annual source series",
+        "Stored in the same SQLite": "Published original annual and monthly source series",
         "Source-native": "Verified WDI",
         "Search by series name or code": "Search by topic or indicator name",
         "Search country name or code": "Search by country or region name",
@@ -213,8 +213,8 @@ def build(data=None, output=None, *, include_research=True):
         '<section class="source-access" id="data-access" aria-label="Where to find Atlas data">'
         '<div class="source-access-heading"><span>DATA AVAILABILITY</span>'
         '<h2>What can I explore?</h2>'
-        '<p>Start with the verified public World Bank indicators. Other collections '
-        'are integrated into the private Atlas research database, not this public website.</p></div>'
+        '<p>Chart verified World Bank and BLS JOLTS indicators. Other collections '
+        'remain in the private research database pending source-by-source public release.</p></div>'
         '<div class="source-access-grid">'
         '<article class="source-access-card"><strong>World Bank indicators</strong>'
         '<span class="source-availability public">Explore here</span>'
@@ -244,7 +244,7 @@ def build(data=None, output=None, *, include_research=True):
         ).replace(
             'How to access the private explorer</a>',
             'How to access the private explorer</a> · '
-            '<a href="/sources/">Download open BLS data with citation</a>'
+            '<a href="/sources/">Explore BLS source and citations</a>'
         )
     html = html.replace(marker, source_access + "\\n        " + marker)
     project_banner = (
