@@ -326,6 +326,17 @@ def build(data=None, output=None, *, include_research=True):
         "@media(max-width:720px){.source-access-grid{grid-template-columns:1fr}"
         ".source-access{padding:18px}}\\n"
     )
+    css += (
+        "\\n.public-citation-panel{background:#f3f7fd;border:1px solid #dce6f4;"
+        "border-radius:10px;padding:17px;margin-top:18px;color:#2b4361}"
+        ".public-citation-panel strong{font-size:13px}"
+        ".public-citation-panel p{font-size:12px;line-height:1.7;overflow-wrap:anywhere}"
+        ".citation-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px}"
+        ".citation-actions a{font-size:11px;color:#245db1;text-decoration:underline}"
+        ".copy-source-citation{font-size:11px;font-weight:750;padding:9px 13px;"
+        "border:1px solid #bed2ed;border-radius:8px;color:#245db1;background:#fff}"
+        ".copy-source-citation:hover{background:#e7effb}\\n"
+    )
     (output / "style.css").write_text(css, encoding="utf-8")
     # Fingerprint exact rendered public UI assets after *all* modifications.
     # Query-string versioning protects browsers/CDNs from serving a previous
