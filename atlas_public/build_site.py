@@ -92,7 +92,7 @@ def build(data=None, output=None, *, include_research=True):
     shutil.copytree(data, output / "data")
     # Published BLS JOLTS values have their own immutable public provenance.
     # Only this previously-released ZIP is converted into individual chart JSON.
-    build_bls_charts(data, output)
+    bls_chart_release = build_bls_charts(data, output)
     # Source coverage is derived only from the already released WDI data.
     availability = build_public_availability(data, catalog)
     (output / "data" / "availability.json").write_text(
@@ -182,7 +182,8 @@ def build(data=None, output=None, *, include_research=True):
         '<label for="quick-source"><span class="quick-step">1</span> Choose a data source</label>'
         '<select id="quick-source" aria-label="Choose data source">'
         '<option value="wdi">World Bank — economic indicators</option>'
-        '<option value="bls">U.S. Bureau of Labor Statistics — JOLTS</option>'
+        + ('<option value="bls">U.S. Bureau of Labor Statistics — JOLTS</option>'
+           if bls_chart_release else '') +
         '</select>'
         '<small>Select a source to see its actual countries and indicators.</small>'
         '</div>'
