@@ -85,15 +85,16 @@ def export(db_path:Path, pointer_path:Path, output:Path)->dict:
                                 or not isinstance(dims,str) or not isinstance(json.loads(dims),dict)):
                                 raise ValueError("Unexpected original ILOSTAT source dimensions")
                             value=value or ""
+                            is_numeric=False
                             if value:
                                 try:
-                                    x=float(value)
+                                    is_numeric=math.isfinite(float(value))
                                 except (ValueError,OverflowError):
-                                    x=float("nan")
-                                if math.isfinite(x):
-                                    finite+=1
+                                    pass
+                            if is_numeric:
+                                finite+=1
                             writer.writerow([table,geo,year,series,value,
-                                             "finite_numeric" if value and math.isfinite(float(value)) else "source_missing_or_nonnumeric",
+                                             "finite_numeric" if is_numeric else "source_missing_or_nonnumeric",
                                              dims])
                             by_table[table]+=1
             z.writestr("ORIGINAL_SOURCES.json",json.dumps(sources,ensure_ascii=False,indent=2))
