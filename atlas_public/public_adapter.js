@@ -7,6 +7,7 @@
 (() => {
   const originalFetch = window.fetch.bind(window);
   let catalogPromise = null;
+  let availabilityPromise = null;
   const datasets = new Map();
   const LIMIT = 2000;
   const CSV_LIMIT = 10000;
@@ -45,6 +46,25 @@
       });
     }
     return catalogPromise;
+  }
+  async function availability() {
+    if (!availabilityPromise) {
+      availabilityPromise = Promise.all([
+        catalog(),
+        originalFetch("/data/availability.json", {cache:"no-store"}).then(async response => {
+          if (!response.ok) fail("Public country coverage index is unavailable");
+          return response.json();
+        })
+      ]).then(([manifest, index]) => {
+        if (index.public_edition !== true || index.schema_version !== 1 ||
+            index.source_run_id !== manifest.source_run_id ||
+            !index.by_geography || typeof index.by_geography !== "object") {
+          fail("Public availability index does not match the approved WDI edition");
+        }
+        return index.by_geography;
+      });
+    }
+    return availabilityPromise;
   }
   async function dataset(code) {
     checkCode(code);
@@ -138,15 +158,27 @@
       }];
     }
     checkFamily(params);
+    if (path === "/api/countries") {
+      const coverage = await availability();
+      return Object.entries(manifest.geographies).filter(([code]) => coverage[code]).map(([code, geo]) => ({
+        code, name:geo.name || code,
+        geography_type:geo.kind || "unresolved",
+        available_indicators:Object.keys(coverage[code]).length
+      })).sort((a,b) => a.name.localeCompare(b.name));
+    }
     if (path === "/api/series") {
       const q = (params.get("q") || "").toLowerCase().slice(0,90);
-      return manifest.series.filter(x => !q ||
+      const geo = params.get("geo") || "";
+      const coverage = geo ? (await availability())[geo] : null;
+      if (geo && !coverage) fail("Country is not in the approved public source coverage");
+      return manifest.series.filter(x => (!geo || coverage[x.code]) && (!q ||
         x.code.toLowerCase().includes(q) || x.title.toLowerCase().includes(q) ||
-        x.topic.toLowerCase().includes(q))
+        x.topic.toLowerCase().includes(q)))
         .sort((a,b) => b.rows - a.rows)
         .slice(0,250).map(x => ({
-          name:x.code, title:x.title, rows:x.rows, first_year:x.first_year,
-          last_year:x.last_year, units:1
+          name:x.code, title:x.title, rows:geo?coverage[x.code][0]:x.rows,
+          first_year:geo?coverage[x.code][1]:x.first_year,
+          last_year:geo?coverage[x.code][2]:x.last_year, units:1
         }));
     }
     const code = checkCode(params.get("series") || "");
