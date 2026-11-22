@@ -3,7 +3,7 @@
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
   "updated_date": "2026-11-21",
-  "status_basis": "Private original source-native query smoke passed against the real SHA-restored Atlas database in the successful main production ILOSTAT run 44986267530, which appended 2,682 original source rows (2,678 finite numeric) from EAR_THRA_SEX_NB_A, EMP_TNIF_SEX_NB_A, EMP_TNIF_SEX_RT_A. Latest verified private source-native SQLite: 1,654,527 physical original rows / 1,000 original source IDs, six provider groups; private database SHA256 39fcb2ab81b3c47012f5a225ebb88d91e81c16ca179d7e527e7e09dbf72c2891. This is private and not harmonized or public. PR #79 added searchable literal source-name/ID matching, original-source prefix filtering and stable pagination; both pull request CI workflows passed and change merged. No public site deployment is implied. PR #80 merged after passing real approved WDI 300,240-row release build and JavaScript checks: generated per-geography available-indicator counts/years, country-first public dashboard filtering. No new source records, private dataset publication or independent Cloudflare production verification.",
+  "status_basis": "Private original source-native query smoke passed against the real SHA-restored Atlas database in the successful main production ILOSTAT run 44986267530, which appended 2,682 original source rows (2,678 finite numeric) from EAR_THRA_SEX_NB_A, EMP_TNIF_SEX_NB_A, EMP_TNIF_SEX_RT_A. Latest verified private source-native SQLite: 1,654,527 physical original rows / 1,000 original source IDs, six provider groups; private database SHA256 39fcb2ab81b3c47012f5a225ebb88d91e81c16ca179d7e527e7e09dbf72c2891. This is private and not harmonized or public. PR #79 added searchable literal source-name/ID matching, original-source prefix filtering and stable pagination; both pull request CI workflows passed and change merged. No public site deployment is implied. PR #80 merged after passing real approved WDI 300,240-row release build and JavaScript checks: generated per-geography available-indicator counts/years, country-first public dashboard filtering. No new source records, private dataset publication or independent Cloudflare production verification. PR #81 merged after public and native CI passed: public explorer shows descriptive country and indicator labels rather than internal source IDs in controls, chart accessibility and tables; the original identifiers are preserved only for queries/provenance. Cloudflare live deployment not verified.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -829,13 +829,8 @@
   ],
   "last_completed_improvement": {
     "date": "2026-11-21",
-    "title": "Country-first public WDI Atlas explorer, availability-aware indicators",
-    "pull_request": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/80",
-    "notes": "Merged main SHA 5c06bc131c2dbdb475e614ac7f96f28868999b32 after successful public WDI build tests and Atlas local explorer tests. Public Cloudflare build generates /data/availability.json only from approved public WDI series (300,240 published numeric observations, 32 indicators, 261 geographic areas), then /api/countries and country-scoped /api/series narrow the existing quick country/indicator explorer to original data actually available. No extra source rows, no private OneDrive or SQLite publication; Cloudflare live deployment has not been verified.",
-    "usage": [
-      "Visit https://worldeconatlas.com after Cloudflare Pages deploys the updated main build",
-      "Choose a country; available indicator dropdown reflects numeric observations for that geography",
-      "Search indicators, choose years, compare on the chart or export existing public WDI CSV"
-    ]
+    "title": "Human-readable public Atlas labels; original source IDs hidden from user-facing explorer",
+    "pull_request": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/81",
+    "notes": "Merged main SHA 8f468a63525f2d67eeec0e2a9168c19f2feab11b after successful public-site build and native explorer tests. Public country selectors and comparison checkboxes show country names instead of provider geography codes. Indicator selectors, table series, chart accessible names and guidance show verified human-readable indicator titles or descriptive text instead of provider series codes, and public table status is plain language. Original IDs remain hidden query values and preserved in source files/CSV for reproducibility. Public cloud deployment not independently confirmed."
   }
 }
