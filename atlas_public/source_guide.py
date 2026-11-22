@@ -6,6 +6,8 @@ that their private stored Atlas records are already publicly hosted.
 from __future__ import annotations
 
 from html import escape
+import hashlib
+import json
 from pathlib import Path
 
 PROVIDERS = (
@@ -69,13 +71,31 @@ PROVIDERS = (
 def build(destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     cards = []
+    bls_manifest_path = destination.parent / "data" / "bls" / "bls_jolts_manifest.json"
+    bls_public = None
+    if bls_manifest_path.is_file():
+        bls_public = json.loads(bls_manifest_path.read_text(encoding="utf-8"))
+        archive = bls_manifest_path.parent / "bls_jolts_source_native.csv.zip"
+        if (bls_public.get("release_type") != "public_bls_source_native_only" or
+            bls_public.get("source_native_records") != 252710 or
+            bls_public.get("series_count") != 830 or
+            not archive.is_file() or
+            hashlib.sha256(archive.read_bytes()).hexdigest() != bls_public.get("csv_zip_sha256")):
+            raise ValueError("Unverified BLS public release in Atlas data directory")
     for record in PROVIDERS:
+        bls_download = (
+            '<p><a href="/data/bls/bls_jolts_source_native.csv.zip" download>'
+            'Download verified Atlas BLS JOLTS research CSV (ZIP)</a> · '
+            '<a href="/data/bls/bls_jolts_manifest.json">Source manifest and checksums</a></p>'
+            if record["name"] == "U.S. Bureau of Labor Statistics" and bls_public else ""
+        )
         cards.append(
             '<article class="source-card"><h2>' + escape(record["name"]) + '</h2>'
             '<p class="availability">' + escape(record["access"]) + '</p>'
             '<p>' + escape(record["description"]) + '</p>'
             '<p><strong>Reuse terms:</strong> ' + escape(record["license"]) + '</p>'
             '<p><strong>How to cite:</strong> ' + escape(record["citation"]) + '</p>'
+            + bls_download +
             '<p class="links"><a href="' + escape(record["source"], quote=True) +
             '" rel="noopener noreferrer" target="_blank">Explore official dataset</a> · '
             '<a href="' + escape(record["terms"], quote=True) +
