@@ -107,9 +107,9 @@ def build(destination: Path) -> None:
             '" rel="noopener noreferrer" target="_blank">License / terms</a></p></article>'
         )
     hosted_note = (
-        "The main explorer hosts the approved WDI release. A separate verified "
-        "BLS JOLTS research ZIP is also hosted by Atlas; other providers remain "
-        "available through their original portals."
+        "The main Atlas explorer charts verified World Bank annual observations "
+        "and U.S. BLS JOLTS monthly observations. The BLS research ZIP includes "
+        "original-source citations; other providers remain on their own portals."
         if bls_public else
         "The main Atlas explorer currently hosts only the approved World Bank WDI "
         "release. Other providers below are linked to their original public portals."
