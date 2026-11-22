@@ -100,9 +100,9 @@ async function loadFamily(){
  $("search-indicator").value="";$("quick-indicator-search").value="";
  const ilo=f?.id==="ilostat";
  $("search-indicator").placeholder=ilo?
-  "Example: unemployment SEX_F AGE_Y15-24":"Search by series name or code";
+  "Try unemployment, earnings or informal employment":"Search by series name or code";
  $("quick-indicator-search").placeholder=ilo?
-  "Example: earnings SEX_F OCU":f?.id==="bls"?
+  "Try unemployment, earnings or informal employment…":f?.id==="bls"?
   "Try job openings, hires, quits or layoffs…":"Try GDP, population, inflation…";
  $("geo-search").value="";$("quick-country-search").value="";
  $("source-caption").textContent=ilo?
@@ -275,9 +275,16 @@ function renderPublicCitation(){
  if(!info?.title){panel.hidden=true;return;}
  panel.hidden=false;
  const isBLS=currentFamily()?.id==="bls";
- const originalUrl=isBLS?"https://www.bls.gov/jlt/":
+ const isILO=currentFamily()?.id==="ilostat";
+ const originalUrl=isILO?"https://ilostat.ilo.org/data/bulk/":
+  isBLS?"https://www.bls.gov/jlt/":
   "https://data.worldbank.org/indicator/"+encodeURIComponent(series);
- const citation=isBLS?
+ const citation=isILO?
+  'International Labour Organization (ILO). ILOSTAT SDG labour indicators, "'+
+  info.title+'", original source-defined country, annual period and classification. '+
+  originalUrl+'. World Economic Atlas verified annual source edition, November 2026. '+
+  'Source data licensed CC BY 4.0; confirm original units and definitions.':
+  isBLS?
   'U.S. Bureau of Labor Statistics. Job Openings and Labor Turnover Survey (JOLTS), "'+
   info.title+'", monthly original source observations. '+originalUrl+
   '. World Economic Atlas source-native edition, November 2026.':
@@ -285,7 +292,8 @@ function renderPublicCitation(){
   '." '+originalUrl+'. Source data archived by World Economic Atlas on November 9, 2026.';
  panel.append(el("strong","","Data source and citation"));
  panel.append(el("p","",citation));
- const original=el("a","",isBLS?"View official BLS source":"View original World Bank indicator");
+ const original=el("a","",isILO?"View official ILOSTAT source":
+  isBLS?"View official BLS source":"View original World Bank indicator");
  original.href=originalUrl;original.target="_blank";original.rel="noopener noreferrer";
  const guide=el("a","","How to cite other Atlas datasets");
  guide.href="/sources/";

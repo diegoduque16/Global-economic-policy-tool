@@ -9,6 +9,9 @@
   let catalogPromise = null;
   let availabilityPromise = null;
   let blsCatalogPromise = null;
+  let ilostatCatalogPromise = null;
+  let ilostatLastCountry = "";
+  const ilostatCountryCache = new Map();
   const blsSeriesCache = new Map();
   const datasets = new Map();
   const LIMIT = 2000;
@@ -177,6 +180,104 @@
     }
     fail("Unknown BLS public Atlas endpoint");
   }
+  function ilostatCatalog() {
+    if (!ilostatCatalogPromise) {
+      ilostatCatalogPromise = originalFetch("/data/ilostat/charts/catalog.json",
+        {cache:"force-cache"}).then(async response => {
+        if (!response.ok) fail("ILOSTAT verified annual charts not deployed");
+        const data=await response.json();
+        if (data.schema_version!==1 || data.original_table_count!==3 ||
+            data.source_native_records!==153116 ||
+            data.finite_numeric_records!==149148 ||
+            data.annual_source_defined_not_harmonized!==true ||
+            !Array.isArray(data.geographies) || !data.geographies.length) {
+          fail("ILOSTAT source-native chart metadata failed verification");
+        }
+        return data;
+      });
+    }
+    return ilostatCatalogPromise;
+  }
+  async function ilostatCountry(geo) {
+    const manifest=await ilostatCatalog();
+    const entry=manifest.geographies.find(item=>item.code===geo);
+    if (!entry) fail("Geography missing from published ILOSTAT source release");
+    if (!ilostatCountryCache.has(geo)) {
+      ilostatCountryCache.set(geo,originalFetch(
+        "/data/ilostat/charts/"+entry.file,{cache:"force-cache"}
+      ).then(async response => {
+        if (!response.ok) fail("ILOSTAT country chart file missing");
+        const data=await response.json();
+        if (data.code!==geo || !Array.isArray(data.series) ||
+            data.series.length!==entry.series_count ||
+            data.series.reduce((n,s)=>n+s.rows.length,0)!==entry.numeric_records) {
+          fail("ILOSTAT chart values do not match original source manifest");
+        }
+        return data;
+      }));
+    }
+    return ilostatCountryCache.get(geo);
+  }
+  async function ilostatQuery(path,params) {
+    const manifest=await ilostatCatalog();
+    if (path==="/api/countries") {
+      return manifest.geographies.map(entry=>({
+        code:entry.code,name:entry.name,
+        geography_type:entry.geography_type,
+        available_indicators:entry.series_count
+      })).sort((a,b)=>a.name.localeCompare(b.name));
+    }
+    if (path==="/api/series") {
+      const geo=params.get("geo")||manifest.geographies[0].code;
+      ilostatLastCountry=geo;
+      const source=await ilostatCountry(geo);
+      const q=(params.get("q")||"").toLowerCase().trim().slice(0,90);
+      return source.series.filter(item=>!q || item.title.toLowerCase().includes(q))
+        .slice(0,2000).map(item=>({
+          name:item.id,title:item.title,rows:item.rows.length,
+          first_year:item.first_year,last_year:item.last_year,units:1
+        }));
+    }
+    const series=params.get("series")||"";
+    const selected=(params.get("geos")||ilostatLastCountry).split(",").filter(Boolean);
+    if (selected.length>1) fail("Select one country for original ILOSTAT series");
+    const geo=selected[0]||ilostatLastCountry;
+    const source=await ilostatCountry(geo);
+    const entry=source.series.find(item=>item.id===series);
+    if (!entry) fail("Series absent for this country's published ILOSTAT data");
+    if (path==="/api/geographies") {
+      const item=manifest.geographies.find(g=>g.code===geo);
+      return [{code:geo,name:item.name,geography_type:item.geography_type,
+        rows:entry.rows.length}];
+    }
+    if (path==="/api/rows") {
+      const first=number(params.get("start"),1960);
+      const last=number(params.get("end"),2026);
+      if(first>last || first<1800 || last>2100) fail("Invalid ILOSTAT annual period");
+      const filtered=entry.rows.filter(([year])=>year>=first && year<=last);
+      const cap=Math.min(LIMIT,Math.max(1,number(params.get("limit"),LIMIT)));
+      const truncated=filtered.length>cap;
+      const values=filtered.slice(0,cap).map(([year,value])=>({
+        provider:"International Labour Organization — ILOSTAT",
+        geography:geo,year,period:String(year),series:entry.id,value,
+        raw_value:String(value),unit:"source_defined_unverified",
+        frequency:"annual",source_status:"ORIGINAL_ILOSTAT_SDG_NUMERIC",
+        source_url:"https://ilostat.ilo.org/data/bulk/"
+      }));
+      const plotSafe=entry.plot_safe && !truncated && values.length>0;
+      const warnings=["Original ILOSTAT SDG estimates are source-native and source-unit definitions have not been verified. Never compare incompatible sex, age, occupational or economic classifications."];
+      if(!entry.plot_safe)warnings.unshift("Duplicate original year keys prevent a valid time-series chart; use table or CSV.");
+      return {
+        rows:values,returned:values.length,truncated,plot_granularity:"annual",
+        units:["source_defined_unverified"],frequencies:["annual"],
+        duplicate_keys:entry.plot_safe?0:1,chart_warnings:warnings,
+        chart_blockers:plotSafe?[]:warnings,
+        layer:"source_native",family:"ilostat",series:entry.id,
+        can_plot:plotSafe,not_cross_provider_harmonized:true
+      };
+    }
+    fail("Unsupported ILOSTAT data operation");
+  }
   function countByGeo(rows) {
     const counts = new Map();
     for (const point of rows) counts.set(point[0], (counts.get(point[0]) || 0) + 1);
@@ -253,7 +354,16 @@
       families.push({id:"bls",name:"U.S. Bureau of Labor Statistics — JOLTS",
         layer:"source_native",observations:bls.source_native_records,
         first_year:2000,last_year:2026,geographies:1,series:bls.series_count});
+      const ilo=await ilostatCatalog();
+      families.push({id:"ilostat",name:"International Labour Organization — ILOSTAT",
+        layer:"source_native",observations:ilo.finite_numeric_records,
+        first_year:null,last_year:null,
+        geographies:ilo.chartable_geographies,series:3});
       return families;
+    }
+    if (params.get("family")==="ilostat") {
+      if (params.get("layer")!=="source_native") fail("Invalid ILOSTAT public data layer");
+      return ilostatQuery(path,params);
     }
     if (params.get("family")==="bls") {
       if (params.get("layer")!=="source_native") fail("Invalid BLS public data layer");
@@ -334,7 +444,15 @@
       const params = new URLSearchParams({...args,limit:String(CSV_LIMIT)});
       const manifest = await catalog();
       let values, out;
-      if (params.get("family")==="bls") {
+      if (params.get("family")==="ilostat") {
+        const ilo=await ilostatCatalog();
+        const requested=params.get("series");
+        const geos=params.get("geos")||ilostatLastCountry;
+        const source=await ilostatCountry(geos);
+        values=source.series.find(x=>x.id===requested);
+        if (!values) fail("Unrecognized ILOSTAT original series");
+        out=await ilostatQuery("/api/rows",params);
+      } else if (params.get("family")==="bls") {
         const bls = await blsCatalog();
         values = bls.series.find(s => s.id===params.get("series"));
         if (!values) fail("BLS series not found");
@@ -354,7 +472,9 @@
       const url = URL.createObjectURL(blob);
       const link=document.createElement("a");
       link.href=url;
-      link.download=params.get("family")==="bls"?
+      link.download=params.get("family")==="ilostat"?
+        "worldeconatlas_ilostat_annual_source.csv":
+        params.get("family")==="bls"?
         "worldeconatlas_bls_jolts_monthly.csv":
         "worldeconatlas_" + values.code + "_wdi_20261109.csv";
       document.body.append(link);
