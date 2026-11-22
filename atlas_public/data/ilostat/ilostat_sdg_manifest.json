@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "release_type": "public_ilostat_sdg_annual_source_native",
+  "producer": "International Labour Organization (ILO)",
+  "dataset": "ILOSTAT SDG labour tables",
+  "official_source_url": "https://ilostat.ilo.org/data/bulk/",
+  "license": "CC BY 4.0 for data published after 3 May 2023; restricted microdata excluded",
+  "license_url": "https://www.ilo.org/rights-and-permissions",
+  "source_edition_id": "atlas-native-ilostat-next-20261122-44986267530",
+  "source_archive_sha256": "14d5dc420b826ceb71e48dbb94c0a917832ed28fcfa7eb072de91998490135d8",
+  "source_database_sha256": "39fcb2ab81b3c47012f5a225ebb88d91e81c16ca179d7e527e7e09dbf72c2891",
+  "original_table_count": 3,
+  "source_native_records": 153116,
+  "finite_numeric_records": 149148,
+  "source_native_not_harmonized": true,
+  "original_tables": [
+    {
+      "table_id": "SDG_0831_SEX_ECO_RT_A",
+      "title": "Informal employment (SDG 8.3.1)",
+      "records": 57488
+    },
+    {
+      "table_id": "SDG_0851_SEX_OCU_NB_A",
+      "title": "Average hourly earnings (SDG 8.5.1)",
+      "records": 47322
+    },
+    {
+      "table_id": "SDG_0852_SEX_AGE_RT_A",
+      "title": "Unemployment rate (SDG 8.5.2)",
+      "records": 48306
+    }
+  ],
+  "file": "ilostat_sdg_labour_source_native.csv.zip",
+  "file_sha256": "aa6431d19449b78e99b46450f6a5883243460864b7f7a8f873f4dd4f54152831"
+}
