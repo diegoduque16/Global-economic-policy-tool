@@ -8,6 +8,8 @@
   const originalFetch = window.fetch.bind(window);
   let catalogPromise = null;
   let availabilityPromise = null;
+  let blsCatalogPromise = null;
+  const blsSeriesCache = new Map();
   const datasets = new Map();
   const LIMIT = 2000;
   const CSV_LIMIT = 10000;
@@ -85,6 +87,96 @@
     }
     return datasets.get(code);
   }
+  function blsCatalog() {
+    if (!blsCatalogPromise) {
+      blsCatalogPromise = originalFetch("/data/bls/charts/catalog.json",
+          {cache:"force-cache"}).then(async response => {
+        if (!response.ok) fail("BLS chart edition has not been published");
+        const data = await response.json();
+        if (data.schema_version !== 1 || data.series_count !== 830 ||
+            data.source_native_records !== 252710 ||
+            data.frequency !== "monthly" || !Array.isArray(data.series) ||
+            data.series.length !== 830) {
+          fail("BLS chart metadata failed public release checks");
+        }
+        return data;
+      });
+    }
+    return blsCatalogPromise;
+  }
+  async function blsDataset(code) {
+    const catalog = await blsCatalog();
+    const entry = catalog.series.find(s => s.id === code);
+    if (!entry) fail("Series not present in verified BLS chart release");
+    if (!blsSeriesCache.has(code)) {
+      blsSeriesCache.set(code, originalFetch("/data/bls/charts/" + entry.file,
+          {cache:"force-cache"}).then(async response => {
+        if (!response.ok) fail("BLS monthly source file missing");
+        const data = await response.json();
+        if (data.source_id !== code || !Array.isArray(data.rows) ||
+            data.rows.length !== entry.rows) {
+          fail("BLS monthly source counts do not match the verified release");
+        }
+        return data;
+      }));
+    }
+    return blsSeriesCache.get(code);
+  }
+  async function blsQuery(path, params) {
+    const manifest = await blsCatalog();
+    if (path === "/api/countries") {
+      return [{code:"USA",name:"United States",
+        geography_type:"country_or_territory",
+        available_indicators:manifest.series_count}];
+    }
+    if (path === "/api/series") {
+      const q = (params.get("q") || "").toLowerCase().trim().slice(0,90);
+      const geo = params.get("geo") || "";
+      if (geo && geo !== "USA") return [];
+      return manifest.series.filter(s => !q || s.title.toLowerCase().includes(q))
+        .slice(0,250).map(s => ({
+          name:s.id,title:s.title,rows:s.rows,
+          first_year:s.first_year,last_year:s.last_year,units:1
+        }));
+    }
+    const code = params.get("series") || "";
+    const entry = manifest.series.find(s => s.id === code);
+    if (!entry) fail("Unknown original BLS series");
+    if (path === "/api/geographies") {
+      return [{code:"USA",name:"United States",rows:entry.rows,
+        geography_type:"country_or_territory"}];
+    }
+    if (path === "/api/rows") {
+      const first = number(params.get("start"), 2000);
+      const last = number(params.get("end"), 2026);
+      if (first > last || first < 2000 || last > 2100) fail("Invalid BLS date range");
+      const selected = (params.get("geos") || "USA").split(",").filter(Boolean);
+      if (selected.length > 1 || selected.some(g => g !== "USA")) {
+        fail("This BLS JOLTS edition contains United States source records only");
+      }
+      const data = await blsDataset(code);
+      const values = data.rows.filter(([period]) =>
+        Number(period.slice(0,4)) >= first && Number(period.slice(0,4)) <= last);
+      const cap = Math.min(LIMIT, Math.max(1, number(params.get("limit"), LIMIT)));
+      const truncated = values.length > cap;
+      const rows = values.slice(0,cap).map(([period,value])=>({
+        provider:"U.S. Bureau of Labor Statistics",
+        geography:"USA",year:Number(period.slice(0,4)),period,
+        series:code,value,raw_value:String(value),unit:"source_defined",
+        frequency:"monthly",source_status:"ORIGINAL_BLS_JOLTS_VERIFIED",
+        source_url:"https://www.bls.gov/jlt/"
+      }));
+      return {rows,returned:rows.length,truncated,
+        units:["source_defined"],frequencies:["monthly"],
+        duplicate_keys:0,plot_granularity:"monthly",
+        chart_warnings:["Monthly source-native BLS JOLTS values. Original measurement units and industry classifications must be verified before comparisons."],
+        chart_blockers:truncated?["Narrow the requested years to chart this series."]:[],
+        layer:"source_native",family:"bls",series:code,
+        can_plot:rows.length > 0 && !truncated,
+        not_cross_provider_harmonized:true};
+    }
+    fail("Unknown BLS public Atlas endpoint");
+  }
   function countByGeo(rows) {
     const counts = new Map();
     for (const point of rows) counts.set(point[0], (counts.get(point[0]) || 0) + 1);
@@ -149,13 +241,23 @@
       };
     }
     if (path === "/api/families") {
-      return [{
-        id:"wdi", name:"World Bank · World Development Indicators",
+      const families=[{
+        id:"wdi", name:"World Bank — World Development Indicators",
         layer:"source_separated", observations:manifest.summary.observations,
         first_year:Math.min(...manifest.series.map(x=>x.first_year)),
         last_year:Math.max(...manifest.series.map(x=>x.last_year)),
         geographies:manifest.summary.geographies, series:manifest.summary.series
       }];
+      // Verified BLS archive is a second REAL chartable public source.
+      const bls = await blsCatalog();
+      families.push({id:"bls",name:"U.S. Bureau of Labor Statistics — JOLTS",
+        layer:"source_native",observations:bls.source_native_records,
+        first_year:2000,last_year:2026,geographies:1,series:bls.series_count});
+      return families;
+    }
+    if (params.get("family")==="bls") {
+      if (params.get("layer")!=="source_native") fail("Invalid BLS public data layer");
+      return blsQuery(path,params);
     }
     checkFamily(params);
     if (path === "/api/countries") {
@@ -231,9 +333,17 @@
     try {
       const params = new URLSearchParams({...args,limit:String(CSV_LIMIT)});
       const manifest = await catalog();
-      checkFamily(params);
-      const values = await dataset(checkCode(params.get("series") || ""));
-      const out = safeFilter(manifest, values, params, CSV_LIMIT);
+      let values, out;
+      if (params.get("family")==="bls") {
+        const bls = await blsCatalog();
+        values = bls.series.find(s => s.id===params.get("series"));
+        if (!values) fail("BLS series not found");
+        out = await blsQuery("/api/rows",params);
+      } else {
+        checkFamily(params);
+        values = await dataset(checkCode(params.get("series") || ""));
+        out = safeFilter(manifest, values, params, CSV_LIMIT);
+      }
       if (out.truncated) fail("This CSV would exceed 10,000 rows; narrow your selection.");
       if (!out.rows.length) fail("No observations found for this CSV export.");
       const fields = ["provider","geography","year","period","series","value","raw_value",
@@ -244,7 +354,9 @@
       const url = URL.createObjectURL(blob);
       const link=document.createElement("a");
       link.href=url;
-      link.download="worldeconatlas_" + values.code + "_wdi_20261109.csv";
+      link.download=params.get("family")==="bls"?
+        "worldeconatlas_bls_jolts_monthly.csv":
+        "worldeconatlas_" + values.code + "_wdi_20261109.csv";
       document.body.append(link);
       link.click();
       link.remove();

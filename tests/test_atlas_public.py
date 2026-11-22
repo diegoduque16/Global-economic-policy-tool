@@ -88,6 +88,9 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertNotIn("rclone.conf",project_page)
             self.assertNotIn("warehouse.sqlite",project_page)
 
+            self.assertIn('id="quick-source"',html)
+            self.assertIn('World Bank — economic indicators',html)
+            self.assertNotIn('<option value="bls">',html)
             self.assertIn('id="quick-country"',html)
             self.assertIn('id="quick-country-search"',html)
             self.assertIn('id="quick-indicator"',html)
@@ -142,6 +145,30 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertIn("Download open BLS data with citation",html)
             self.assertIn("Download verified Atlas BLS JOLTS research CSV",guide)
             self.assertIn("Source manifest and checksums",guide)
+
+    def test_real_public_bls_chart_source_is_selectable(self):
+        root=Path(__file__).resolve().parents[1]/"atlas_public"/"data"
+        if not (root/"bls"/"bls_jolts_manifest.json").is_file():
+            self.skipTest("Verified BLS archive not yet available")
+        with tempfile.TemporaryDirectory() as temporary:
+            output=Path(temporary)/"site"
+            build(data=root,output=output,include_research=False)
+            html=(output/"index.html").read_text(encoding="utf-8")
+            manifest=json.loads((output/"data"/"bls"/"charts"/"catalog.json").read_text())
+            self.assertIn('id="quick-source"',html)
+            self.assertIn('<option value="bls">',html)
+            self.assertEqual(manifest["series_count"],830)
+            self.assertEqual(manifest["source_native_records"],252710)
+            self.assertEqual(len(list((output/"data"/"bls"/"charts").glob("*.json"))),831)
+            self.assertTrue(all(entry["title"] and "bls_jolts_" not in entry["title"]
+                                for entry in manifest["series"]))
+            self.assertTrue(all(entry["rows"]>0 for entry in manifest["series"]))
+            adapter=(output/"public_adapter.js").read_text()
+            self.assertIn('async function blsQuery(path, params)',adapter)
+            self.assertIn('plot_granularity:"monthly"',adapter)
+            app=(output/"app.js").read_text()
+            self.assertIn('publicSource.addEventListener("change"',app)
+            self.assertIn('isBLS?',app)
 
     def test_reject_missing_or_changed_source_release(self):
         with tempfile.TemporaryDirectory() as tmp:
