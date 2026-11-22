@@ -15,9 +15,11 @@ import shutil
 if __package__:
     from .research_export import build_research_exports
     from .project_brief import build as build_project_brief
+    from .source_guide import build as build_source_guide
 else:
     from research_export import build_research_exports
     from project_brief import build as build_project_brief
+    from source_guide import build as build_source_guide
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
@@ -96,6 +98,7 @@ def build(data=None, output=None, *, include_research=True):
     # One public-safe source under version control produces both the project page
     # and its machine-readable context. Never publish private raw assets here.
     build_project_brief(destination=output / "project")
+    build_source_guide(destination=output / "sources")
     if include_research:
         build_research_exports(data, output / "research")
     html = (output / "index.html").read_text(encoding="utf-8")
@@ -158,6 +161,16 @@ def build(data=None, output=None, *, include_research=True):
     if marker not in html:
         raise ValueError("Public attribution placement not found")
     html = html.replace(marker, attribution + "\n\n        " + marker)
+    # Put original dataset citations within reach of public researchers.
+    html = html.replace(
+        '<section class="public-attribution" aria-label="Data attribution">',
+        '<section class="public-attribution" aria-label="Data attribution">'
+    )
+    # The existing source banner is the natural entry point for terms/citations.
+    html = html.replace(
+        '>Source and license</a>.</span>',
+        '>World Bank terms</a> · <a href="/sources/">How to cite and find other datasets</a>.</span>'
+    )
     # Make the public/private availability boundary explicit and navigable.
     # No unpublished datasets or private links/assets are copied into Pages.
     source_access = (
@@ -176,6 +189,7 @@ def build(data=None, output=None, *, include_research=True):
         '<span class="source-availability private">Private research database</span>'
         '<p>Source-native research records have been collected, but these provider '
         'collections are not currently available through this public website.</p>'
+        '<a href="/sources/">Explore original datasets and citation instructions</a> · '
         '<a href="https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/atlas_web/README.md" '
         'target="_blank" rel="noopener noreferrer">How to access the private explorer</a>'
         '</article></div>'
