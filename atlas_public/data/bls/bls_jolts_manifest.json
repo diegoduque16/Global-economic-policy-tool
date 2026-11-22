@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "release_type": "public_bls_source_native_only",
+  "original_provider": "U.S. Bureau of Labor Statistics",
+  "dataset": "Job Openings and Labor Turnover Survey (JOLTS)",
+  "original_provider_url": "https://www.bls.gov/jlt/",
+  "terms_url": "https://www.bls.gov/bls/linksite.htm",
+  "source_edition_id": "atlas-native-ilostat-next-20261122-44986267530",
+  "source_archive_sha256": "14d5dc420b826ceb71e48dbb94c0a917832ed28fcfa7eb072de91998490135d8",
+  "source_database_sha256": "39fcb2ab81b3c47012f5a225ebb88d91e81c16ca179d7e527e7e09dbf72c2891",
+  "series_count": 830,
+  "source_native_records": 252710,
+  "finite_numeric_values": 252710,
+  "not_harmonized": true,
+  "not_cross_provider_comparable": true,
+  "csv_zip": "bls_jolts_source_native.csv.zip",
+  "csv_zip_sha256": "9701eceb06e20acb1cd0a09035af621685de923f25ad9434a6151e40497e5c88",
+  "citation": "U.S. Bureau of Labor Statistics. Job Openings and Labor Turnover Survey (JOLTS), [original series], [geography, period]. World Economic Atlas original source-native edition atlas-native-ilostat-next-20261122-44986267530. Accessed [date]."
+}
