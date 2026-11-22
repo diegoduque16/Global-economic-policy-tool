@@ -126,6 +126,23 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertFalse(list(output.rglob("warehouse.sqlite")))
             self.assertEqual(len(list((output/"data/series").glob("*.json"))),32)
 
+    def test_current_public_release_shows_verified_bls_download(self):
+        # Production public data assets are tracked in repository main after
+        # the independently verified source-only BLS publisher succeeded.
+        from atlas_public.build_site import build
+        root=Path(__file__).resolve().parents[1] / "atlas_public" / "data"
+        if not (root/"bls"/"bls_jolts_manifest.json").is_file():
+            self.skipTest("BLS source archive has not been released in this checkout")
+        with tempfile.TemporaryDirectory() as tmp:
+            site=Path(tmp)/"site"
+            build(data=root,output=site,include_research=False)
+            html=(site/"index.html").read_text()
+            guide=(site/"sources"/"index.html").read_text()
+            self.assertIn("BLS download now available",html)
+            self.assertIn("Download open BLS data with citation",html)
+            self.assertIn("Download verified Atlas BLS JOLTS research CSV",guide)
+            self.assertIn("Source manifest and checksums",guide)
+
     def test_reject_missing_or_changed_source_release(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)

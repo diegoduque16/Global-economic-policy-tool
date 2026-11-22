@@ -208,6 +208,8 @@ def build(data=None, output=None, *, include_research=True):
     )
     if bls_download_available:
         source_access = source_access.replace(
+            "Private research database</span>", "BLS download now available</span>"
+        ).replace(
             "Source-native research records have been collected, but these provider "
             "collections are not currently available through this public website.",
             "Verified BLS JOLTS original records are now downloadable from Atlas. "
