@@ -38,7 +38,7 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertEqual(result["public_records"],300240)
             for name in ("index.html","app.js","style.css","public_adapter.js",
                          "_headers","data/catalog.json","data/availability.json","data/LICENSE-ATTRIBUTION.txt",
-                         "project/index.html","project/brief.json","project/project.css"):
+                         "project/index.html","project/brief.json","project/project.css","sources/index.html"):
                 self.assertTrue((output/name).is_file(),name)
             html=(output/"index.html").read_text()
             availability=json.loads((output/"data/availability.json").read_text())
@@ -46,6 +46,14 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertEqual(len(availability["by_geography"]["USA"]),32)
             self.assertEqual(availability["by_geography"]["USA"]["TEST0"],[1,2020,2020])
             self.assertIn("World Economic Atlas",html)
+            guide=(output/"sources/index.html").read_text()
+            self.assertIn("Find and cite economic data",guide)
+            self.assertIn("International Labour Organization",guide)
+            self.assertIn("U.S. Bureau of Labor Statistics",guide)
+            self.assertIn("FRED",guide)
+            self.assertIn("third-party",guide.lower())
+            self.assertIn('href="/sources/"',html)
+
             self.assertIn('id="data-access"',html)
             self.assertIn('Compare countries &amp; advanced options',html)
             self.assertIn('Private research database',html)
@@ -92,6 +100,10 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertIn("ATLAS_PUBLIC_DOWNLOAD",client)
             self.assertIn("public_geographies",client)
             self.assertIn("function renderCountryPicker()",client)
+            self.assertIn("function renderPublicCitation()",client)
+            self.assertIn("navigator.clipboard.writeText(citation)",client)
+            self.assertIn("World Development Indicators",client)
+
             # Source series IDs remain DOM option values for querying only;
             # they must not be exposed as human-visible menu labels.
             self.assertIn('label:publicView()?(x.title||"Indicator label unavailable")',client)
