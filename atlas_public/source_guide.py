@@ -90,8 +90,8 @@ def build(destination: Path) -> None:
             if record["name"] == "U.S. Bureau of Labor Statistics" and bls_public else ""
         )
         is_bls_public = record["name"] == "U.S. Bureau of Labor Statistics" and bls_public
-        access = "Atlas public JOLTS download + original portal" if is_bls_public else record["access"]
-        description = ("The source-native JOLTS values have a verified public Atlas download "
+        access = "Atlas charts + download + original portal" if is_bls_public else record["access"]
+        description = ("The source-native JOLTS values can be charted or downloaded on Atlas "
                        "with original series keys and a citation file. Other BLS collections "
                        "may remain unpublished." if is_bls_public else record["description"])
         cards.append(
