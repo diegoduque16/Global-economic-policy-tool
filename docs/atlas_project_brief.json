@@ -3,7 +3,7 @@
   "project": "World Economic Atlas",
   "site": "https://worldeconatlas.com",
   "updated_date": "2026-11-21",
-  "status_basis": "Latest verified successful private source-native ILOSTAT integration run 44665682672 added 128,755 original source rows (118,769 finite numeric values) from EAR_XTLP_SEX_NB_A, EMP_PIFL_SEX_OCU_NB_A and EMP_PUBL_SEX_OCU_NB_A, bringing latest private SQLite to 1,651,845 source-native physical rows and 997 original source IDs across six provider groups. SQLite SHA256 7df2e215aea4d71fb02d85a801694e615037fa1ad27536c781e545cfab76f063. Metadata-only receipt at GitHub issue #65. PR #76 merged a bounded local read-only source-native SQLite query CLI; no private data published. This does not mean harmonized data or a live website update. PR #77 merged read-only original geography/year/series facet discovery and bounded CSV output, with isolated synthetic tests and GitHub workflow; private production query not yet run. PR #78 merged (offline CI passed): added metadata-only query/facet smoke gate against SHA-restored private parent SQLite to existing main-only ILOSTAT workflow. Actual production smoke outcome not yet verified in this chat; do not claim completion or new rows.",
+  "status_basis": "Private original source-native query smoke passed against the real SHA-restored Atlas database in the successful main production ILOSTAT run 44986267530, which appended 2,682 original source rows (2,678 finite numeric) from EAR_THRA_SEX_NB_A, EMP_TNIF_SEX_NB_A, EMP_TNIF_SEX_RT_A. Latest verified private source-native SQLite: 1,654,527 physical original rows / 1,000 original source IDs, six provider groups; private database SHA256 39fcb2ab81b3c47012f5a225ebb88d91e81c16ca179d7e527e7e09dbf72c2891. This is private and not harmonized or public. PR #79 added searchable literal source-name/ID matching, original-source prefix filtering and stable pagination; both pull request CI workflows passed and change merged. No public site deployment is implied.",
   "headline": "Finish and integrate real economic datasets, not more audit infrastructure.",
   "mission": "Build a comprehensive, reproducible, cross-country economic data foundation for future research on growth, jobs, taxation, inequality, economic policy and the transition to an AI economy. Collect source-native numerical evidence first; publish or analyze only after required checks.",
   "direction": [
@@ -42,8 +42,8 @@
     },
     {
       "label": "Verified queryable private economic attachment",
-      "value": "1,651,845",
-      "detail": "883,118 retained five-provider source-native rows + 768,727 ILOSTAT source-native rows across 21 integrated original ILOSTAT tables; 997 original source IDs across six providers. Latest verified run 44665682672; database SHA256 7df2e215aea4d71fb02d85a801694e615037fa1ad27536c781e545cfab76f063. Not harmonized or public."
+      "value": "1,654,527",
+      "detail": "883,118 retained five-provider rows + 771,409 integrated ILOSTAT source-native rows across 24 original ILOSTAT tables, 1,000 original source IDs across six provider groups. Successful private run 44986267530, database SHA256 39fcb2ab81b3c47012f5a225ebb88d91e81c16ca179d7e527e7e09dbf72c2891; real restored-db original query smoke passed. Not harmonized or published."
     },
     {
       "label": "Official ILOSTAT original source tables current-vintage",
@@ -54,9 +54,9 @@
   "workstreams": [
     {
       "name": "ILOSTAT official bulk",
-      "stage": "All 1,964 official current-vintage ILOSTAT tables archived as of Nov 19. Twenty-one selected original source tables now integrated into latest privately backed six-provider SQLite: 768,727 source-native ILOSTAT rows, 1,651,845 total source-native rows and 997 source IDs. Latest certified run 44665682672 added 128,755 original source rows / 118,769 finite numeric values.",
+      "stage": "24 source-native original ILOSTAT tables integrated in verified six-provider private SQLite, adding 2,682 original rows in successful run 44986267530 to reach 1,654,527 total private original rows and 1,000 original source IDs. Real production parent query smoke passed.",
       "evidence": "Private safeguarded collector run 44512236382: ILOSTAT_SUMMARY 1964 saved, 0 missing, 0 outdated; ILOSTAT_CHECKPOINT_POST SHA256 9f3b1d59e44d01f633d43268ed753108b1766f94c3c12fd4d757ab0a381e877a, backed up privately true; zero lost files. https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44512236382. Previously 511 stale files in run 44207334375 are now resolved for this Nov 19 official TOC snapshot. New production run 44640329974: source-native original table IDs EMP_STEM_SEX_OCU_NB_A, HOW_TEMP_SEX_OCU_DSB_NB_A and HOW_XEES_SEX_OCU_DSB_NB_A; +39,250 original rows, +36,800 numeric; immutable private uploaded archive atlas-native-ilostat-next-20261119-44640329974 SHA256 3317e15de963c094233c53eda48651089685bb5b3ea5f9caa1e86ed7449a4b78, new SQLite SHA256 b5c944234b1d2abcf64cac636a1de85e2b1a771c74ef5d582e72569fef377660, upload backed and SHA reverified. https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44640329974 Next successful private production sequential integration run 44652338434 restored original 1,075,484-row edition, added original EAR_GGAP_OCU_RT_A, EMP_5EMP_SEX_OCU_NB_A, EMP_TOUR_SEX_OCU_NB_A table IDs, 58,567 physical rows/55,830 finite numeric, and verified private original backup atlas-native-ilostat-next-20261120-44652338434 SHA256 52c66cbbc00e012e1ea3c083342e829285ebcdae0060850b595db518dbc873a6 plus integrated SQLite SHA256 977a74421c107f8099d3e827575b5021ef87748c422bb5d59c53cc7e1322c64a. https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44652338434 Successful third sequential private numeric run 44658021471 verified source IDs EAR_EHRG_SEX_OCU_NB_A, EMP_PIFL_SEX_OCU_DSB_NB_A and EMP_PIFL_SEX_OCU_DSB_RT_A; +97,421 physical rows, 85,508 finite numeric, latest private SQLite SHA256 889987160c72226593d2dd8805174085e172cf36aff7a0a0052c648629eab355, archive SHA256 373f851d5efbc404f30efc98b7734633cd93fc1aff3b99a25f03241730cf90e1, 1,231,472 total source-native rows / 988 source IDs. https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44658021471 Automatic latest-edition chaining succeeded: run 44664361354 added 125,627 original rows / 119,003 finite numeric to reach 1,357,099 rows; private archive SHA256 2f2fcbfc9162cde49e2d58bf03e2c2c09234bb91a73fe106fe5fb090c15dc6a0. Run 44664616687 added further 165,991 original rows / 156,820 finite numeric from EAR_EHRA_SEX_OCU_NB_A, EMP_PIFL_SEX_OCU_RT_A and POP_3TED_SEX_OCU_NB_A to reach 1,523,090 rows, archive SHA256 16a2db1bbad0714ecdafd9a913c72bcdc05de0644901b61910e04fb08cfe0553, SQLite SHA256 f57366573bbf840e2c3374076c47cdc3d69d8cfe93d7b6d7a09c0749cbaaa300, pointer committed. https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44664616687",
-      "next": "Continue source-native ILOSTAT batches through SHA-verified automatic pointer while prioritizing missing original Census, BLS, fiscal and macro data. Use merged warehouse/native_query.py for bounded, read-only source and country/year/series inspection. No harmonized or public release implied.",
+      "next": "Continue verified additional ILOSTAT original numeric ingestion, plus missing BLS/Census/fiscal source numerics; preserve SHA-bound restore checks and queryability gate.",
       "links": [
         {
           "label": "Last completed 920-file checkpoint",
@@ -129,6 +129,10 @@
         {
           "label": "Nov 21 certified original ILOSTAT source-native gain (+128,755 rows)",
           "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44665682672"
+        },
+        {
+          "label": "Nov 22 certified main private numerical append (+2,682 original ILOSTAT rows), successful query smoke",
+          "url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/44986267530"
         }
       ]
     },
@@ -825,8 +829,14 @@
   ],
   "last_completed_improvement": {
     "date": "2026-11-21",
-    "pull_request": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/78",
-    "title": "Actual SHA-restored private Atlas original-source and facets smoke gate",
-    "notes": "Offline synthetic CI passed, PR merged as 9fda6deb486f443d9704a317596506d7436f7987. On main-only ILOSTAT runs, production step now executes warehouse/native_query_smoke.py after SHA-bound parent restoration, before any append, checking real record filters and original facets without logging private rows. Production execution outcome and further data gain not yet verified; prior certified counts remain 1,651,845 rows / 997 original IDs."
+    "title": "Searchable, paginated private Atlas source catalog",
+    "pull_request": "https://github.com/diegoduque16/Global-economic-policy-tool/pull/79",
+    "notes": "Merged to main SHA 74746fc2d59163b44cb433b6826d0d80b1718448 after successful isolated native explorer and ILOSTAT offline CI. warehouse/native_query.py sources supports --match literal case-insensitive ID/name substring, --source-prefix literal prefix, --offset stable alphabetical paging, --limit bounded page, with total/has_more. No published website changes or private data exposure. Real private query/facets smoke separately passed in prior successful ingestion run 44986267530.",
+    "usage": [
+      "python -m warehouse.native_query --db /private/native_source_extension.sqlite sources --match employment --limit 25 --offset 0",
+      "python -m warehouse.native_query --db /private/native_source_extension.sqlite sources --source-prefix ilostat_ --limit 25 --offset 25",
+      "python -m warehouse.native_query --db /private/native_source_extension.sqlite facets --source-id EXACT_SOURCE_ID --limit 40",
+      "python -m warehouse.native_query --db /private/native_source_extension.sqlite records --source-id EXACT_SOURCE_ID --geo UG --year 2023 --limit 20 --format csv"
+    ]
   }
 }
