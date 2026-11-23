@@ -212,18 +212,12 @@ def build(data=None, output=None, *, include_research=True):
     if html.count(quick_anchor)!=1:
         raise ValueError("Public source selector placement missing")
     html = html.replace(quick_anchor, quick_anchor + selector)
-    # Place the labour topic between country and detailed indicator filters.
-    topic_anchor = '<div class="quick-field quick-indicator-field">'
-    if html.count(topic_anchor) == 1:
-        html = html.replace(topic_anchor, topic_selector + topic_anchor)
-    else:
-        # Fall back to source-adjacent placement if the static theme uses a
-        # different indicator field class; fail if the quick form disappears.
-        alt = '<label for="quick-indicator">'
-        if html.count(alt) != 1:
-            raise ValueError("Could not locate public indicator selection field")
-        html = html.replace(alt, topic_selector + alt)
-
+    # Insert a sibling between the country and indicator fields in the
+    # existing public quick form, without breaking the original field markup.
+    topic_anchor = '<div class="quick-field">\\n                <label for="quick-indicator">'
+    if html.count(topic_anchor) != 1:
+        raise ValueError("Public indicator field placement changed")
+    html = html.replace(topic_anchor, topic_selector + topic_anchor)
     html = html.replace('<span class="quick-step">1</span> Choose a country',
                         '<span class="quick-step">2</span> Choose a country')
     html = html.replace('<span class="quick-step">2</span> Choose an indicator',
