@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'atlas_public/build_site.py'
+      - 'atlas_public/build_eurostat_charts.py'
+      - 'atlas_public/eurostat_unemployment.py'
       - 'atlas_public/public_adapter.js'
       - 'atlas_web/static/app.js'
       - 'tests/test_atlas_public.py'
@@ -11,6 +13,8 @@ on:
     branches: [main]
     paths:
       - 'atlas_public/build_site.py'
+      - 'atlas_public/build_eurostat_charts.py'
+      - 'atlas_public/eurostat_unemployment.py'
       - 'atlas_public/public_adapter.js'
       - 'atlas_web/static/app.js'
       - 'tests/test_atlas_public.py'
@@ -52,3 +56,17 @@ jobs:
           PY_CHECK
           node --check atlas_public/dist/app.js
           node --check atlas_public/dist/public_adapter.js
+      - name: Build the actual Cloudflare Pages command from the Atlas public root
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd atlas_public
+          python build_site.py
+          test -s dist/index.html
+          test -s dist/data/eurostat/charts/catalog.json
+          test -s dist/data/ilostat/charts/catalog.json
+          test -s dist/data/bls/charts/catalog.json
+          node --check dist/app.js
+          node --check dist/public_adapter.js
+          echo ATLAS_CLOUDFLARE_PAGES_REAL_BUILD_VERIFIED
+
