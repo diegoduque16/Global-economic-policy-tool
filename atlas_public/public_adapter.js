@@ -260,16 +260,20 @@
       const values=filtered.slice(0,cap).map(([year,value])=>({
         provider:"International Labour Organization — ILOSTAT",
         geography:geo,year,period:String(year),series:entry.id,value,
-        raw_value:String(value),unit:"source_defined_unverified",
+        raw_value:String(value),unit:entry.unit_label||
+          "source-defined (unit not verified)",
         frequency:"annual",source_status:"ORIGINAL_ILOSTAT_SDG_NUMERIC",
         source_url:"https://ilostat.ilo.org/data/bulk/"
       }));
       const plotSafe=entry.plot_safe && !truncated && values.length>0;
-      const warnings=["Original ILOSTAT SDG estimates are source-native and source-unit definitions have not been verified. Never compare incompatible sex, age, occupational or economic classifications."];
+      const warnings=[entry.unit_label==="local currency"?
+        "Original average hourly earnings are reported in local currency. Do not compare numeric amounts across countries without currency, price and definition adjustments.":
+        "Original ILOSTAT SDG values use official source definitions and classifications. Do not compare different sex, age, industry, occupation or survey series as if they were interchangeable."];
       if(!entry.plot_safe)warnings.unshift("Duplicate original year keys prevent a valid time-series chart; use table or CSV.");
       return {
         rows:values,returned:values.length,truncated,plot_granularity:"annual",
-        units:["source_defined_unverified"],frequencies:["annual"],
+        units:[entry.unit_label||"source-defined (unit not verified)"],
+        frequencies:["annual"],
         duplicate_keys:entry.plot_safe?0:1,chart_warnings:warnings,
         chart_blockers:plotSafe?[]:warnings,
         layer:"source_native",family:"ilostat",series:entry.id,
