@@ -112,11 +112,11 @@ def build(data:Path,output:Path)->dict|None:
             official=dictionary["codes"]["indicator"].get(indicator_code,"")
             if not official or not official.startswith("SDG indicator "):
                 raise ValueError("Official ILOSTAT indicator unit definition missing")
-            expected="(local currency)" if table=="SDG_0851_SEX_OCU_NB_A" else "(%)"
-            if not official.endswith(expected):
+            expected_suffix="(local currency)" if table=="SDG_0851_SEX_OCU_NB_A" else "(%)"
+            if not official.endswith(expected_suffix):
                 raise ValueError("Official ILOSTAT source measurement changed")
             full_titles[table]=official
-            units[table]="local currency" if expected=="(local currency)" else "%"
+            units[table]="local currency" if expected_suffix=="(local currency)" else "%"
         else:
             units[table]="source-defined (unit not verified)"
     groups=defaultdict(dict)
