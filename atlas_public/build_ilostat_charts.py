@@ -102,6 +102,23 @@ def build(data:Path,output:Path)->dict|None:
     if not isinstance(countries,dict):
         raise ValueError("Approved public geography reference missing")
     dictionary=load_public_dictionary(data)
+    # The *official* ILO indicator labels identify the reported measurement.
+    # Do not infer conversions from bare suffix codes or combine currencies.
+    units={}
+    full_titles={}
+    for table in TABLES:
+        if dictionary:
+            indicator_code=table[:-2]
+            official=dictionary["codes"]["indicator"].get(indicator_code,"")
+            if not official or not official.startswith("SDG indicator "):
+                raise ValueError("Official ILOSTAT indicator unit definition missing")
+            expected="(local currency)" if table=="SDG_0851_SEX_OCU_NB_A" else "(%)"
+            if not official.endswith(expected):
+                raise ValueError("Official ILOSTAT source measurement changed")
+            full_titles[table]=official
+            units[table]="local currency" if expected=="(local currency)" else "%"
+        else:
+            units[table]="source-defined (unit not verified)"
     groups=defaultdict(dict)
     counts=Counter()
     finite=0
@@ -162,6 +179,15 @@ def build(data:Path,output:Path)->dict|None:
         for j,series in enumerate(sorted_series,1):
             series["rows"].sort()
             title=safe_title(series["table_id"],series["dimensions"],j,dictionary)
+            if dictionary:
+                title=title.replace(TABLES[series["table_id"]],
+                    TABLES[series["table_id"]]+" ("+units[series["table_id"]]+")",1)
+            series["unit_label"]=units[series["table_id"]]
+            if dictionary:
+                series["official_indicator_title"]=full_titles[series["table_id"]]
+                series["source_name"]=(dictionary["codes"]["source"].get(
+                    series["dimensions"].get("source","")) or
+                    "Original source label unavailable")
             # Exact original source classification distinguishes statistical
             # series; never hide duplicate titles as if they were the same.
             used_titles[title]+=1
