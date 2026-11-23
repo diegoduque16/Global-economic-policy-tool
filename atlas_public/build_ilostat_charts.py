@@ -27,21 +27,57 @@ SEX_NAMES={"SEX_T":"Total", "SEX_F":"Women", "SEX_M":"Men"}
 FIELDS=["table_id","geography_code","year","original_series_id",
         "original_value_text","source_status","original_dimensions_json"]
 
-def safe_title(table:str, dimensions:dict, position:int)->str:
-    sex=SEX_NAMES.get(dimensions.get("sex",""),"")
-    age=""
-    for val in dimensions.values():
-        if not isinstance(val,str):
-            continue
-        match=re.fullmatch(r"AGE_Y([0-9]{1,2})-([0-9]{1,2})",val)
-        if match:
-            age="Ages "+match.group(1)+"–"+match.group(2)
-            break
+def safe_title(table:str, dimensions:dict, position:int,
+               dictionary:dict|None=None)->str:
+    """Prefer exact official ILO English labels; never invent classifications."""
     bits=[TABLES[table]]
-    if sex:bits.append(sex)
-    if age:bits.append(age)
-    bits.append("Original statistical breakdown "+str(position))
+    codes=(dictionary or {}).get("codes",{})
+    applied=False
+    for field in ("sex","classif1","classif2"):
+        code=dimensions.get(field,"")
+        label=codes.get(field,{}).get(code,"")
+        if label and label!=code:
+            bits.append(label)
+            applied=True
+        elif field=="sex" and code in SEX_NAMES:
+            bits.append(SEX_NAMES[code])
+    # Only parse standard, self-describing age tokens if no official label.
+    if not applied:
+        for val in dimensions.values():
+            if not isinstance(val,str):
+                continue
+            match=re.fullmatch(r"AGE_Y([0-9]{1,2})-([0-9]{1,2})",val)
+            if match:
+                bits.append("Ages "+match.group(1)+"–"+match.group(2))
+                break
+        bits.append("Original statistical breakdown "+str(position))
     return " · ".join(bits)
+
+
+def load_public_dictionary(data:Path)->dict|None:
+    path=Path(data)/"ilostat"/"dictionaries_en.json"
+    if not path.is_file():
+        return None
+    raw=json.loads(path.read_text(encoding="utf-8"))
+    if (raw.get("schema_version")!=1 or raw.get("dictionary_language")!="English"
+        or raw.get("original_source_zip_sha256")!=
+            "aa6431d19449b78e99b46450f6a5883243460864b7f7a8f873f4dd4f54152831"
+        or raw.get("label_provenance")!=
+            "Official ILOSTAT dictionaries, not inferred descriptions"
+        or not isinstance(raw.get("codes"),dict)
+        or not isinstance(raw.get("source_metadata"),dict)):
+        raise ValueError("Unverified official ILOSTAT code dictionary")
+    for field in ("ref_area","sex","classif1","classif2","source","indicator"):
+        codes=raw["codes"].get(field)
+        if not isinstance(codes,dict) or not all(
+            isinstance(k,str) and isinstance(v,str) and k and v
+            for k,v in codes.items()
+        ):
+            raise ValueError("Malformed official ILOSTAT English dictionary")
+        metadata=raw["source_metadata"].get(field,{})
+        if not re.fullmatch(r"[0-9a-f]{64}",metadata.get("official_raw_sha256","")):
+            raise ValueError("Official ILOSTAT dictionary source SHA missing")
+    return raw
 
 def build(data:Path,output:Path)->dict|None:
     root=Path(data)/"ilostat"
@@ -65,6 +101,7 @@ def build(data:Path,output:Path)->dict|None:
     countries=json.loads((Path(data)/"catalog.json").read_text(encoding="utf-8"))["geographies"]
     if not isinstance(countries,dict):
         raise ValueError("Approved public geography reference missing")
+    dictionary=load_public_dictionary(data)
     groups=defaultdict(dict)
     counts=Counter()
     finite=0
@@ -121,14 +158,24 @@ def build(data:Path,output:Path)->dict|None:
     catalog=[]
     for i, (geo,entries) in enumerate(sorted(groups.items())):
         sorted_series=sorted(entries.values(),key=lambda r:(r["table_id"],r["id"]))
+        used_titles=Counter()
         for j,series in enumerate(sorted_series,1):
             series["rows"].sort()
-            series["title"]=safe_title(series["table_id"],series["dimensions"],j)
+            title=safe_title(series["table_id"],series["dimensions"],j,dictionary)
+            # Exact original source classification distinguishes statistical
+            # series; never hide duplicate titles as if they were the same.
+            used_titles[title]+=1
+            if used_titles[title]>1:
+                source=series["dimensions"].get("source","")
+                source_label=(dictionary or {}).get("codes",{}).get("source",{}).get(source,"")
+                title+=" · "+(source_label if source_label else
+                              "Original source variant "+str(used_titles[title]))
+            series["title"]=title
             years=[row[0] for row in series["rows"]]
             series["plot_safe"]=len(set(years))==len(years)
             series["first_year"]=min(years)
             series["last_year"]=max(years)
-        name=countries.get(geo,{}).get("name")
+        name=(dictionary or {}).get("codes",{}).get("ref_area",{}).get(geo) or countries.get(geo,{}).get("name")
         if not name:
             name="ILOSTAT area "+str(i+1)+" (official name not yet verified)"
         filename=f"{i:04d}.json"
@@ -151,6 +198,9 @@ def build(data:Path,output:Path)->dict|None:
         "chartable_geographies":len(catalog),
         "original_table_count":3,
         "annual_source_defined_not_harmonized":True,
+        "official_english_dictionary_applied":dictionary is not None,
+        "dictionary_captured_utc":dictionary.get("captured_utc") if dictionary else None,
+
         "geographies":catalog,
     }
     (destination/"catalog.json").write_text(

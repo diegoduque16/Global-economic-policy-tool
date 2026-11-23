@@ -1,0 +1,90 @@
+name: Verify and publish official ILOSTAT English dictionary labels
+
+on:
+  pull_request:
+    paths:
+      - 'atlas_public/build_ilostat_dictionary.py'
+      - 'atlas_public/build_ilostat_charts.py'
+      - 'tests/test_ilostat_official_dictionary.py'
+      - '.github/workflows/atlas-ilostat-official-dictionaries.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'atlas_public/build_ilostat_dictionary.py'
+      - 'atlas_public/build_ilostat_charts.py'
+      - '.github/workflows/atlas-ilostat-official-dictionaries.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atlas-ilostat-official-dictionary
+  cancel-in-progress: false
+
+jobs:
+  offline-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate official source parsing and original classification chart labels
+        run: |
+          python -m unittest discover -s tests -p 'test_ilostat_official_dictionary.py' -v
+          python -m unittest discover -s tests -p 'test_atlas_public.py' -v
+          python -m py_compile atlas_public/build_ilostat_dictionary.py atlas_public/build_ilostat_charts.py
+
+  publish-official-english:
+    needs: offline-test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Retrieve exact ILO metadata API English labels for original public series codes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m atlas_public.build_ilostat_dictionary
+          python - <<'PY_VERIFY'
+          import json
+          from pathlib import Path
+          p=Path("atlas_public/data/ilostat/dictionaries_en.json")
+          dictionary=json.loads(p.read_text())
+          assert dictionary["schema_version"]==1
+          assert dictionary["dictionary_language"]=="English"
+          assert dictionary["original_source_zip_sha256"]=="aa6431d19449b78e99b46450f6a5883243460864b7f7a8f873f4dd4f54152831"
+          assert all(len(v["official_raw_sha256"])==64 for v in dictionary["source_metadata"].values())
+          assert dictionary["source_metadata"]["sex"]["matched_original_codes"]>=3
+          assert dictionary["source_metadata"]["ref_area"]["matched_original_codes"]>=100
+          assert (dictionary["source_metadata"]["classif1"]["matched_original_codes"]+
+                  dictionary["source_metadata"]["classif2"]["matched_original_codes"])>=5
+          from atlas_public.build_site import build
+          site=build(include_research=False)
+          catalog=json.loads((Path(site["output"])/"data"/"ilostat"/"charts"/"catalog.json").read_text())
+          assert catalog["official_english_dictionary_applied"] is True
+          assert catalog["finite_numeric_records"]==149148
+          assert catalog["source_native_records"]==153116
+          print("ATLAS_OFFICIAL_DICTIONARY_APPLIED_TO_VERIFIED_ILOSTAT_CHARTS")
+          PY_VERIFY
+      - name: Commit only matched official English labels and source hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Atlas Official Source Metadata Publisher"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add atlas_public/data/ilostat/dictionaries_en.json
+          if git diff --cached --quiet; then
+            echo "Official ILO English metadata snapshot unchanged."
+            exit 0
+          fi
+          git commit -m "Publish verified source-specific ILOSTAT classification labels [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
