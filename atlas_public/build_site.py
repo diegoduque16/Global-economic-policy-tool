@@ -214,7 +214,7 @@ def build(data=None, output=None, *, include_research=True):
     html = html.replace(quick_anchor, quick_anchor + selector)
     # Insert a sibling between the country and indicator fields in the
     # existing public quick form, without breaking the original field markup.
-    topic_anchor = '<div class="quick-field">\\n                <label for="quick-indicator">'
+    topic_anchor = '<div class="quick-field">\n                <label for="quick-indicator">'
     if html.count(topic_anchor) != 1:
         raise ValueError("Public indicator field placement changed")
     html = html.replace(topic_anchor, topic_selector + topic_anchor)
