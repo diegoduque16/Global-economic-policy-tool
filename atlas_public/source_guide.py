@@ -94,6 +94,25 @@ def build(destination: Path) -> None:
             or not archive.is_file()
             or hashlib.sha256(archive.read_bytes()).hexdigest() != ilo_public.get("file_sha256")):
             raise ValueError("Unverified public ILOSTAT release in Atlas source directory")
+    # The Eurostat link becomes chart-ready only when the official source
+    # values and derived chart manifest both exist in the public site build.
+    euro_source = destination.parent / "data" / "eurostat" / "annual_unemployment.json"
+    euro_catalog = destination.parent / "data" / "eurostat" / "charts" / "catalog.json"
+    euro_public = None
+    if euro_source.is_file():
+        if not euro_catalog.is_file():
+            raise ValueError("Published Eurostat data lack a verified chart catalog")
+        euro_public = json.loads(euro_source.read_text(encoding="utf-8"))
+        euro_chart = json.loads(euro_catalog.read_text(encoding="utf-8"))
+        if (euro_public.get("public_release") is not True
+            or euro_public.get("dataset") != "une_rt_a"
+            or euro_public.get("original_unit") != "PC_ACT"
+            or euro_public.get("series_breakdowns") != 6
+            or euro_public.get("numeric_observations", 0) < 200
+            or euro_chart.get("numeric_observations") != euro_public["numeric_observations"]
+            or euro_chart.get("source_raw_sha256") != euro_public.get("source_raw_sha256")
+            or euro_chart.get("chartable_geographies", 0) < 15):
+            raise ValueError("Unverified public Eurostat source and chart release")
     for record in PROVIDERS:
         bls_download = (
             '<p><a href="/data/bls/bls_jolts_source_native.csv.zip" download>'
@@ -109,14 +128,25 @@ def build(destination: Path) -> None:
             if is_ilo_public else ""
         )
         is_bls_public = record["name"] == "U.S. Bureau of Labor Statistics" and bls_public
+        is_euro_public = record["name"] == "Eurostat" and euro_public
+        euro_access = (
+            '<p><a href="/#explore-view">Chart verified Eurostat annual unemployment</a> · '
+            '<a href="/data/eurostat/annual_unemployment.json">'
+            'Original-source subset, citation and SHA256 provenance</a></p>'
+            if is_euro_public else ""
+        )
         access = ("Atlas charts + download + original portal"
-                  if is_bls_public or is_ilo_public else record["access"])
+                  if is_bls_public or is_ilo_public or is_euro_public else record["access"])
         description = (
             "Official annual ILOSTAT SDG labour source-native observations are "
             "chartable in Atlas and downloadable with exact original classifications, "
             "missingness and CC BY 4.0 citation instructions. Other ILOSTAT source "
             "tables still require publication validation."
             if is_ilo_public else
+            "Atlas charts official Eurostat annual unemployment rates for three sex groups "
+            "and two age groups across selected European areas. Published data include "
+            "original Eurostat quality flags, dataset citation and raw API response checksum."
+            if is_euro_public else
             "The source-native JOLTS values can be charted or downloaded on Atlas "
             "with original series keys and a citation file. Other BLS collections "
             "may remain unpublished." if is_bls_public else record["description"]
@@ -127,13 +157,17 @@ def build(destination: Path) -> None:
             '<p>' + escape(description) + '</p>'
             '<p><strong>Reuse terms:</strong> ' + escape(record["license"]) + '</p>'
             '<p><strong>How to cite:</strong> ' + escape(record["citation"]) + '</p>'
-            + bls_download + ilo_download +
+            + bls_download + ilo_download + euro_access +
             '<p class="links"><a href="' + escape(record["source"], quote=True) +
             '" rel="noopener noreferrer" target="_blank">Explore official dataset</a> · '
             '<a href="' + escape(record["terms"], quote=True) +
             '" rel="noopener noreferrer" target="_blank">License / terms</a></p></article>'
         )
     hosted_note = (
+        "Atlas charts verified World Bank, BLS JOLTS, ILOSTAT and Eurostat unemployment "
+        "observations. Eurostat's original annual sex/age classifications, source flags "
+        "and source citation are preserved; provider measures remain separate. "
+        if euro_public else
         "Atlas charts World Bank annual values, BLS monthly jobs statistics, "
         "and ILOSTAT annual SDG labour indicators; each source retains separate "
         "definitions, provenance and attribution. "
