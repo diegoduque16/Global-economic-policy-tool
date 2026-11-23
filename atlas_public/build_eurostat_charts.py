@@ -7,7 +7,10 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 import json
 from pathlib import Path
-from atlas_public.eurostat_unemployment import SEXS, AGES, URL, SOURCE_URL
+if __package__:
+    from .eurostat_unemployment import SEXS, AGES, URL, SOURCE_URL
+else:
+    from eurostat_unemployment import SEXS, AGES, URL, SOURCE_URL
 
 MIN_NUMERIC = 200
 
