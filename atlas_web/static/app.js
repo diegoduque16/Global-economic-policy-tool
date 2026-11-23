@@ -98,6 +98,11 @@ async function loadFamily(){
   if(pick)state.selected=new Set([pick.code]);
  }
  $("search-indicator").value="";$("quick-indicator-search").value="";
+ const topicWrap=$("quick-topic-wrap"),topic=$("quick-topic");
+ if(topicWrap && topic){
+  topicWrap.hidden=!(publicView() && f?.id==="ilostat");
+  topic.value=f?.id==="ilostat"?"Unemployment rate":"";
+ }
  const ilo=f?.id==="ilostat";
  $("search-indicator").placeholder=ilo?
   "Try unemployment, earnings or informal employment":"Search by series name or code";
@@ -113,6 +118,26 @@ async function loadFamily(){
  if(!f){$("chart").replaceChildren(el("div","chart-empty","No source found."));return;}
  await loadSeries();
 }
+function setIndicatorChoices(previous=""){
+ const topic=$("quick-topic");
+ const activeTopic=publicView() && currentFamily()?.id==="ilostat"?
+  (topic?.value||""):"";
+ const visible=state.seriesResults.filter(x=>
+  !activeTopic || (x.title||"").startsWith(activeTopic));
+ const choices=visible.map(x=>({
+  value:x.name,label:publicView()?(x.title||"Indicator label unavailable"):
+   (x.title?x.title+" · ":"")+x.name+" ("+fmt(x.rows)+" rows)"
+ }));
+ selectOptions($("series"),choices,"No indicators for this topic");
+ selectOptions($("quick-indicator"),choices,"No indicators for this topic");
+ const preferred=visible.find(x=>x.name===previous)||
+  visible.find(x=>x.name==="NY.GDP.MKTP.KD.ZG")||visible[0];
+ if(preferred){
+  $("series").value=preferred.name;
+  $("quick-indicator").value=preferred.name;
+ }
+ return visible;
+}
 async function loadSeries(query=""){
  const f=currentFamily();if(!f)return;
  const req=++state.pending,previous=$("series").value;
@@ -123,18 +148,7 @@ async function loadSeries(query=""){
    geo:state.overview?.public_edition?state.publicCountry:undefined});
   if(req!==state.pending)return;
   state.seriesResults=results.filter(x=>x.name);
-  selectOptions($("series"),state.seriesResults.map(x=>({
-   value:x.name,label:publicView()?(x.title||"Indicator label unavailable"):
-    (x.title?x.title+" · ":"")+x.name+" ("+fmt(x.rows)+" rows)"
-  })),"No matching indicators");
-  selectOptions($("quick-indicator"),state.seriesResults.map(x=>({
-   value:x.name,label:publicView()?(x.title||"Indicator label unavailable"):
-    (x.title||x.name)+(x.title?" · "+x.name:"")
-  })),"No matching indicators");
-  const choices=[...$("series").options].filter(x=>x.value);
-  const preferred=choices.find(x=>x.value===previous)||
-   choices.find(x=>x.value==="NY.GDP.MKTP.KD.ZG")||choices[0];
-  if(preferred){$("series").value=preferred.value;$("quick-indicator").value=preferred.value;}
+  const visible=setIndicatorChoices(previous);
   const selected=state.seriesResults.find(x=>x.name===$("series").value);
   $("quick-indicator-hint").textContent=selected?
    publicView()?(fmt(selected.rows)+" observations available for this country · "+
@@ -142,8 +156,9 @@ async function loadSeries(query=""){
      "Series: "+selected.name+" · "+fmt(selected.rows)+" verified observations":
    "No indicators match your search. Try a broader term.";
   if(!state.seriesResults.length){
-   $("quick-indicator-hint").textContent="No indicators match for this country. Try another term or country.";
-   state.lastResponse=null;render();return;
+   $("quick-indicator-hint").textContent="No matching statistical breakdowns. Try another labour topic, search term or country.";
+   state.lastResponse=null;state.geographies=[];state.selected.clear();
+   renderGeographies();render();return;
   }
   await loadGeographies();
  }catch(e){if(req===state.pending)showError(e);}
@@ -509,6 +524,17 @@ function attach(){
  });
  $("open-source-catalog").addEventListener("click",()=>mode("catalog"));
  $("family").addEventListener("change",loadFamily);
+ const publicTopic=$("quick-topic");
+ if(publicTopic)publicTopic.addEventListener("change",()=>{
+  if(!publicView()||currentFamily()?.id!=="ilostat")return;
+  const matches=setIndicatorChoices($("series").value);
+  if(!matches.length){state.lastResponse=null;render();return;}
+  const selected=state.seriesResults.find(x=>x.name===$("series").value);
+  if(selected)$("quick-indicator-hint").textContent=
+   fmt(selected.rows)+" observations available for this country · "+
+   selected.first_year+"–"+selected.last_year;
+  void loadGeographies();
+ });
  const publicSource=$("quick-source");
  if(publicSource)publicSource.addEventListener("change",()=>{
   const id=publicSource.value;
