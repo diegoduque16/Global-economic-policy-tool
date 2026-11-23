@@ -137,14 +137,14 @@ def build(data=None, output=None, *, include_research=True):
             "Verified public World Bank and BLS JOLTS source data are chartable. Other providers remain under validation.",
         "CURRENT SNAPSHOT": "SOURCE RELEASE",
         "Immutable source versions": "WDI archived November 9, 2026",
-        "Source-separated observations": "Verified WDI observations",
-        "In the canonical observation table": "Public source edition · not harmonized",
-        "Source families": "Published source families",
-        "Preserved native definitions": "World Bank WDI + BLS JOLTS",
-        "Additional native records": "Geographic areas",
-        "Separate layer; may overlap": "Countries, territories and aggregates",
-        "Indexed native sources": "Public WDI indicators",
-        "Stored in the same SQLite": "Published original annual and monthly source series",
+        "Source-separated observations": "Published source observations",
+        "In the canonical observation table": "All provider editions; records may overlap",
+        "Source families": "Chartable providers",
+        "Preserved native definitions": "Choose a source above to explore",
+        "Additional native records": "Non–World Bank observations",
+        "Separate layer; may overlap": "Original provider values · not harmonized",
+        "Indexed native sources": "World Bank geographic areas",
+        "Stored in the same SQLite": "WDI source coverage",
         "Source-native": "Verified WDI",
         "Search by series name or code": "Search by topic or indicator name",
         "Search country name or code": "Search by country or region name",
@@ -153,7 +153,7 @@ def build(data=None, output=None, *, include_research=True):
         "Select a series to display observations.": "Choose an indicator to display the data.",
         "Your world, in data.": "Explore your country in data.",
         "Atlas Economic Data · Read-only viewer · Underlying sources and vintages should be checked before interpreting results.":
-            "World Economic Atlas · Source: World Bank World Development Indicators · CC BY 4.0 (subject to indicator-specific conditions). See /data/LICENSE-ATTRIBUTION.txt. Prepared from a verified 2026-11-09 Atlas source snapshot; not harmonized across providers.",
+            "World Economic Atlas · Official sources: World Bank, BLS, ILOSTAT and Eurostat. Explore /sources/ for original data citations, statistical definitions and terms of reuse. Different source-native measurements have not been harmonized.",
     }
     if eurostat_chart_release:
         replacements[
