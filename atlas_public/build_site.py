@@ -193,10 +193,31 @@ def build(data=None, output=None, *, include_research=True):
         '<small>Select a source to see its actual countries and indicators.</small>'
         '</div>'
     )
+    # Guide ILOSTAT selection by actual SDG topic before choosing the exact
+    # classification series; no original codes are displayed in the UI.
+    topic_selector = (
+        '<div class="quick-field quick-topic-field" id="quick-topic-wrap" hidden>'
+        '<label for="quick-topic">Choose a labour indicator</label>'
+        '<select id="quick-topic" aria-label="Choose an ILOSTAT labour indicator">'
+        '<option value="">All three ILOSTAT indicators</option>'
+        '<option value="Informal employment">Informal employment</option>'
+        '<option value="Average hourly earnings">Average hourly earnings</option>'
+        '<option value="Unemployment rate">Unemployment rate</option>'
+        '</select>'
+        '<small>Then choose the specific statistical breakdown. '
+        'Different breakdowns are not automatically comparable.</small>'
+        '</div>'
+    )
     quick_anchor = '<div class="quick-fields">'
     if html.count(quick_anchor)!=1:
         raise ValueError("Public source selector placement missing")
     html = html.replace(quick_anchor, quick_anchor + selector)
+    # Insert a sibling between the country and indicator fields in the
+    # existing public quick form, without breaking the original field markup.
+    topic_anchor = '<div class="quick-field">\n                <label for="quick-indicator">'
+    if html.count(topic_anchor) != 1:
+        raise ValueError("Public indicator field placement changed")
+    html = html.replace(topic_anchor, topic_selector + topic_anchor)
     html = html.replace('<span class="quick-step">1</span> Choose a country',
                         '<span class="quick-step">2</span> Choose a country')
     html = html.replace('<span class="quick-step">2</span> Choose an indicator',
@@ -405,6 +426,14 @@ def build(data=None, output=None, *, include_research=True):
         "padding:14px 16px}"
         ".quick-source-field select{width:100%;font-weight:750}"
         "@media(max-width:800px){.quick-source-field{max-width:none}}\\n"
+    )
+    css += (
+        "\\n.quick-topic-field[hidden]{display:none!important}"
+        ".quick-topic-field{grid-column:1/-1;max-width:580px;"
+        "border:1px solid #dce7f6;border-radius:10px;padding:12px 15px;"
+        "background:#f7faff}"
+        ".quick-topic-field select{width:100%}"
+        "@media(max-width:800px){.quick-topic-field{max-width:none}}\\n"
     )
     (output / "style.css").write_text(css, encoding="utf-8")
     # Fingerprint exact rendered public UI assets after *all* modifications.

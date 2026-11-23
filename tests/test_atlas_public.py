@@ -88,6 +88,13 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertNotIn("rclone.conf",project_page)
             self.assertNotIn("warehouse.sqlite",project_page)
 
+            self.assertIn('id="quick-topic-wrap"',html)
+            self.assertIn('id="quick-topic"',html)
+            self.assertIn("Informal employment",html)
+            self.assertIn("Average hourly earnings",html)
+            self.assertIn("Unemployment rate",html)
+            self.assertIn(".quick-topic-field[hidden]{display:none!important}",
+                          (output/"style.css").read_text())
             self.assertIn('id="quick-source"',html)
             self.assertIn('World Bank — economic indicators',html)
             self.assertNotIn('<option value="bls">',html)
@@ -214,6 +221,11 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertIn('data.finite_numeric_records!==149148',adapter)
             client=(output/"app.js").read_text()
             self.assertIn('isILO=currentFamily()?.id==="ilostat"',client)
+            self.assertIn("function setIndicatorChoices(previous",client)
+            self.assertIn('(x.title||"").startsWith(activeTopic)',client)
+            self.assertIn('publicTopic.addEventListener("change"',client)
+            self.assertIn('topic.value=f?.id==="ilostat"?"Unemployment rate":""',client)
+
 
     def test_reject_missing_or_changed_source_release(self):
         with tempfile.TemporaryDirectory() as tmp:
