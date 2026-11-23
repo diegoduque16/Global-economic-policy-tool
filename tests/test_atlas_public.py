@@ -216,8 +216,25 @@ class PublicWebsiteTests(unittest.TestCase):
                 total+=geo["numeric_records"]
             self.assertEqual(total,149148)
             self.assertEqual(len(kinds),3)
+            dictionary=(root/"ilostat"/"dictionaries_en.json")
+            if dictionary.is_file():
+                self.assertTrue(index["official_english_dictionary_applied"])
+                units=set()
+                for geo in index["geographies"]:
+                    data=json.loads((output/"data"/"ilostat"/"charts"/geo["file"]).read_text())
+                    for item in data["series"]:
+                        self.assertTrue(item["official_indicator_title"].startswith(
+                            "SDG indicator "))
+                        self.assertNotIn("Original statistical breakdown",item["title"])
+                        units.add(item["unit_label"])
+                        self.assertTrue(item["source_name"])
+                self.assertEqual(units,{"%","local currency"})
+
             adapter=(output/"public_adapter.js").read_text()
             self.assertIn("async function ilostatQuery(path,params)",adapter)
+            self.assertIn('unit:entry.unit_label',adapter)
+            self.assertIn('entry.unit_label==="local currency"',adapter)
+
             self.assertIn('data.finite_numeric_records!==149148',adapter)
             client=(output/"app.js").read_text()
             self.assertIn('isILO=currentFamily()?.id==="ilostat"',client)
