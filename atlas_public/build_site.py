@@ -18,12 +18,14 @@ if __package__:
     from .source_guide import build as build_source_guide
     from .build_bls_charts import build as build_bls_charts
     from .build_ilostat_charts import build as build_ilostat_charts
+    from .build_eurostat_charts import build as build_eurostat_charts
 else:
     from research_export import build_research_exports
     from project_brief import build as build_project_brief
     from source_guide import build as build_source_guide
     from build_bls_charts import build as build_bls_charts
     from build_ilostat_charts import build as build_ilostat_charts
+    from build_eurostat_charts import build as build_eurostat_charts
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
@@ -96,6 +98,7 @@ def build(data=None, output=None, *, include_research=True):
     # Only this previously-released ZIP is converted into individual chart JSON.
     bls_chart_release = build_bls_charts(data, output)
     ilostat_chart_release = build_ilostat_charts(data, output)
+    eurostat_chart_release = build_eurostat_charts(data, output)
     # Source coverage is derived only from the already released WDI data.
     availability = build_public_availability(data, catalog)
     (output / "data" / "availability.json").write_text(
@@ -189,6 +192,8 @@ def build(data=None, output=None, *, include_research=True):
            if bls_chart_release else '') +
         ('<option value="ilostat">International Labour Organization — ILOSTAT</option>'
            if ilostat_chart_release else '') +
+        ('<option value="eurostat">Eurostat — European unemployment</option>'
+           if eurostat_chart_release else '') +
         '</select>'
         '<small>Select a source to see its actual countries and indicators.</small>'
         '</div>'
@@ -259,10 +264,19 @@ def build(data=None, output=None, *, include_research=True):
             '<a href="/sources/">ILOSTAT reuse and source citations</a>'
             '</article>'
         )
+    if eurostat_chart_release:
+        cards.append(
+            '<article class="source-access-card"><strong>Eurostat — European labour market</strong>'
+            '<span class="source-availability public">Charts available</span>'
+            '<p>Annual unemployment rates for total, women, men and youth/adult age groups. '
+            'Official Eurostat data, with annual observation flags and original source citation.</p>'
+            '<a href="/sources/">Eurostat official source and citation instructions</a>'
+            '</article>'
+        )
     cards.append(
         '<article class="source-access-card"><strong>Other Atlas provider collections</strong>'
         '<span class="source-availability private">Private research database</span>'
-        '<p>FRED, Eurostat, WID and additional datasets are not yet validated '
+        '<p>FRED, WID and additional datasets are not yet validated '
         'for public charting; access original provider datasets or use the local explorer.</p>'
         '<a href="/sources/">Find official sources and citation instructions</a> · '
         '<a href="https://github.com/diegoduque16/Global-economic-policy-tool/blob/main/atlas_web/README.md" '

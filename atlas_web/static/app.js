@@ -108,7 +108,9 @@ async function loadFamily(){
   "Try unemployment, earnings or informal employment":"Search by series name or code";
  $("quick-indicator-search").placeholder=ilo?
   "Try unemployment, earnings or informal employment…":f?.id==="bls"?
-  "Try job openings, hires, quits or layoffs…":"Try GDP, population, inflation…";
+  "Try job openings, hires, quits or layoffs…":
+  f?.id==="eurostat"?"Try unemployment, youth, women or men…":
+  "Try GDP, population, inflation…";
  $("geo-search").value="";$("quick-country-search").value="";
  $("source-caption").textContent=ilo?
   "Search indicator + exact ILOSTAT sex/age/classification codes. Original units remain unverified; cross-country charts are restricted.":
@@ -291,10 +293,16 @@ function renderPublicCitation(){
  panel.hidden=false;
  const isBLS=currentFamily()?.id==="bls";
  const isILO=currentFamily()?.id==="ilostat";
- const originalUrl=isILO?"https://ilostat.ilo.org/data/bulk/":
+ const isEU=currentFamily()?.id==="eurostat";
+ const originalUrl=isEU?"https://ec.europa.eu/eurostat/databrowser/view/une_rt_a/default/table?lang=en":
+  isILO?"https://ilostat.ilo.org/data/bulk/":
   isBLS?"https://www.bls.gov/jlt/":
   "https://data.worldbank.org/indicator/"+encodeURIComponent(series);
- const citation=isILO?
+ const citation=isEU?
+  'Eurostat (European Commission). Unemployment by sex and age — annual data, "'+
+  info.title+'", original Eurostat dataset une_rt_a (DOI: 10.2908/une_rt_a). '+
+  originalUrl+'. Accessed through World Economic Atlas; consult original Eurostat flags.':
+  isILO?
   'International Labour Organization (ILO). ILOSTAT SDG labour indicators, "'+
   info.title+'", original source-defined country, annual period and classification. '+
   originalUrl+'. World Economic Atlas verified annual source edition, November 2026. '+
@@ -307,7 +315,8 @@ function renderPublicCitation(){
   '." '+originalUrl+'. Source data archived by World Economic Atlas on November 9, 2026.';
  panel.append(el("strong","","Data source and citation"));
  panel.append(el("p","",citation));
- const original=el("a","",isILO?"View official ILOSTAT source":
+ const original=el("a","",isEU?"View official Eurostat source":
+  isILO?"View official ILOSTAT source":
   isBLS?"View official BLS source":"View original World Bank indicator");
  original.href=originalUrl;original.target="_blank";original.rel="noopener noreferrer";
  const guide=el("a","","How to cite other Atlas datasets");

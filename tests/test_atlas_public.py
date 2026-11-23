@@ -95,6 +95,7 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertIn("Unemployment rate",html)
             self.assertIn(".quick-topic-field[hidden]{display:none!important}",
                           (output/"style.css").read_text())
+            self.assertNotIn('<option value="eurostat">',html)
             self.assertIn('id="quick-source"',html)
             self.assertIn('World Bank — economic indicators',html)
             self.assertNotIn('<option value="bls">',html)
@@ -243,6 +244,28 @@ class PublicWebsiteTests(unittest.TestCase):
             self.assertIn('publicTopic.addEventListener("change"',client)
             self.assertIn('topic.value=f?.id==="ilostat"?"Unemployment rate":""',client)
 
+
+    def test_published_eurostat_annual_source_is_chartable(self):
+        root=Path(__file__).resolve().parents[1]/"atlas_public"/"data"
+        original=root/"eurostat"/"annual_unemployment.json"
+        if not original.is_file():
+            self.skipTest("No verified public Eurostat source edition yet")
+        with tempfile.TemporaryDirectory() as td:
+            site=Path(td)/"site"
+            build(data=root,output=site,include_research=False)
+            html=(site/"index.html").read_text()
+            self.assertIn('<option value="eurostat">Eurostat',html)
+            catalog=json.loads((site/"data"/"eurostat"/"charts"/"catalog.json").read_text())
+            self.assertEqual(catalog["dataset"],"une_rt_a")
+            self.assertEqual(catalog["unit_label"],"%")
+            self.assertEqual(catalog["series_breakdowns"],6)
+            self.assertGreater(catalog["numeric_observations"],200)
+            self.assertEqual(sum(x["numeric_records"] for x in catalog["geographies"]),
+                             catalog["numeric_observations"])
+            adapter=(site/"public_adapter.js").read_text()
+            self.assertIn("async function eurostatQuery(path,params)",adapter)
+            app=(site/"app.js").read_text()
+            self.assertIn('isEU=currentFamily()?.id==="eurostat"',app)
 
     def test_reject_missing_or_changed_source_release(self):
         with tempfile.TemporaryDirectory() as tmp:
