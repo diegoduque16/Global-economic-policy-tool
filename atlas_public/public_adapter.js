@@ -10,6 +10,9 @@
   let availabilityPromise = null;
   let blsCatalogPromise = null;
   let ilostatCatalogPromise = null;
+  let eurostatCatalogPromise = null;
+  let eurostatLastCountry = "";
+  const eurostatCountryCache = new Map();
   let ilostatLastCountry = "";
   const ilostatCountryCache = new Map();
   const blsSeriesCache = new Map();
@@ -282,6 +285,104 @@
     }
     fail("Unsupported ILOSTAT data operation");
   }
+  function eurostatCatalog() {
+    if (!eurostatCatalogPromise) {
+      eurostatCatalogPromise = originalFetch("/data/eurostat/charts/catalog.json",
+        {cache:"force-cache"}).then(async response => {
+          if (response.status===404) return null;
+          if (!response.ok) fail("Eurostat public charts are unavailable");
+          const meta=await response.json();
+          if (meta.schema_version!==1 || meta.dataset!=="une_rt_a" ||
+              meta.original_unit!=="PC_ACT" || meta.unit_label!=="%" ||
+              meta.series_breakdowns!==6 || meta.numeric_observations<200 ||
+              meta.annual_source_defined_not_harmonized!==true ||
+              !Array.isArray(meta.geographies) || !meta.geographies.length) {
+            fail("Eurostat source metadata does not match the approved release");
+          }
+          return meta;
+        });
+    }
+    return eurostatCatalogPromise;
+  }
+  async function eurostatCountry(geo) {
+    const manifest=await eurostatCatalog();
+    if (!manifest) fail("Eurostat official release is not yet deployed");
+    const item=manifest.geographies.find(g=>g.code===geo);
+    if (!item) fail("Geography not part of published Eurostat source");
+    if (!eurostatCountryCache.has(geo)) {
+      eurostatCountryCache.set(geo,originalFetch(
+        "/data/eurostat/charts/"+item.file,{cache:"force-cache"}
+      ).then(async response=>{
+        if(!response.ok)fail("Eurostat country chart file unavailable");
+        const content=await response.json();
+        if(content.code!==geo || !Array.isArray(content.series) ||
+            content.series.length!==item.series_count ||
+            content.series.reduce((n,s)=>n+s.rows.length,0)!==item.numeric_records) {
+          fail("Eurostat country chart values failed source count validation");
+        }
+        return content;
+      }));
+    }
+    return eurostatCountryCache.get(geo);
+  }
+  async function eurostatQuery(path,params) {
+    const manifest=await eurostatCatalog();
+    if(!manifest)fail("Eurostat public source not yet available");
+    if(path==="/api/countries") {
+      return manifest.geographies.map(g=>({
+        code:g.code,name:g.name,geography_type:g.geography_type,
+        available_indicators:g.series_count
+      })).sort((a,b)=>a.name.localeCompare(b.name));
+    }
+    if(path==="/api/series") {
+      const geo=params.get("geo")||manifest.geographies[0].code;
+      eurostatLastCountry=geo;
+      const source=await eurostatCountry(geo);
+      const q=(params.get("q")||"").toLowerCase().trim().slice(0,90);
+      return source.series.filter(s=>!q||s.title.toLowerCase().includes(q))
+        .map(s=>({
+          name:s.id,title:s.title,rows:s.rows.length,
+          first_year:s.first_year,last_year:s.last_year,units:1
+        }));
+    }
+    const selected=(params.get("geos")||eurostatLastCountry).split(",").filter(Boolean);
+    if(selected.length>1)fail("Choose one Eurostat geography to chart");
+    const geo=selected[0]||eurostatLastCountry;
+    const source=await eurostatCountry(geo);
+    const entry=source.series.find(s=>s.id===params.get("series"));
+    if(!entry)fail("Selected Eurostat indicator not available for geography");
+    if(path==="/api/geographies") {
+      return manifest.geographies.filter(g=>g.code===geo).map(g=>({
+        code:g.code,name:g.name,geography_type:g.geography_type,rows:entry.rows.length
+      }));
+    }
+    if(path==="/api/rows") {
+      const first=number(params.get("start"),1980);
+      const last=number(params.get("end"),2026);
+      if(first>last || first<1800 || last>2100)fail("Invalid annual Eurostat years");
+      const filtered=entry.rows.filter(([y])=>y>=first&&y<=last);
+      const cap=Math.min(LIMIT,Math.max(1,number(params.get("limit"),LIMIT)));
+      const truncated=filtered.length>cap;
+      const rows=filtered.slice(0,cap).map(([year,value,flag])=>({
+        provider:"Eurostat (European Commission)",geography:geo,
+        year,period:String(year),series:entry.id,value,
+        raw_value:String(value),unit:"%",frequency:"annual",
+        source_status:flag?("Eurostat flag: "+flag):"Published Eurostat value",
+        source_url:manifest.source_url
+      }));
+      return {
+        rows,returned:rows.length,truncated,
+        units:["%"],frequencies:["annual"],duplicate_keys:0,
+        plot_granularity:"annual",
+        chart_warnings:["Original Eurostat annual unemployment rate (% of active population). Eurostat source flags and revisions are preserved. Do not automatically combine this series with ILO or other unemployment definitions."],
+        chart_blockers:truncated?["Select fewer years before charting."]:[],
+        layer:"source_native",family:"eurostat",series:entry.id,
+        can_plot:rows.length>0&&!truncated,
+        not_cross_provider_harmonized:true
+      };
+    }
+    fail("Unsupported Eurostat chart request");
+  }
   function countByGeo(rows) {
     const counts = new Map();
     for (const point of rows) counts.set(point[0], (counts.get(point[0]) || 0) + 1);
@@ -363,7 +464,18 @@
         layer:"source_native",observations:ilo.finite_numeric_records,
         first_year:null,last_year:null,
         geographies:ilo.chartable_geographies,series:3});
+      const euro=await eurostatCatalog();
+      if(euro)families.push({
+        id:"eurostat",name:"Eurostat — European labour statistics",
+        layer:"source_native",observations:euro.numeric_observations,
+        first_year:null,last_year:null,geographies:euro.chartable_geographies,
+        series:euro.series_breakdowns
+      });
       return families;
+    }
+    if (params.get("family")==="eurostat") {
+      if(params.get("layer")!=="source_native")fail("Invalid Eurostat source layer");
+      return eurostatQuery(path,params);
     }
     if (params.get("family")==="ilostat") {
       if (params.get("layer")!=="source_native") fail("Invalid ILOSTAT public data layer");
@@ -448,7 +560,15 @@
       const params = new URLSearchParams({...args,limit:String(CSV_LIMIT)});
       const manifest = await catalog();
       let values, out;
-      if (params.get("family")==="ilostat") {
+      if (params.get("family")==="eurostat") {
+        const euro=await eurostatCatalog();
+        if(!euro)fail("Eurostat edition is not deployed");
+        const geo=params.get("geos")||eurostatLastCountry;
+        const source=await eurostatCountry(geo);
+        values=source.series.find(x=>x.id===params.get("series"));
+        if(!values)fail("Unknown Eurostat series");
+        out=await eurostatQuery("/api/rows",params);
+      } else if (params.get("family")==="ilostat") {
         const ilo=await ilostatCatalog();
         const requested=params.get("series");
         const geos=params.get("geos")||ilostatLastCountry;
@@ -476,7 +596,9 @@
       const url = URL.createObjectURL(blob);
       const link=document.createElement("a");
       link.href=url;
-      link.download=params.get("family")==="ilostat"?
+      link.download=params.get("family")==="eurostat"?
+        "worldeconatlas_eurostat_annual_unemployment.csv":
+        params.get("family")==="ilostat"?
         "worldeconatlas_ilostat_annual_source.csv":
         params.get("family")==="bls"?
         "worldeconatlas_bls_jolts_monthly.csv":
