@@ -255,6 +255,15 @@ class PublicWebsiteTests(unittest.TestCase):
             build(data=root,output=site,include_research=False)
             html=(site/"index.html").read_text()
             self.assertIn('<option value="eurostat">Eurostat',html)
+            self.assertIn("Explore four verified public sources",html)
+            self.assertIn("Eurostat — European labour market",html)
+            source_guide=(site/"sources"/"index.html").read_text()
+            self.assertIn("Chart verified Eurostat annual unemployment",source_guide)
+            self.assertIn("Original-source subset, citation and SHA256 provenance",
+                          source_guide)
+            self.assertIn("Atlas charts verified World Bank, BLS JOLTS, ILOSTAT and Eurostat",
+                          source_guide)
+
             catalog=json.loads((site/"data"/"eurostat"/"charts"/"catalog.json").read_text())
             self.assertEqual(catalog["dataset"],"une_rt_a")
             self.assertEqual(catalog["unit_label"],"%")
