@@ -43,6 +43,19 @@ function selectOptions(node,records,placeholder){
 }
 function populateOverview(){
  const x=state.overview;
+ if(x.public_edition){
+  // These are counts of published source-native observations, NOT distinct
+  // harmonized economic facts; overlapping official sources stay separate.
+  const totals=state.families.reduce((n,f)=>n+Number(f.observations||0),0);
+  $("stat-records").textContent=fmt(totals);
+  $("stat-families").textContent=fmt(state.families.length);
+  $("stat-native").textContent=fmt(totals-x.canonical_records);
+  $("stat-native-sources").textContent=fmt(x.public_geographies);
+  $("snapshot").textContent="Verified published source editions";
+  $("catalog-summary").textContent=fmt(state.families.length)+" data providers ready for charts";
+  $("catalog-explainer").textContent="Select a source, country and indicator. Source-native observations may overlap and are not combined into one harmonized dataset. See the source citations for definitions and reuse terms.";
+  return;
+ }
  $("stat-records").textContent=fmt(x.canonical_records);
  $("stat-families").textContent=fmt(x.canonical_families||x.native_provider_groups||0);
  $("stat-native").textContent=fmt(x.native_records);
@@ -61,7 +74,9 @@ function drawCatalog(){
  const container=$("catalog-grid");container.replaceChildren();
  for(const f of state.families){
   const card=el("article","catalog-card");
-  card.append(el("div","catalog-eyebrow",f.layer==="source_native"?"SOURCE-NATIVE / UNHARMONIZED":"SOURCE-SEPARATED / CANONICAL"));
+  card.append(el("div","catalog-eyebrow",publicView()?
+   "VERIFIED PUBLIC SOURCE":f.layer==="source_native"?
+   "SOURCE-NATIVE / UNHARMONIZED":"SOURCE-SEPARATED / CANONICAL"));
   card.append(el("h3","",f.name===f.id?pretty(f.name):f.name));
   const stats=el("div","catalog-stats");
   for(const entry of [fmt(f.observations)+" rows",(f.series??"—")+" series",
@@ -69,7 +84,9 @@ function drawCatalog(){
    const span=el("span");span.append(el("b","",entry));stats.append(span);
   }
   card.append(stats);
-  card.append(el("p","",f.layer==="source_native"?
+  card.append(el("p","",publicView()?
+   "Chart official observations for countries and periods available in this public edition. Review source definitions and citations before comparing datasets.":
+   f.layer==="source_native"?
    "Original provider records are indexed but not harmonized. Suppressed and ambiguous values remain marked.":
    "Queryable source-separated records. Compare definitions and units before interpreting differences."));
   const b=el("button","","Explore this collection");
@@ -81,7 +98,10 @@ function drawCatalog(){
 }
 function fillFamilies(){
  const ordered=[...state.families].sort((a,b)=>a.layer.localeCompare(b.layer)||b.observations-a.observations);
- selectOptions($("family"),ordered.map(x=>({value:x.id,label:(x.layer==="source_native"?"[Native] ":"")+pretty(x.name)})),"No collections available");
+ selectOptions($("family"),ordered.map(x=>({
+  value:x.id,
+  label:publicView()?pretty(x.name):(x.layer==="source_native"?"[Native] ":"")+pretty(x.name)
+ })),"No collections available");
  const preferred=ordered.find(x=>x.id==="wdi"&&x.layer==="source_separated")||ordered[0];
  if(preferred)$("family").value=preferred.id;
 }
