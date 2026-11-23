@@ -155,6 +155,19 @@ def build(data=None, output=None, *, include_research=True):
         "Atlas Economic Data · Read-only viewer · Underlying sources and vintages should be checked before interpreting results.":
             "World Economic Atlas · Source: World Bank World Development Indicators · CC BY 4.0 (subject to indicator-specific conditions). See /data/LICENSE-ATTRIBUTION.txt. Prepared from a verified 2026-11-09 Atlas source snapshot; not harmonized across providers.",
     }
+    if eurostat_chart_release:
+        replacements[
+            "Visualize real observations from Atlas’s consolidated data warehouse. Browse indicators, compare geographies, explore time periods, and inspect underlying records."
+        ] = ("Explore four verified public sources: World Bank economic indicators, "
+             "BLS monthly jobs data, ILOSTAT labour indicators, and Eurostat European "
+             "unemployment trends. Choose a provider, geography and indicator to chart.")
+        replacements[
+            "Queries your local Atlas SQLite snapshot. No database upload."
+        ] = ("Verified World Bank, BLS, ILOSTAT and Eurostat data are publicly chartable. "
+             "Other sources are added only after verification.")
+        replacements[
+            "Preserved native definitions"
+        ] = "World Bank · BLS JOLTS · ILOSTAT · Eurostat"
     for original, updated in replacements.items():
         if original not in html:
             raise ValueError(f"Atlas UI changed; missing public adaptation text: {original}")
