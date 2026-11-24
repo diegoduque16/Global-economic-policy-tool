@@ -307,6 +307,74 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(len(ledger),6)
         self.assertTrue(all(x['additive_to_other_rows']=='no' for x in ledger))
 
+    def test_official_toc_identity_reconciles_retired_archives_and_missing_current(self):
+        # Regression for failed real 2026-11-23 watchdog run 45150275447:
+        # the private archive can retain historical IDs outside the new TOC.
+        # Retired files must NOT count as proof that current IDs are complete.
+        official = [f'EMP_FAKE_{i:04d}_A' for i in range(200)]
+        retired = ['EMP_RETIRED_0001_A', 'EMP_RETIRED_0002_A']
+        toc_file = self.root / 'official_toc.csv'
+        with toc_file.open('w', encoding='utf-8', newline='') as handle:
+            writer = csv.DictWriter(handle, fieldnames=['id', 'last.update',
+                                                         'n.records', 'freq'])
+            writer.writeheader()
+            writer.writerows({'id': key, 'last.update': '20261122',
+                              'n.records': '1', 'freq': 'A'} for key in official)
+        fingerprint = m.digest(toc_file)
+
+        def source_record(key):
+            return {
+                'records_validated': 1, 'compressed_bytes': 10,
+                'sha256': 'a' * 64,
+                'remote': m.ILOSTAT_ROOT + '/indicator-data/' + key + '/' +
+                          key + '-20261122-' + 'a' * 16 + '.csv.gz',
+                'last_update': '20261122', 'toc_records': '1',
+                'state': 'NATIVE_NOT_HARMONIZED',
+            }
+
+        checkpoint = {
+            'schema_version': 1,
+            'last_run_utc': '2026-10-30T11:20:00Z',
+            'latest_toc': {
+                'entries': 200, 'sha256': fingerprint,
+                'remote': m.ILOSTAT_ROOT + '/catalog/table_of_contents_en-' +
+                          fingerprint[:16] + '.csv',
+            },
+            'downloaded': {key: source_record(key)
+                           for key in official[:199] + retired},
+        }
+        self.assertEqual(len(checkpoint['downloaded']), 201)
+        toc = m.load_official_ilostat_toc(checkpoint, toc_file)
+        result = m.verify_ilostat(checkpoint, self.now, toc)
+        self.assertEqual(result['verified_compressed_files'], 201)
+        self.assertEqual(result['official_bulk_files'], 200)
+        self.assertEqual(result['official_table_ids_archived_any_vintage'], 199)
+        self.assertEqual(result['remaining_bulk_files'], 1)
+        self.assertEqual(result['historical_archived_ids_outside_current_toc'], 2)
+        self.assertEqual(result['official_table_ids_current_vintage'], 199)
+        self.assertEqual(result['current_vintage_attention_required'], 1)
+        self.assertTrue(result['current_toc_membership_sha_verified'])
+        # Keep an older version rather than inventing current-vintage completeness.
+        checkpoint['downloaded'][official[0]]['last_update'] = '20261101'
+        older = m.verify_ilostat(checkpoint, self.now, toc)
+        self.assertEqual(older['official_table_ids_archived_any_vintage'], 199)
+        self.assertEqual(older['current_vintage_attention_required'], 2)
+        # Without the original TOC identities, archive > TOC remains fail-closed.
+        with self.assertRaisesRegex(ValueError, 'Official TOC IDs required'):
+            m.verify_ilostat(checkpoint, self.now)
+        # Do not accept a tampered table of contents, even with the same row count.
+        toc_file.write_text(toc_file.read_text().replace(official[0], 'EMP_CHANGED_0001_A'))
+        with self.assertRaisesRegex(ValueError, 'SHA256 verification'):
+            m.load_official_ilostat_toc(checkpoint, toc_file)
+
+    def test_watchdog_retrieves_verified_original_toc_before_coverage(self):
+        workflow = (Path(__file__).resolve().parent.parent /
+                    '.github/workflows/atlas-data-pipeline-watchdog.yml').read_text()
+        self.assertIn('Restore exact official ILOSTAT TOC', workflow)
+        self.assertIn('load_official_ilostat_toc(state,output)', workflow)
+        self.assertIn("output=root/'ilostat_toc.csv'", workflow)
+        self.assertIn("if: ${{ github.event_name != 'workflow_dispatch' || inputs.audit_wid_revisions != true }}", workflow)
+
     def test_checkpoint_counts_nonadditive_raw_rows(self):
         data={'schema_version':1,'last_run_utc':'2026-10-30T11:20:00Z','latest_toc':{'entries':1964},
               'downloaded':{'EMP_TEST_NB_A':{'records_validated':12,'compressed_bytes':100,

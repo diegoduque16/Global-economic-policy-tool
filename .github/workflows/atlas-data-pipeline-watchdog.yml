@@ -1,6 +1,11 @@
 name: Atlas - Automatic Economic Data Coverage, Resumption and Backup Watchdog
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/atlas-data-pipeline-watchdog.yml'
+      - 'scripts/atlas_data_watchdog.py'
+      - 'tests/test_atlas_data_watchdog.py'
   # One full existing-watchdog pass immediately after a backup gate change
   # lands on main; normal daily schedule and manual options remain unchanged.
   push:
@@ -32,7 +37,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  offline-test-only:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test metadata-only ILOSTAT TOC reconciliation and existing watchdog gates
+        run: |
+          python -m unittest discover -s tests -p 'test_atlas_data_watchdog.py' -v
+          python -m py_compile scripts/atlas_data_watchdog.py
   verify-and-backup:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -162,6 +184,30 @@ jobs:
           else
             echo 'Fast daily audit; full canonical-archive verification scheduled weekly on Sunday UTC'
           fi
+      - name: Restore exact official ILOSTAT TOC to distinguish archive from current coverage
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.audit_wid_revisions != true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_RESTORE_TOC'
+          import json, os, re, subprocess
+          from pathlib import Path
+          from scripts.atlas_data_watchdog import ILOSTAT_ROOT, load_official_ilostat_toc
+          root=Path(os.environ['RUNNER_TEMP'])/'atlas-watchdog-input'
+          state=json.loads((root/'ilostat_state.json').read_text(encoding='utf-8'))
+          meta=state.get('latest_toc') or {}
+          sha=meta.get('sha256')
+          if not isinstance(sha,str) or not re.fullmatch(r'[0-9a-f]{64}',sha):
+              raise ValueError('Official ILOSTAT TOC SHA missing from private checkpoint')
+          remote=ILOSTAT_ROOT+'/catalog/table_of_contents_en-'+sha[:16]+'.csv'
+          if meta.get('remote')!=remote:
+              raise ValueError('Original official ILOSTAT TOC location/receipt mismatch')
+          output=root/'ilostat_toc.csv'
+          subprocess.run(['rclone','copyto',remote,str(output),'--retries','3'],
+                         check=True,timeout=300)
+          toc=load_official_ilostat_toc(state,output)
+          print('ATLAS_OFFICIAL_ILOSTAT_TOC_SHA_VERIFIED',len(toc))
+          PY_RESTORE_TOC
       - name: Audit real values, repair stalled ingestion, and preserve new monthly batches
         shell: bash
         run: |
