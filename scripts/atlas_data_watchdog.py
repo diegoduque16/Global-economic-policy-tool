@@ -85,11 +85,47 @@ def iso_time(value: str) -> datetime:
     return x.astimezone(timezone.utc)
 
 
-def verify_ilostat(state: dict, now: datetime) -> dict:
+def load_official_ilostat_toc(state: dict, path: Path) -> dict[str, dict]:
+    """Load exactly the official, saved TOC edition; never trust archive totals as TOC membership.
+
+    The original collector retains historical source IDs even when a newer
+    official TOC drops them. The watchdog must compare identities to the
+    SHA-pinned original TOC rather than subtract all archived files.
+    """
+    meta = state.get('latest_toc')
+    if not isinstance(meta, dict):
+        raise ValueError('Missing official ILOSTAT TOC receipt')
+    expected_sha = ensure_sha(meta.get('sha256', ''))
+    expected_remote = ILOSTAT_ROOT + '/catalog/table_of_contents_en-' + expected_sha[:16] + '.csv'
+    if meta.get('remote') != expected_remote:
+        raise ValueError('Official ILOSTAT TOC remote does not match source SHA')
+    path = Path(path)
+    if path.is_symlink() or not path.is_file() or digest(path) != expected_sha:
+        raise ValueError('Official ILOSTAT TOC file failed original SHA256 verification')
+    entries = meta.get('entries')
+    if type(entries) is not int or entries < 200:
+        raise ValueError('Invalid official ILOSTAT TOC count')
+    found = {}
+    with path.open(newline='', encoding='utf-8-sig') as source:
+        reader = csv.DictReader(source)
+        if not {'id', 'last.update', 'n.records', 'freq'}.issubset(reader.fieldnames or []):
+            raise ValueError('Unexpected official ILOSTAT TOC CSV columns')
+        for row in reader:
+            key = (row.get('id') or '').strip()
+            if not re.fullmatch(r'[A-Za-z0-9_]{4,100}', key) or key in found:
+                raise ValueError('Invalid or duplicate original ILOSTAT TOC table ID')
+            found[key] = row
+    if len(found) != entries:
+        raise ValueError('SHA-verified ILOSTAT TOC count disagrees with checkpoint receipt')
+    return found
+
+
+def verify_ilostat(state: dict, now: datetime,
+                   current_toc: dict[str, dict] | None = None) -> dict:
     if state.get('schema_version') != 1 or not isinstance(state.get('downloaded'), dict):
         raise ValueError('Unsupported ILOSTAT source checkpoint')
     toc = state.get('latest_toc', {})
-    if not isinstance(toc, dict) or not isinstance(toc.get('entries'), int) or toc['entries'] < 200:
+    if not isinstance(toc, dict) or type(toc.get('entries')) is not int or toc['entries'] < 200:
         raise ValueError('ILOSTAT official TOC count unavailable')
     datasets = state['downloaded']
     count = 0
@@ -109,11 +145,7 @@ def verify_ilostat(state: dict, now: datetime) -> dict:
         prefix = ILOSTAT_ROOT + '/indicator-data/' + key + '/'
         if not isinstance(remote, str) or not remote.startswith(prefix):
             raise ValueError('ILOSTAT source location outside expected private root')
-        # The ingestion workflow stores each source as:
-        # indicator-data/<table_id>/<table_id>-<TOC_update>-<sha256_prefix>.csv.gz.
-        # Bind the checkpoint's full SHA to that filename and dataset identity.
-        # This is a metadata integrity check, not a substitute for a byte-level
-        # private-source checksum verification.
+        # Metadata integrity check, not a substitute for byte-level verification.
         filename = remote[len(prefix):]
         if not re.fullmatch(re.escape(key) + r'-[A-Za-z0-9]+-' +
                             re.escape(sha[:16]) + r'\.csv\.gz', filename):
@@ -121,17 +153,44 @@ def verify_ilostat(state: dict, now: datetime) -> dict:
         total_source_rows += n
         total_bytes += b
         count += 1
-    if count > toc['entries']:
-        raise ValueError('More verified files than TOC entries')
+
+    if current_toc is not None:
+        if (not isinstance(current_toc, dict) or len(current_toc) != toc['entries'] or
+                any(not re.fullmatch(r'[A-Za-z0-9_]{4,100}', key)
+                    or not isinstance(meta, dict) for key, meta in current_toc.items())):
+            raise ValueError('Official ILOSTAT TOC identities do not match checkpoint count')
+        archived_current_ids = set(datasets).intersection(current_toc)
+        verified_in_current_toc = len(archived_current_ids)
+        current_vintage = sum(
+            datasets[key].get('last_update') == current_toc[key].get('last.update') and
+            str(datasets[key].get('toc_records')) == str(current_toc[key].get('n.records'))
+            for key in archived_current_ids
+        )
+        archived_other_ids = count - verified_in_current_toc
+    else:
+        # Backward-compatible metadata-only use in synthetic offline tests.
+        # Production always supplies the independently SHA-verified original TOC.
+        if count > toc['entries']:
+            raise ValueError('Official TOC IDs required to reconcile retained historical source files')
+        verified_in_current_toc = count
+        current_vintage = None
+        archived_other_ids = None
+
     stamp = iso_time(state['last_run_utc'])
     if stamp > now + timedelta(minutes=10):
         raise ValueError('Future ILOSTAT checkpoint timestamp')
     age = (now - stamp).total_seconds() / 3600
     return {
         'status': 'VERIFIED_RAW_SOURCE_FILES_NOT_HARMONIZED',
-        'verified_compressed_files': count,
+        'verified_compressed_files': count,  # All historical retained source IDs, not all current TOC.
         'official_bulk_files': toc['entries'],
-        'remaining_bulk_files': toc['entries'] - count,
+        'official_table_ids_archived_any_vintage': verified_in_current_toc,
+        'official_table_ids_current_vintage': current_vintage,
+        'historical_archived_ids_outside_current_toc': archived_other_ids,
+        'current_toc_membership_sha_verified': current_toc is not None,
+        'remaining_bulk_files': toc['entries'] - verified_in_current_toc,
+        'current_vintage_attention_required': (
+            toc['entries'] - current_vintage if current_vintage is not None else None),
         'validated_raw_csv_rows_NOT_all_numeric': total_source_rows,
         'verified_compressed_bytes': total_bytes,
         'checkpoint_age_hours': round(age, 2),
@@ -712,7 +771,8 @@ def main(argv=None):
     a.out.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
     state = load_json(d / 'ilostat_state.json')
-    ilostat = verify_ilostat(state, now)
+    original_toc = load_official_ilostat_toc(state, d / 'ilostat_toc.csv')
+    ilostat = verify_ilostat(state, now, original_toc)
     wid = verify_wid(d / 'wid.sqlite', load_json(d / 'wid_sha.json'), load_json(d / 'wid_validation.json'))
     joined = verify_joined(d / 'joined_numeric.csv', load_json(d / 'joined_sha.json'), load_json(d / 'joined_report.json'))
     canonical = verify_canonical_source_marker(d / 'canonical_archive.sha256')
