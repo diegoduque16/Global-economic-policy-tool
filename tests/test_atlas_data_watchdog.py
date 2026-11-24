@@ -372,7 +372,7 @@ class WatchdogTests(unittest.TestCase):
                     '.github/workflows/atlas-data-pipeline-watchdog.yml').read_text()
         self.assertIn('Restore exact official ILOSTAT TOC', workflow)
         self.assertIn('load_official_ilostat_toc(state,output)', workflow)
-        self.assertIn("input'/'ilostat_toc.csv'", workflow.replace('root/','input\'/' ))
+        self.assertIn("output=root/'ilostat_toc.csv'", workflow)
         self.assertIn("if: ${{ github.event_name != 'workflow_dispatch' || inputs.audit_wid_revisions != true }}", workflow)
 
     def test_checkpoint_counts_nonadditive_raw_rows(self):
