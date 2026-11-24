@@ -1,6 +1,11 @@
 name: Atlas - Automatic Economic Data Coverage, Resumption and Backup Watchdog
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/atlas-data-pipeline-watchdog.yml'
+      - 'scripts/atlas_data_watchdog.py'
+      - 'tests/test_atlas_data_watchdog.py'
   # One full existing-watchdog pass immediately after a backup gate change
   # lands on main; normal daily schedule and manual options remain unchanged.
   push:
@@ -32,7 +37,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  offline-test-only:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test metadata-only ILOSTAT TOC reconciliation and existing watchdog gates
+        run: |
+          python -m unittest discover -s tests -p 'test_atlas_data_watchdog.py' -v
+          python -m py_compile scripts/atlas_data_watchdog.py
   verify-and-backup:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
