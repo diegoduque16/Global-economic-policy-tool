@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 25061)
-Total output lines: 865
-
 {
   "schema_version": 1,
   "project": "World Economic Atlas",
@@ -512,7 +509,8 @@ Total output lines: 865
     },
     {
       "date": "2026-11-14",
-      "title": "Fix private-backup watchdog dir…61 tokens truncated…ckage path from the watchdog file location and adds a -I isolated subprocess regression; do not count private backup until rerun passes.",
+      "title": "Fix private-backup watchdog direct-script import instead of hiding failure",
+      "description": "Initial WDI permanent-backup watchdog correctly failed because direct execution from scripts/ could not import the sibling open_data.wdi_bulk validator. The fix resolves the package path from the watchdog file location and adds a -I isolated subprocess regression; do not count private backup until rerun passes.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43642665591"
     },
     {
