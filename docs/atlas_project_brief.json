@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 25061)
+Total output lines: 865
+
 {
   "schema_version": 1,
   "project": "World Economic Atlas",
@@ -509,8 +512,7 @@
     },
     {
       "date": "2026-11-14",
-      "title": "Fix private-backup watchdog direct-script import instead of hiding failure",
-      "description": "Initial WDI permanent-backup watchdog correctly failed because direct execution from scripts/ could not import the sibling open_data.wdi_bulk validator. The fix resolves the package path from the watchdog file location and adds a -I isolated subprocess regression; do not count private backup until rerun passes.",
+      "title": "Fix private-backup watchdog dir…61 tokens truncated…ckage path from the watchdog file location and adds a -I isolated subprocess regression; do not count private backup until rerun passes.",
       "evidence_url": "https://github.com/diegoduque16/Global-economic-policy-tool/actions/runs/43642665591"
     },
     {
@@ -840,7 +842,7 @@
   ],
   "next_actions": [
     "After watchdog fix PR #100 merges, inspect the first real main watchdog result and verify exact current official ILOSTAT TOC membership (archived, missing, older-vintage) and successful private report backup. Do not equate historical archive count with current provider TOC completeness.",
-    "Integrate the 139 original source observations from successful Eurostat enterprise AI-adoption run 45155822409 as a separately identified, SHA-bound source edition using the existing Atlas source-native ingestion path; verify original scope and units before any public release or econometric comparison.",
+    "Replay the SHA-pinned Eurostat enterprise AI adoption artifact from run 45155822409 into a separate private SQLite edition based on the latest certified Atlas snapshot. Source replay verified 139 numeric values across 35 geography codes for 2021, 2023, 2024 and 2025, including 19.95% for EU27_2020 in 2025 (PC_ENT, enterprises with at least 10 persons employed, Eurostat sector grouping C10-S951_X_K). Verify the production receipt and restored private archive SHA before claiming integration.",
     "Automatic latest-edition ILOSTAT integration was confirmed in production: latest SHA-backed database 1,523,090 original rows / 994 source IDs, 18 original ILOSTAT tables integrated (runs 44664361354 and 44664616687). Continue incrementally from private pointer, without manually pinning old parents; verify every added table remains searchable by exact original source, geography, time and disaggregations before backup certification.",
     "BLS JOLTS completion: 252,710 original source-verified monthly numeric observations and 830 official BLS series added to same private SQLite attachment, production run 44171117929; new 883,118-record immutable archive restored with SHA256 ee5327c956bd8e17894f2870ae31a174a8cb088c60997555c344b5c9ea022625. No re-collection needed absent revised source vintage.",
     "COMPLETED original-label private explorer verification: main production run 44577495812 restored immutable SHA-backed 1,036,234-row, 979-original-source, six-provider SQLite plus six verified original ILOSTAT code dictionaries; confirmed original sex label lookup, BLS monthly plotting and read-only/private-source safety. Only cl_classif1/cl_classif2 are absent from archived source dictionaries and remain unresolved. NEXT is new SHA-backed NUMERIC original table integration (particularly employment and GenAI exposure), not revisiting the now-passing label restoration.",
