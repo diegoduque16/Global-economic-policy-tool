@@ -1,0 +1,127 @@
+name: Archive Eurostat enterprise AI adoption in private Atlas SQLite
+
+on:
+  pull_request:
+    paths: &paths
+      - 'warehouse/eurostat_ai_native_extension.py'
+      - '.github/workflows/atlas-eurostat-ai-native.yml'
+  push:
+    branches: [main]
+    paths: *paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: atlas-eurostat-ai-native
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Retrieve exact archived Eurostat release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            'https://api.github.com/repos/diegoduque16/Global-economic-policy-tool/actions/artifacts/14807164474/zip' \
+            --output "$RUNNER_TEMP/eurostat-ai.zip"
+      - name: Replay source artifact into an offline SQLite fixture and verify the query
+        run: |
+          python - <<'PY'
+          import os
+          import sqlite3
+          from pathlib import Path
+          from warehouse.eurostat_ai_native_extension import integrate
+          from warehouse.native_materialize import schema
+
+          root = Path(os.environ["RUNNER_TEMP"])
+          fixture = root / "fixture.sqlite"
+          with sqlite3.connect(fixture) as db:
+              db.executescript(schema())
+          report = integrate(fixture, root / "eurostat-ai.zip", 0)
+          assert report["new_native_records"] == 139
+          PY
+      - name: Integrate into the latest certified Atlas snapshot and verify private backup
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          ONEDRIVE_TARGET: 'onedrive:Diego/economic research database'
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_B64"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          umask 077
+          export RCLONE_CONFIG="$RUNNER_TEMP/atlas-rclone.conf"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RCLONE_CONFIG"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import tarfile
+
+          from warehouse.eurostat_ai_native_extension import integrate
+          from warehouse.ilostat_private_chain import load_pointer, verify_parent_db
+          from warehouse.native_materialize import extract_safe, sha256
+
+          root = Path(os.environ["RUNNER_TEMP"])
+          remote = os.environ["ONEDRIVE_TARGET"] + "/snapshots"
+
+          def copy(source, target, *options):
+              subprocess.run(["rclone", "copyto", str(source), str(target),
+                              "--retries", "3", *options], check=True)
+
+          pointer_file = root / "atlas-parent.json"
+          copy(remote + "/atlas-ilostat-latest-v1.json", pointer_file)
+          pointer = load_pointer(pointer_file)
+          parent_archive = root / "atlas-parent.tar.gz"
+          copy(remote + "/" + pointer["edition_id"] + ".tar.gz", parent_archive)
+          if sha256(parent_archive) != pointer["archive_sha256"]:
+              raise ValueError("Private parent archive SHA-256 differs")
+          parent = extract_safe(parent_archive, root)
+          if parent.name != pointer["edition_id"]:
+              raise ValueError("Private parent archive edition differs")
+          db = parent / "native_source_extension.sqlite"
+          verify_parent_db(db, pointer)
+          artifact = root / "eurostat-ai.zip"
+          report = integrate(db, artifact, pointer["native_records"])
+          edition = "atlas-native-eurostat-ai-" + os.environ["GITHUB_RUN_ID"] + "-" + os.environ["GITHUB_RUN_ATTEMPT"]
+          report.update(edition_id=edition, parent_edition_id=parent.name,
+                        parent_archive_sha256=pointer["archive_sha256"], sqlite_sha256=sha256(db))
+          receipt = root / "eurostat-ai-receipt.json"
+          receipt.write_text(json.dumps(report, indent=2) + "\n")
+          archive = root / (edition + ".tar.gz")
+          with tarfile.open(archive, "w:gz") as output:
+              output.add(db, arcname=edition + "/native_source_extension.sqlite")
+              output.add(artifact, arcname=edition + "/eurostat-ai-original.zip")
+              output.add(receipt, arcname=edition + "/integration_report.json")
+          destination = remote + "/" + archive.name
+          copy(archive, destination, "--immutable")
+          restored = root / "atlas-eurostat-ai-restored.tar.gz"
+          copy(destination, restored)
+          archive_sha = sha256(archive)
+          if sha256(restored) != archive_sha:
+              raise ValueError("Restored private Eurostat AI archive SHA-256 differs")
+          report.update(archive_sha256=archive_sha, private_archive_restored=True)
+          receipt.write_text(json.dumps(report, indent=2) + "\n")
+          print(json.dumps(report, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        with:
+          name: atlas-eurostat-ai-private-integration-receipt
+          path: ${{ runner.temp }}/eurostat-ai-receipt.json
+          if-no-files-found: error
